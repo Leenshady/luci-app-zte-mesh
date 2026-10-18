@@ -1,4 +1,4 @@
-ARTIFACTS ?= ../../out/mesh-shim
+ARTIFACTS ?= out
 ARMCC ?= arm-linux-gnueabi-gcc
 HOSTCC ?= cc
 # Programs that run on the router (AArch64). Cross builds on non-ARM hosts pass ROUTERCC.
@@ -44,6 +44,14 @@ $(ARTIFACTS)/db-engine-probe: db-engine-probe.c controller-run.c controller-serv
 
 $(ARTIFACTS)/ns-run: ns-run.c controller-net.c
 	$(ROUTERCC) -O2 -std=c11 -static -Wall -Wextra -Werror $(NSRUN_FLAGS) ns-run.c controller-net.c -o $@
+
+# Static ARM32 client for the factory daemons' sendcmd debug channel (a lab tool, not part of the runtime).
+$(ARTIFACTS)/zte-debugcmd: zte-debugcmd.c
+	$(ARMCC) -O2 -std=gnu11 -Wall -Wextra -Werror -march=armv7-a -mfloat-abi=soft -static zte-debugcmd.c -o $@
+
+# The same launcher for tmpfs lab runs (dev-service-smoke.py and friends unpack the runtime to /tmp/zte-mesh-svc).
+$(ARTIFACTS)/ns-run-svctest: ns-run.c controller-net.c
+	$(ROUTERCC) -O2 -std=c11 -static -Wall -Wextra -Werror -DSERVICE_ROOT='"/tmp/zte-mesh-svc/root"' ns-run.c controller-net.c -o $@
 
 $(ARTIFACTS)/config-bridge-probe: config-bridge-probe.c mesh-bridge.c mesh-bridge.h
 	$(ROUTERCC) -O2 -std=c11 -static -Wall -Wextra -Werror config-bridge-probe.c mesh-bridge.c -o $@

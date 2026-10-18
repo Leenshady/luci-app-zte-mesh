@@ -2,9 +2,8 @@
 #
 # The ZTE multiapd Controller runtime for the SR1010. The vendor binaries are
 # NOT part of this repository: build the runtime tarball with
-#   sh port/mesh-shim/build.sh
-#   python3 port/mesh-shim/openwrt/make-runtime.py --ns-run out/mesh-shim/ns-run
-# (an ns-run built WITHOUT -DSERVICE_ROOT, i.e. for /usr/lib/zte-mesh/root) and
+#   sh tools/build/runtime.sh install      (in the sr1010-mesh repository; writes
+#   out/zte-mesh-runtime.tar.gz with an ns-run for /usr/lib/zte-mesh/root) and
 # point ZTE_MESH_RUNTIME at it (default: $(TOPDIR)/dl/zte-mesh-runtime.tar.gz).
 include $(TOPDIR)/rules.mk
 

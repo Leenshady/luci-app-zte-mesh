@@ -19,10 +19,10 @@ from vendor_elf import ELF, audit
 
 
 def main():
-    repo = Path(__file__).resolve().parents[2]
+    repo = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="root@192.168.5.1")
-    parser.add_argument("--output", type=Path, default=repo / "out/mesh-shim")
+    parser.add_argument("--output", type=Path, default=repo / "out")
     args = parser.parse_args()
     if args.host.startswith("-") or not re.fullmatch(r"[a-zA-Z0-9_.@:-]+", args.host):
         parser.error("unsupported SSH destination")

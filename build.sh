@@ -2,8 +2,7 @@
 # Build/audit/probe only. Device deployment is a separate explicit command.
 set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-OUT=${OUT:-"$REPO/out/mesh-shim"}
+OUT=${OUT:-"$SCRIPT_DIR/out"}
 IMAGE=${IMAGE:-sr1010-mesh-shim-builder}
 export PYTHONDONTWRITEBYTECODE=1
 

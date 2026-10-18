@@ -10,7 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import profile_schema as profiles
 
-ARTIFACTS = Path(sys.argv.pop(1)) if len(sys.argv) > 1 else Path(__file__).resolve().parents[3] / "out/mesh-shim"
+ARTIFACTS = Path(sys.argv.pop(1)) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / "out"
 SOURCE = Path(profiles.__file__).parent
 CSPD = ARTIFACTS / "analysis/cspd"
 LIBDB = ARTIFACTS / "runtime/lib/libdb.so"

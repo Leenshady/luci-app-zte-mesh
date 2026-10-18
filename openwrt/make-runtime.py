@@ -20,9 +20,9 @@ EXECUTABLE = {"root/bin/zte-meshctl", "root/bin/db-engine-probe", "root/bin/mult
 
 
 def main():
-    repo = Path(__file__).resolve().parents[3]
+    repo = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=repo / "out/mesh-shim")
+    parser.add_argument("--output", type=Path, default=repo / "out")
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--ns-run", type=Path, help="launcher binary (default: <output>/ns-run)")
     parser.add_argument("--extra", type=Path, nargs="*", default=[], help="extra files stored at the archive top level")

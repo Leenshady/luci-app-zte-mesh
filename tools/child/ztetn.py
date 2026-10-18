@@ -3,7 +3,7 @@
 
 usage: ztetn.py [--host H --port P] 'cmd1' 'cmd2' ...   (or commands on stdin, one per line)
 Credentials come from the environment: ZTE_TN_USER (default root) and ZTE_TN_PASS (required, no default).
-The default endpoint 192.168.174.5:2323 is a port forward (on the Mac mini) to the child's telnet.
+The default endpoint is the Z506 child's telnet on the router LAN (192.168.5.216:23), reachable from the mac.
 """
 import argparse
 import os
@@ -94,8 +94,8 @@ class Tn:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="192.168.174.5")
-    ap.add_argument("--port", type=int, default=2323)
+    ap.add_argument("--host", default="192.168.5.216")
+    ap.add_argument("--port", type=int, default=23)
     ap.add_argument("--timeout", type=int, default=30)
     ap.add_argument("commands", nargs="*")
     args = ap.parse_args()

@@ -20,12 +20,12 @@ ROOT = "/tmp/zte-mesh-svc"
 
 
 def main():
-    repo = Path(__file__).resolve().parents[2]
+    repo = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="root@192.168.174.5")
-    parser.add_argument("--port", type=int, default=2022)
+    parser.add_argument("--host", default="root@192.168.5.1")
+    parser.add_argument("--port", type=int, default=22)
     parser.add_argument("--bridge", default="br-lan")
-    parser.add_argument("--archive", type=Path, default=repo / "out/mesh-shim/zte-mesh-svctest.tar.gz")
+    parser.add_argument("--archive", type=Path, default=repo / "out/zte-mesh-svctest.tar.gz")
     parser.add_argument("--seconds", type=int, default=25)
     parser.add_argument("--no-attach", action="store_true")
     parser.add_argument("--extra", default="", help="extra service config lines (';'-separated) for the whole run, e.g. mesh.role=master")

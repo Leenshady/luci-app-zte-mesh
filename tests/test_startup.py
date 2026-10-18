@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1]
-ARTIFACTS = Path(sys.argv.pop(1)) if len(sys.argv) > 1 else SOURCE.parents[1] / "out/mesh-shim"
+ARTIFACTS = Path(sys.argv.pop(1)) if len(sys.argv) > 1 else SOURCE / "out"
 sys.path.insert(0, str(SOURCE))
 spec = importlib.util.spec_from_file_location("startup_schema", SOURCE / "startup-schema.py")
 startup = importlib.util.module_from_spec(spec)

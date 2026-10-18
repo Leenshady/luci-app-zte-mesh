@@ -20,7 +20,7 @@ def main():
     ap.add_argument("--host", default="root@192.168.5.1")
     ap.add_argument("--port", type=int, default=22)
     ap.add_argument("--bridge", default="br-lan")
-    ap.add_argument("--archive", type=Path, default=Path("/Volumes/code/zx279133/out/mesh-shim/zte-mesh-svctest.tar.gz"))
+    ap.add_argument("--archive", type=Path, default=Path("/Volumes/code/sr1010-mesh/out/zte-mesh-svctest.tar.gz"))
     ap.add_argument("--config", type=Path, required=True, help="service config (key=value, 0600, contains the Wi-Fi key)")
     ap.add_argument("--expect-macs", required=True, help="comma list of every station allowed on the LAN while the controller runs")
     ap.add_argument("--db-profile", type=Path, help="optional /run/zte-mesh/db-profile (see mkprofile.py): vendor baseline values for the policy tables")

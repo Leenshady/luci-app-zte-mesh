@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import hashlib
 import json
 import re
@@ -212,10 +213,12 @@ def prepare_client_lib(rootfs: Path, output: Path, unsquashfs: str) -> Path:
 
 
 def main():
-    repo = Path(__file__).resolve().parents[2]
+    repo = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rootfs", type=Path, default=repo / "vendor-reference/2b5/rootfs.jffs2")
-    parser.add_argument("--output", type=Path, default=repo / "out/mesh-shim")
+    # The factory image stays in the kernel project; SR1010_VENDOR_ROOTFS overrides the location.
+    rootfs = os.environ.get("SR1010_VENDOR_ROOTFS", str(repo.parent / "zx279133/vendor-reference/2b5/rootfs.jffs2"))
+    parser.add_argument("--rootfs", type=Path, default=Path(rootfs))
+    parser.add_argument("--output", type=Path, default=repo / "out")
     parser.add_argument("--unsquashfs", default=shutil.which("unsquashfs"))
     parser.add_argument("--analysis-cspd", action="store_true", help="extract pinned static evidence outside runtime")
     args = parser.parse_args()
