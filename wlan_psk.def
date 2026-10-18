@@ -1,0 +1,8 @@
+/* WLANPSK: hash-pinned metadata, independent PUBLIC zero defaults.
+ * NO source default/credential/serial value was read or copied.
+ * Source SHA256: 8b8477e2598660653c27d796fcaaa5484f879cd263fb6caa5e0a982b1cee5ac1
+ */
+PROFILE_FIELD("ViewName", 2, 1, 1, "")
+PROFILE_FIELD("WLANViewName", 2, 0, 1, "")
+PROFILE_FIELD("PreSharedKey", 3, 0, 1, "")
+PROFILE_FIELD("KeyPassphrase", 3, 0, 1, "")

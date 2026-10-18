@@ -1,0 +1,12 @@
+/* WLANSSID: hash-pinned metadata, independent PUBLIC zero defaults.
+ * NO source default/credential/serial value was read or copied.
+ * Source SHA256: 8b8477e2598660653c27d796fcaaa5484f879cd263fb6caa5e0a982b1cee5ac1
+ */
+PROFILE_FIELD("ViewName", 2, 1, 0, "")
+PROFILE_FIELD("LANDViewName", 2, 0, 0, "")
+PROFILE_FIELD("Enable", 15, 0, 0, "0")
+PROFILE_FIELD("Status", 14, 0, 0, "0")
+PROFILE_FIELD("Alias", 3, 0, 0, "")
+PROFILE_FIELD("Name", 3, 0, 0, "")
+PROFILE_FIELD("LastChange", 13, 0, 0, "0")
+PROFILE_FIELD("LowerLayers", 5, 0, 0, "")

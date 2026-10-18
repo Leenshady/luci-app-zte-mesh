@@ -1,0 +1,10 @@
+# build products (vendor binaries, analysis dumps, runtime tarballs, packages)
+/out/
+__pycache__/
+*.pyc
+*.i64
+*.apk
+*.tar.gz
+# private lab evidence: pcaps, raw DB dumps, logs that may carry WSC/key material
+/evidence/
+*.pcap

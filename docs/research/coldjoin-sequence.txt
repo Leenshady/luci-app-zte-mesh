@@ -1,0 +1,266 @@
+  1    0.000 M>A  APMetricsQuery         mid=e388 frag=0 fl=80 len=53   APMetricQuery
+  2    0.000 M>A  AssocSTALinkQuery      mid=e389 frag=0 fl=80 len=34   STAMACType
+  3    0.000 M>A  AssocSTALinkQuery      mid=e38a frag=0 fl=80 len=34   STAMACType
+  4    1.020 A>M  APMetricsResp          mid=e388 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+  5    1.020 A>M  AssocSTALinkResp       mid=e389 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+  6    1.020 A>M  AssocSTALinkResp       mid=e38a frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+  7    5.000 M>A  APMetricsQuery         mid=e38b frag=0 fl=80 len=53   APMetricQuery
+  8    5.000 M>A  AssocSTALinkQuery      mid=e38c frag=0 fl=80 len=34   STAMACType
+  9    5.000 M>A  AssocSTALinkQuery      mid=e38d frag=0 fl=80 len=34   STAMACType
+ 10    5.009 A>M  APMetricsResp          mid=e38b frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 11    5.010 A>M  AssocSTALinkResp       mid=e38c frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 12    5.010 A>M  AssocSTALinkResp       mid=e38d frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 13   10.000 M>A  APMetricsQuery         mid=e38e frag=0 fl=80 len=53   APMetricQuery
+ 14   10.000 M>A  AssocSTALinkQuery      mid=e38f frag=0 fl=80 len=34   STAMACType
+ 15   10.000 M>A  AssocSTALinkQuery      mid=e390 frag=0 fl=80 len=34   STAMACType
+ 16   10.810 A>M  APMetricsResp          mid=e38e frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 17   10.810 A>M  AssocSTALinkResp       mid=e38f frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 18   10.810 A>M  AssocSTALinkResp       mid=e390 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 19   15.000 M>A  APMetricsQuery         mid=e391 frag=0 fl=80 len=53   APMetricQuery
+ 20   15.000 M>A  AssocSTALinkQuery      mid=e392 frag=0 fl=80 len=34   STAMACType
+ 21   15.000 M>A  AssocSTALinkQuery      mid=e393 frag=0 fl=80 len=34   STAMACType
+ 22   16.020 A>M  APMetricsResp          mid=e391 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 23   16.020 A>M  AssocSTALinkResp       mid=e392 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 24   16.020 A>M  AssocSTALinkResp       mid=e393 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 25   17.668 A>M  LinkMetricQuery        mid=7222 frag=0 fl=80 len=64   LinkMetricQ
+ 26   17.669 M>A  LinkMetricResponse     mid=7222 frag=0 fl=80 len=455  TxLinkMetric RxLinkMetric Vendor[0019c6:0200]
+ 27   20.000 M>A  APMetricsQuery         mid=e394 frag=0 fl=80 len=53   APMetricQuery
+ 28   20.000 M>A  AssocSTALinkQuery      mid=e395 frag=0 fl=80 len=34   STAMACType
+ 29   20.000 M>A  AssocSTALinkQuery      mid=e396 frag=0 fl=80 len=34   STAMACType
+ 30   20.006 A>M  APMetricsResp          mid=e394 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 31   20.006 A>M  AssocSTALinkResp       mid=e395 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 32   20.006 A>M  AssocSTALinkResp       mid=e396 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 33   22.990 M>A  LinkMetricQuery        mid=e397 frag=0 fl=80 len=30   LinkMetricQ
+ 34   22.993 A>M  LinkMetricResponse     mid=e397 frag=0 fl=80 len=107  TxLinkMetric RxLinkMetric
+ 35   25.000 M>A  APMetricsQuery         mid=e398 frag=0 fl=80 len=53   APMetricQuery
+ 36   25.000 M>A  AssocSTALinkQuery      mid=e399 frag=0 fl=80 len=34   STAMACType
+ 37   25.000 M>A  AssocSTALinkQuery      mid=e39a frag=0 fl=80 len=34   STAMACType
+ 38   25.009 A>M  APMetricsResp          mid=e398 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 39   25.010 A>M  AssocSTALinkResp       mid=e399 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 40   25.010 A>M  AssocSTALinkResp       mid=e39a frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 41   30.000 M>A  APMetricsQuery         mid=e39b frag=0 fl=80 len=53   APMetricQuery
+ 42   30.000 M>A  AssocSTALinkQuery      mid=e39c frag=0 fl=80 len=34   STAMACType
+ 43   30.000 M>A  AssocSTALinkQuery      mid=e39d frag=0 fl=80 len=34   STAMACType
+ 44   31.020 A>M  APMetricsResp          mid=e39b frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 45   31.020 A>M  AssocSTALinkResp       mid=e39c frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 46   31.020 A>M  AssocSTALinkResp       mid=e39d frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 47   35.000 M>A  APMetricsQuery         mid=e39e frag=0 fl=80 len=53   APMetricQuery
+ 48   35.000 M>A  AssocSTALinkQuery      mid=e39f frag=0 fl=80 len=34   STAMACType
+ 49   35.001 M>A  AssocSTALinkQuery      mid=e3a0 frag=0 fl=80 len=34   STAMACType
+ 50   35.009 A>M  APMetricsResp          mid=e39e frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 51   35.010 A>M  AssocSTALinkResp       mid=e39f frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 52   35.011 A>M  AssocSTALinkResp       mid=e3a0 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 53   40.000 M>A  APMetricsQuery         mid=e3a1 frag=0 fl=80 len=53   APMetricQuery
+ 54   40.000 M>A  AssocSTALinkQuery      mid=e3a2 frag=0 fl=80 len=34   STAMACType
+ 55   40.000 M>A  AssocSTALinkQuery      mid=e3a3 frag=0 fl=80 len=34   STAMACType
+ 56   40.810 A>M  APMetricsResp          mid=e3a1 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 57   40.810 A>M  AssocSTALinkResp       mid=e3a2 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 58   40.810 A>M  AssocSTALinkResp       mid=e3a3 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 59   45.000 M>A  APMetricsQuery         mid=e3a4 frag=0 fl=80 len=53   APMetricQuery
+ 60   45.000 M>A  AssocSTALinkQuery      mid=e3a5 frag=0 fl=80 len=34   STAMACType
+ 61   45.000 M>A  AssocSTALinkQuery      mid=e3a6 frag=0 fl=80 len=34   STAMACType
+ 62   46.020 A>M  APMetricsResp          mid=e3a4 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 63   46.020 A>M  AssocSTALinkResp       mid=e3a5 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 64   46.020 A>M  AssocSTALinkResp       mid=e3a6 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 65   47.658 A>M* TopoDiscovery          mid=7228 frag=0 fl=80 len=224  ALMAC MAC Vendor[0019c6:0200]
+ 66   47.678 A>M  LinkMetricQuery        mid=7229 frag=0 fl=80 len=64   LinkMetricQ
+ 67   47.679 M>A  LinkMetricResponse     mid=7229 frag=0 fl=80 len=455  TxLinkMetric RxLinkMetric Vendor[0019c6:0200]
+ 68   49.930 M>A* TopoDiscovery          mid=e3a8 frag=0 fl=80 len=256  ALMAC MAC Vendor[0019c6:0200]
+ 69   50.000 M>A  APMetricsQuery         mid=e3a9 frag=0 fl=80 len=53   APMetricQuery
+ 70   50.000 M>A  AssocSTALinkQuery      mid=e3aa frag=0 fl=80 len=34   STAMACType
+ 71   50.000 M>A  AssocSTALinkQuery      mid=e3ab frag=0 fl=80 len=34   STAMACType
+ 72   50.006 A>M  APMetricsResp          mid=e3a9 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 73   50.006 A>M  AssocSTALinkResp       mid=e3aa frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 74   50.006 A>M  AssocSTALinkResp       mid=e3ab frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 75   52.970 M>A  LinkMetricQuery        mid=e3ac frag=0 fl=80 len=30   LinkMetricQ
+ 76   52.973 A>M  LinkMetricResponse     mid=e3ac frag=0 fl=80 len=107  TxLinkMetric RxLinkMetric
+ 77   55.000 M>A  APMetricsQuery         mid=e3ad frag=0 fl=80 len=53   APMetricQuery
+ 78   55.000 M>A  AssocSTALinkQuery      mid=e3ae frag=0 fl=80 len=34   STAMACType
+ 79   55.000 M>A  AssocSTALinkQuery      mid=e3af frag=0 fl=80 len=34   STAMACType
+ 80   55.009 A>M  APMetricsResp          mid=e3ad frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 81   55.010 A>M  AssocSTALinkResp       mid=e3ae frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 82   55.010 A>M  AssocSTALinkResp       mid=e3af frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 83   60.000 M>A  APMetricsQuery         mid=e3b0 frag=0 fl=80 len=53   APMetricQuery
+ 84   60.000 M>A  AssocSTALinkQuery      mid=e3b1 frag=0 fl=80 len=34   STAMACType
+ 85   60.000 M>A  AssocSTALinkQuery      mid=e3b2 frag=0 fl=80 len=34   STAMACType
+ 86   61.020 A>M  APMetricsResp          mid=e3b0 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 87   61.020 A>M  AssocSTALinkResp       mid=e3b1 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 88   61.020 A>M  AssocSTALinkResp       mid=e3b2 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 89   64.995 M>A  APMetricsQuery         mid=e3b3 frag=0 fl=80 len=53   APMetricQuery
+ 90   64.995 M>A  AssocSTALinkQuery      mid=e3b4 frag=0 fl=80 len=34   STAMACType
+ 91   64.995 M>A  AssocSTALinkQuery      mid=e3b5 frag=0 fl=80 len=34   STAMACType
+ 92   65.004 A>M  APMetricsResp          mid=e3b3 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 93   65.005 A>M  AssocSTALinkResp       mid=e3b4 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+ 94   65.005 A>M  AssocSTALinkResp       mid=e3b5 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+ 95   70.000 M>A  APMetricsQuery         mid=e3b6 frag=0 fl=80 len=53   APMetricQuery
+ 96   70.000 M>A  AssocSTALinkQuery      mid=e3b7 frag=0 fl=80 len=34   STAMACType
+ 97   70.000 M>A  AssocSTALinkQuery      mid=e3b8 frag=0 fl=80 len=34   STAMACType
+ 98   70.810 A>M  APMetricsResp          mid=e3b6 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+ 99   70.810 A>M  AssocSTALinkResp       mid=e3b7 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+100   70.810 A>M  AssocSTALinkResp       mid=e3b8 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+101   75.000 M>A  APMetricsQuery         mid=e3b9 frag=0 fl=80 len=53   APMetricQuery
+102   75.000 M>A  AssocSTALinkQuery      mid=e3ba frag=0 fl=80 len=34   STAMACType
+103   75.000 M>A  AssocSTALinkQuery      mid=e3bb frag=0 fl=80 len=34   STAMACType
+104   76.020 A>M  APMetricsResp          mid=e3b9 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+105   76.020 A>M  AssocSTALinkResp       mid=e3ba frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+106   76.020 A>M  AssocSTALinkResp       mid=e3bb frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+107   77.698 A>M  LinkMetricQuery        mid=7231 frag=0 fl=80 len=64   LinkMetricQ
+108   77.700 M>A  LinkMetricResponse     mid=7231 frag=0 fl=80 len=455  TxLinkMetric RxLinkMetric Vendor[0019c6:0200]
+109   80.000 M>A  APMetricsQuery         mid=e3bc frag=0 fl=80 len=53   APMetricQuery
+110   80.000 M>A  AssocSTALinkQuery      mid=e3bd frag=0 fl=80 len=34   STAMACType
+111   80.000 M>A  AssocSTALinkQuery      mid=e3be frag=0 fl=80 len=34   STAMACType
+112   80.006 A>M  APMetricsResp          mid=e3bc frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+113   80.006 A>M  AssocSTALinkResp       mid=e3bd frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+114   80.007 A>M  AssocSTALinkResp       mid=e3be frag=0 fl=80 len=78   AssocSTALink Vendor[000012:5687]
+115   91.957 M>A* TopoDiscovery          mid=e3c0 frag=0 fl=80 len=256  ALMAC MAC Vendor[0019c6:0200]
+116   91.959 A>M* TopoDiscovery          mid=7238 frag=0 fl=80 len=224  ALMAC MAC Vendor[0019c6:0200]
+117   91.959 A>M  TopoQuery              mid=7239 frag=0 fl=80 len=64   
+118   91.959 A>M  HigherLayerQuery       mid=723a frag=0 fl=80 len=64   
+119   91.959 A>M  LinkMetricQuery        mid=723b frag=0 fl=80 len=64   LinkMetricQ
+120   91.991 M>A* TopoDiscovery          mid=e3c1 frag=0 fl=80 len=256  ALMAC MAC Vendor[0019c6:0200]
+121   91.991 M>A  TopoQuery              mid=e3c2 frag=0 fl=80 len=29   MultiAPProfile
+122   91.991 M>A  HigherLayerQuery       mid=e3c3 frag=0 fl=80 len=25   
+123   91.991 M>A  LinkMetricQuery        mid=e3c4 frag=0 fl=80 len=30   LinkMetricQ
+124   91.991 M>A  TopoResponse           mid=7239 frag=0 fl=80 len=337  DevInfo Non1905Nbr 1905Nbr SupportedSvc APOperBSS MultiAPProfile Vendor[0019c6:0200] 0xe0
+125   91.999 M>A  HigherLayerResponse    mid=723a frag=0 fl=80 len=562  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4 IPv6
+126   91.999 M>A  LinkMetricResponse     mid=723b frag=0 fl=80 len=455  TxLinkMetric RxLinkMetric Vendor[0019c6:0200]
+127   92.003 A>M  TopoResponse           mid=e3c2 frag=0 fl=80 len=374  DevInfo 1905Nbr SupportedSvc APOperBSS Vendor[0019c6:0200]
+128   92.005 A>M  HigherLayerResponse    mid=e3c3 frag=0 fl=80 len=512  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4
+129   92.008 A>M  LinkMetricResponse     mid=e3c4 frag=0 fl=80 len=107  TxLinkMetric RxLinkMetric
+130   92.017 M>A  VendorSpecific         mid=e3c5 frag=0 fl=80 len=84   Vendor[0019c6:0200]
+131   92.030 M>A  PolicyConfigReq        mid=e3c6 frag=0 fl=80 len=62   Vendor[0019c6:0200]
+132   92.032 A>M  Ack                    mid=e3c6 frag=0 fl=80 len=64   
+133   92.045 M>A  APCapQuery             mid=e3c7 frag=0 fl=80 len=25   
+134   92.045 M>A  ChanPrefQuery          mid=e3c8 frag=0 fl=80 len=25   
+135   92.046 A>M  APCapReport            mid=e3c7 frag=0 fl=80 len=107  APCapability APRadioCaps APRadioCaps APHTCaps APHTCaps APVHTCaps
+136   92.047 A>M  OperChanReport         mid=723c frag=0 fl=80 len=64   OperChanReport OperChanReport
+137   92.048 A>M  ChanPrefReport         mid=e3c8 frag=0 fl=80 len=256  ChanPref ChanPref RadioOpRestr RadioOpRestr
+138   92.050 M>A  Ack                    mid=723c frag=0 fl=80 len=25   
+139   92.059 M>A  Ack                    mid=e3c8 frag=0 fl=80 len=25   
+140   92.060 M>A  PolicyConfigReq        mid=e3c9 frag=0 fl=80 len=92   MetricRptPolicy Vendor[0019c6:0200]
+141   92.061 A>M  Ack                    mid=e3c9 frag=0 fl=80 len=64   
+142   92.598 A>M* APAutoconfSearch       mid=723d frag=0 fl=c0 len=218  ALMAC SearchedRole AutoconfBand SupportedSvc SearchedSvc Vendor[0019c6:0200]
+143   92.599 A>M* APAutoconfSearch       mid=723e frag=0 fl=c0 len=218  ALMAC SearchedRole AutoconfBand SupportedSvc SearchedSvc Vendor[0019c6:0200]
+144   92.599 A>M* TopoNotification       mid=723f frag=0 fl=c0 len=215  ALMAC Vendor[0019c6:0200]
+145   92.599 A>M  TopoNotification       mid=723f frag=0 fl=80 len=215  ALMAC Vendor[0019c6:0200]
+146   92.601 M>A  APAutoconfResponse     mid=723d frag=0 fl=80 len=230  SupportedRole SupportedBand SupportedSvc Vendor[0019c6:0200] MultiAPProfile 0xdd
+147   92.601 M>A  APAutoconfResponse     mid=723e frag=0 fl=80 len=230  SupportedRole SupportedBand SupportedSvc Vendor[0019c6:0200] MultiAPProfile 0xdd
+148   92.602 M>A  TopoQuery              mid=e3ca frag=0 fl=80 len=29   MultiAPProfile
+149   92.602 M>A  HigherLayerQuery       mid=e3cb frag=0 fl=80 len=25   
+150   92.620 A>M  TopoResponse           mid=e3ca frag=0 fl=80 len=374  DevInfo 1905Nbr SupportedSvc APOperBSS Vendor[0019c6:0200]
+151   92.622 A>M  HigherLayerResponse    mid=e3cb frag=0 fl=80 len=512  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4
+152   92.634 M>A  VendorSpecific         mid=e3cd frag=0 fl=80 len=84   Vendor[0019c6:0200]
+153   92.705 A>M  APAutoconfWSC          mid=7240 frag=0 fl=80 len=578  WSC APRadioCaps
+154   92.797 A>M  APAutoconfWSC          mid=7241 frag=0 fl=80 len=578  WSC APRadioCaps
+155   92.960 M>A* TopoNotification       mid=e3ce frag=0 fl=c0 len=247  ALMAC Vendor[0019c6:0200]
+156   92.960 M>A  TopoNotification       mid=e3ce frag=0 fl=80 len=247  ALMAC Vendor[0019c6:0200]
+157   92.962 A>M  TopoQuery              mid=7242 frag=0 fl=80 len=64   
+158   92.962 A>M  HigherLayerQuery       mid=7243 frag=0 fl=80 len=64   
+159   92.963 M>A  TopoResponse           mid=7242 frag=0 fl=80 len=337  DevInfo Non1905Nbr 1905Nbr SupportedSvc APOperBSS MultiAPProfile Vendor[0019c6:0200] 0xe0
+160   92.980 M>A  HigherLayerResponse    mid=7243 frag=0 fl=80 len=562  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4 IPv6
+161   93.060 M>A  CombinedInfraMetrics   mid=e3d0 frag=0 fl=80 len=93   APMetrics APMetrics Vendor[020017:02d4] Vendor[030001:00]
+162   93.105 A>M  Ack                    mid=e3d0 frag=0 fl=80 len=64   
+163   93.392 A>M* TopoNotification       mid=7244 frag=0 fl=c0 len=231  ALMAC ClientAssocEvent Vendor[0019c6:0200]
+164   93.392 A>M  TopoNotification       mid=7244 frag=0 fl=80 len=231  ALMAC ClientAssocEvent Vendor[0019c6:0200]
+165   93.393 M>A  TopoQuery              mid=e3d1 frag=0 fl=80 len=29   MultiAPProfile
+166   93.393 M>A  HigherLayerQuery       mid=e3d2 frag=0 fl=80 len=25   
+167   93.394 M>A  ClientCapQuery         mid=e3d3 frag=0 fl=80 len=40   ClientInfo
+168   93.398 A>M  ClientCapReport        mid=e3d3 frag=0 fl=80 len=198  ClientInfo ClientCapReport
+169   93.415 A>M  TopoResponse           mid=e3d1 frag=0 fl=80 len=409  DevInfo Non1905Nbr 1905Nbr SupportedSvc APOperBSS AssocClients Vendor[0019c6:0200]
+170   93.416 A>M  HigherLayerResponse    mid=e3d2 frag=0 fl=80 len=512  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4
+171   93.598 A>M* TopoDiscovery          mid=7247 frag=0 fl=80 len=224  ALMAC MAC Vendor[0019c6:0200]
+172   93.908 M>A  APAutoconfWSC          mid=7240 frag=0 fl=00 len=1324 WSC WSC
+173   93.908 M>A  APAutoconfWSC          mid=7240 frag=1 fl=00 len=1383 WSC WSC APRadioId 0xe0
+174   93.908 M>A  APAutoconfWSC          mid=7240 frag=2 fl=80 len=209  Vendor[0019c6:0200]
+175   94.396 A>M  VendorSpecific         mid=7248 frag=0 fl=80 len=64   Vendor[0019c6:0100]
+176   94.930 M>A* TopoDiscovery          mid=e3d4 frag=0 fl=80 len=256  ALMAC MAC Vendor[0019c6:0200]
+177   95.000 M>A  APMetricsQuery         mid=e3d5 frag=0 fl=80 len=41   APMetricQuery
+178   95.000 M>A  AssocSTALinkQuery      mid=e3d6 frag=0 fl=80 len=34   STAMACType
+179   95.066 M>A  APAutoconfWSC          mid=7241 frag=0 fl=00 len=1324 WSC WSC
+180   95.066 M>A  APAutoconfWSC          mid=7241 frag=1 fl=00 len=1383 WSC WSC APRadioId 0xe0
+181   95.066 M>A  APAutoconfWSC          mid=7241 frag=2 fl=80 len=209  Vendor[0019c6:0200]
+182   95.068 M>A  VendorSpecific         mid=7248 frag=0 fl=80 len=52   Vendor[0019c6:0100]
+183   95.157 A>M* TopoNotification       mid=7249 frag=0 fl=c0 len=215  ALMAC Vendor[0019c6:0200]
+184   95.157 A>M  TopoNotification       mid=7249 frag=0 fl=80 len=215  ALMAC Vendor[0019c6:0200]
+185   95.158 M>A  TopoQuery              mid=e3d7 frag=0 fl=80 len=29   MultiAPProfile
+186   95.158 M>A  HigherLayerQuery       mid=e3d8 frag=0 fl=80 len=25   
+187   95.191 A>M  TopoResponse           mid=e3d7 frag=0 fl=80 len=428  DevInfo Non1905Nbr 1905Nbr SupportedSvc APOperBSS AssocClients Vendor[0019c6:0200]
+188   95.193 A>M  HigherLayerResponse    mid=e3d8 frag=0 fl=80 len=530  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4
+189   95.203 M>A  APCapQuery             mid=e3d9 frag=0 fl=80 len=25   
+190   95.203 M>A  ChanPrefQuery          mid=e3da frag=0 fl=80 len=25   
+191   95.205 A>M  APCapReport            mid=e3d9 frag=0 fl=80 len=107  APCapability APRadioCaps APRadioCaps APHTCaps APHTCaps APVHTCaps
+192   95.205 A>M  OperChanReport         mid=724a frag=0 fl=80 len=64   OperChanReport OperChanReport
+193   95.206 A>M  ChanPrefReport         mid=e3da frag=0 fl=80 len=256  ChanPref ChanPref RadioOpRestr RadioOpRestr
+194   95.208 M>A  Ack                    mid=724a frag=0 fl=80 len=25   
+195   95.210 M>A  Ack                    mid=e3da frag=0 fl=80 len=25   
+196   95.211 M>A  PolicyConfigReq        mid=e3db frag=0 fl=80 len=92   MetricRptPolicy Vendor[0019c6:0200]
+197   95.212 A>M  Ack                    mid=e3db frag=0 fl=80 len=64   
+198   95.560 A>M  APMetricsResp          mid=e3d5 frag=0 fl=80 len=169  APMetrics APMetrics AssocSTATraffic AssocSTALink Vendor[010008:d4b7] Vendor[010008:d4b7]
+199   95.561 A>M  AssocSTALinkResp       mid=e3d6 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+200   95.645 A>M* TopoDiscovery          mid=724d frag=0 fl=80 len=224  ALMAC MAC Vendor[0019c6:0200]
+201   95.828 A>M  VendorSpecific         mid=724f frag=0 fl=80 len=64   Vendor[0019c6:0101]
+202   95.829 M>A  VendorSpecific         mid=724f frag=0 fl=80 len=52   Vendor[0019c6:0101]
+203   95.836 A>M  VendorSpecific         mid=7250 frag=0 fl=80 len=64   Vendor[0019c6:0100]
+204   95.837 A>M  VendorSpecific         mid=7253 frag=0 fl=80 len=64   Vendor[0019c6:0101]
+205   95.837 M>A  VendorSpecific         mid=7250 frag=0 fl=80 len=68   Vendor[0019c6:0100]
+206   95.839 A>M  VendorSpecific         mid=7254 frag=0 fl=80 len=64   Vendor[0019c6:0100]
+207   95.839 M>A  VendorSpecific         mid=7253 frag=0 fl=80 len=68   Vendor[0019c6:0101]
+208   95.841 A>M  VendorSpecific         mid=7255 frag=0 fl=80 len=64   Vendor[0019c6:0101]
+209   95.841 M>A  VendorSpecific         mid=7254 frag=0 fl=80 len=68   Vendor[0019c6:0100]
+210   95.843 A>M  VendorSpecific         mid=7256 frag=0 fl=80 len=64   Vendor[0019c6:0100]
+211   95.843 M>A  VendorSpecific         mid=7255 frag=0 fl=80 len=68   Vendor[0019c6:0101]
+212   95.845 A>M  VendorSpecific         mid=7257 frag=0 fl=80 len=64   Vendor[0019c6:0101]
+213   95.846 M>A  VendorSpecific         mid=7256 frag=0 fl=80 len=68   Vendor[0019c6:0100]
+214   95.848 A>M  VendorSpecific         mid=7258 frag=0 fl=80 len=64   Vendor[0019c6:0100]
+215   95.849 M>A  VendorSpecific         mid=7257 frag=0 fl=80 len=68   Vendor[0019c6:0101]
+216   95.850 A>M  VendorSpecific         mid=7259 frag=0 fl=80 len=64   Vendor[0019c6:0101]
+217   95.851 M>A  VendorSpecific         mid=7258 frag=0 fl=80 len=68   Vendor[0019c6:0100]
+218   95.852 A>M  VendorSpecific         mid=725a frag=0 fl=80 len=64   Vendor[0019c6:0100]
+219   95.853 M>A  VendorSpecific         mid=7259 frag=0 fl=80 len=68   Vendor[0019c6:0101]
+220   95.855 A>M  VendorSpecific         mid=725b frag=0 fl=80 len=64   Vendor[0019c6:0101]
+221   95.856 M>A  VendorSpecific         mid=725a frag=0 fl=80 len=34   Vendor[0019c6:0100]
+222   95.859 M>A  VendorSpecific         mid=725b frag=0 fl=80 len=34   Vendor[0019c6:0101]
+223   96.211 M>A  CombinedInfraMetrics   mid=e3dd frag=0 fl=80 len=151  APMetrics APMetrics APMetrics Vendor[02002f:03d4] Vendor[030001:00]
+224   96.212 A>M  Ack                    mid=e3dd frag=0 fl=80 len=64   
+225   97.598 A>M* TopoDiscovery          mid=725e frag=0 fl=80 len=224  ALMAC MAC Vendor[0019c6:0200]
+226   97.930 M>A* TopoDiscovery          mid=e3de frag=0 fl=80 len=256  ALMAC MAC Vendor[0019c6:0200]
+227   99.399 A>M* TopoNotification       mid=7264 frag=0 fl=c0 len=215  ALMAC Vendor[0019c6:0200]
+228   99.399 A>M  TopoNotification       mid=7264 frag=0 fl=80 len=215  ALMAC Vendor[0019c6:0200]
+229   99.400 M>A  TopoQuery              mid=e3df frag=0 fl=80 len=29   MultiAPProfile
+230   99.400 M>A  HigherLayerQuery       mid=e3e0 frag=0 fl=80 len=25   
+231   99.421 A>M  TopoResponse           mid=e3df frag=0 fl=80 len=447  DevInfo Non1905Nbr 1905Nbr SupportedSvc APOperBSS AssocClients Vendor[0019c6:0200]
+232   99.423 A>M  HigherLayerResponse    mid=e3e0 frag=0 fl=80 len=550  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4
+233   99.438 M>A  APCapQuery             mid=e3e1 frag=0 fl=80 len=25   
+234   99.438 M>A  ChanPrefQuery          mid=e3e2 frag=0 fl=80 len=25   
+235   99.439 A>M  APCapReport            mid=e3e1 frag=0 fl=80 len=107  APCapability APRadioCaps APRadioCaps APHTCaps APHTCaps APVHTCaps
+236   99.440 A>M  OperChanReport         mid=7265 frag=0 fl=80 len=64   OperChanReport OperChanReport
+237   99.440 A>M  ChanPrefReport         mid=e3e2 frag=0 fl=80 len=256  ChanPref ChanPref RadioOpRestr RadioOpRestr
+238   99.442 M>A  VendorSpecific         mid=e3e3 frag=0 fl=80 len=84   Vendor[0019c6:0200]
+239   99.445 M>A  Ack                    mid=7265 frag=0 fl=80 len=25   
+240   99.447 M>A  Ack                    mid=e3e2 frag=0 fl=80 len=25   
+241   99.447 M>A  PolicyConfigReq        mid=e3e4 frag=0 fl=80 len=92   MetricRptPolicy Vendor[0019c6:0200]
+242   99.448 A>M  Ack                    mid=e3e4 frag=0 fl=80 len=64   
+243  100.000 M>A  APMetricsQuery         mid=e3e5 frag=0 fl=80 len=53   APMetricQuery
+244  100.000 M>A  AssocSTALinkQuery      mid=e3e6 frag=0 fl=80 len=34   STAMACType
+245  100.202 A>M  APMetricsResp          mid=e3e5 frag=0 fl=80 len=313  APMetrics APMetrics APMetrics APMetrics AssocSTATraffic AssocSTATraffic AssocSTALink AssocSTALink Vendor[010008:d4b7] Vendor[010008:d6b7] Vendor[010008:d4b7] Vendor[010008:d6b7]
+246  100.202 A>M  AssocSTALinkResp       mid=e3e6 frag=0 fl=80 len=78   AssocSTALink Vendor[000012:aa8b]
+247  100.408 A>M* TopoNotification       mid=7267 frag=0 fl=c0 len=231  ALMAC ClientAssocEvent Vendor[0019c6:0200]
+248  100.409 A>M  TopoNotification       mid=7267 frag=0 fl=80 len=231  ALMAC ClientAssocEvent Vendor[0019c6:0200]
+249  100.410 M>A  TopoQuery              mid=e3e7 frag=0 fl=80 len=29   MultiAPProfile
+250  100.410 M>A  HigherLayerQuery       mid=e3e8 frag=0 fl=80 len=25   
+251  100.411 M>A  ClientCapQuery         mid=e3e9 frag=0 fl=80 len=40   ClientInfo
+252  100.415 A>M  ClientCapReport        mid=e3e9 frag=0 fl=80 len=181  ClientInfo ClientCapReport
+253  100.447 A>M  TopoResponse           mid=e3e7 frag=0 fl=80 len=461  DevInfo Non1905Nbr 1905Nbr SupportedSvc APOperBSS AssocClients Vendor[0019c6:0200]
+254  100.449 A>M  HigherLayerResponse    mid=e3e8 frag=0 fl=80 len=550  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4
+255  100.498 M>A  CombinedInfraMetrics   mid=e3eb frag=0 fl=80 len=209  APMetrics APMetrics APMetrics APMetrics Vendor[020047:04d4] Vendor[030001:00]
+256  100.500 A>M  Ack                    mid=e3eb frag=0 fl=80 len=64   
+257  100.940 M>A* TopoDiscovery          mid=e3ec frag=0 fl=80 len=256  ALMAC MAC Vendor[0019c6:0200]
+258  101.959 A>M* TopoNotification       mid=7269 frag=0 fl=c0 len=215  ALMAC Vendor[0019c6:0200]
+259  101.959 A>M  TopoNotification       mid=7269 frag=0 fl=80 len=215  ALMAC Vendor[0019c6:0200]
+260  101.961 M>A  TopoQuery              mid=e3ed frag=0 fl=80 len=29   MultiAPProfile
+261  101.961 M>A  HigherLayerQuery       mid=e3ee frag=0 fl=80 len=25   
+262  101.998 A>M  TopoResponse           mid=e3ed frag=0 fl=80 len=461  DevInfo Non1905Nbr 1905Nbr SupportedSvc APOperBSS AssocClients Vendor[0019c6:0200]
+263  102.000 A>M  HigherLayerResponse    mid=e3ee frag=0 fl=80 len=550  ALMAC Profile1905 DevIdent Vendor[0019c6:0200] IPv4
+264  105.000 M>A  APMetricsQuery         mid=e3f0 frag=0 fl=80 len=53   APMetricQuery
+265  105.000 M>A  AssocSTALinkQuery      mid=e3f1 frag=0 fl=80 len=34   STAMACType
+266  105.001 M>A  AssocSTALinkQuery      mid=e3f2 frag=0 fl=80 len=34   STAMACType
