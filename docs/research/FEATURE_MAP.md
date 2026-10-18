@@ -1,5 +1,7 @@
 # 原厂 Mesh 功能映射：界面控件 → 数据库 → 线上报文 → 日志
 
+> **路径说明（2026-10-18 迁入 sr1010-mesh 仓库）：** 本文写于迁移之前，文中路径按当时的布局：mac 上的 `zx279133/port/mesh-shim/` 即现在的仓库根目录，`out/mesh-shim/` 即 `out/`；`session/…`、pcap、`db-baseline-s000.txt`、`vendor-log-debug.txt` 在 `evidence/`（只在 mac 上，不入库）；`tools/<脚本>` 即 `tools/capture/<脚本>`；`/tmp/buildNN.sh` 由 `tools/build/container-make.sh` 取代；`/tmp/shim-bak-*` 备份已删除（由 git 历史取代）；当时手工编的 `ns-run-al` 即现在 Makefile 的 `ns-run-svctest` 目标（运行包内容逐字节相同），当时说的旧 `ns-run-svctest` 文件已不存在。
+
 方法：在原厂 SR1010 的 Web 界面逐项改设置，`sendcmd 1 DB p` 每 7 秒整库快照差分，eth4 抓 1905 报文（Z506 子节点接在 eth4），
 `multiapd` 日志级别 8。每项记录：库里哪些表.字段变了、是否落盘（isSave）、线上发了什么、子节点读到了什么、有没有 cspd 事件。
 证据文件在同目录；时间为原厂 UTC 时钟，原厂日志时钟 = 原厂 UTC − 11:02:46。

@@ -1,6 +1,6 @@
 # B.3：真实 multiapd 的隔离 Controller 初始化
 
-> **状态更新（2026-10-12）：** 本文记录 B.3 里程碑（隔离 netns 里的控制器初始化）。之后：M2 加密/Authenticator 验证和子节点配网**已经完成并在真子路由上验证**（见 [REAL_CHILD.md](REAL_CHILD.md)）；`P1905ComCfg.Enable` 现在由服务配置 `mesh.v2` 决定，**默认 0（关）**；`MultiAPCfg.CurHop` 启动时写 2；`VersionMode` 的含义见 [FINDINGS.md](FINDINGS.md) 第 6 节。下文保留当时的实测记录，其中"M2 尚未完成""`controller_ready=false`"等描述是该里程碑当时的状态。
+> **状态更新（2026-10-12）：** 本文记录 B.3 里程碑（隔离 netns 里的控制器初始化）。之后：M2 加密/Authenticator 验证和子节点配网**已经完成并在真子路由上验证**（见 [REAL_CHILD.md](../REAL_CHILD.md)）；`P1905ComCfg.Enable` 现在由服务配置 `mesh.v2` 决定，**默认 0（关）**；`MultiAPCfg.CurHop` 启动时写 2；`VersionMode` 的含义见 [FINDINGS.md](../FINDINGS.md) 第 6 节。下文保留当时的实测记录，其中"M2 尚未完成""`controller_ready=false`"等描述是该里程碑当时的状态。
 
 ## 当前实测结果
 
@@ -75,12 +75,12 @@
 ## 重现
 
 ```sh
-sh port/mesh-shim/build.sh
-python3 port/mesh-shim/device-controller-smoke.py --host root@192.168.5.1
+sh build.sh
+python3 device-controller-smoke.py --host root@192.168.5.1
 ```
 
-结果：`out/mesh-shim/device-controller-report.json`；限量日志位于
-`out/mesh-shim/device-controller/probe.{stdout,stderr}`。
+结果：`out/device-controller-report.json`；限量日志位于
+`out/device-controller/probe.{stdout,stderr}`。
 默认加载探针仍停止在 DBShmCliInit（78）；需要上述显式启动命令。
 
 ## 仍然阻塞可用 Controller 的部分

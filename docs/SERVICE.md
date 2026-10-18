@@ -1,7 +1,8 @@
 # B.4：长期运行的 Controller 服务模式、节点清单与配置下发
 
-**仍是 `controller_ready=false`：没有任何真实中兴子节点接入过。** 以下全部在隔离
-lab（合成对端）和路由器私有 namespace 中验证。
+> **状态（2026-10-18）：** 服务模式已与真实子节点 Z506 联调（入网、配置下发、热更新、守护进程重启、节点动作、调度器，见各节和
+> [REAL_CHILD.md](REAL_CHILD.md)），并打成 OpenWrt 包在真实 procd/rpcd 上跑过（隔离网桥，见下文“未验证 / 已知缺口”）。
+> 紧接着的“已验证”“关键发现”两节是 B.4 当时（2026-10-11，隔离实验室和合成对端）的记录。
 
 ## 已验证
 
@@ -12,7 +13,7 @@ lab（合成对端）和路由器私有 namespace 中验证。
 - **服务模式** `ns-run … --controller-service`（`controller-service.c`）：不再有 40 秒限时，
   配置由宿主写入 `/run/zte-mesh/config`（0600，严格 key=value），状态每秒写成
   `/run/zte-mesh/state.json`（`/run/zte-mesh` 是沙箱里唯一可写的宿主路径）。
-  在路由器 `192.168.174.5` 上私有运行通过：状态/AL MAC 正常，宿主 IPC/接口快照不变。
+  在路由器上私有运行通过：状态/AL MAC 正常，宿主 IPC/接口快照不变。
 - **Wi-Fi profile 热更新**：配置文件变化后经带回滚的类型化桥写入 `WLANCfg`/`WLANPSK`，无需重启。
 - **配置下发链路（lab 实测）**：改 profile → 事件 `0xa93e` 发给 `multiapd.acd.acd` →
   原厂 `_handleWlanRenew` → 真实 daemon 发出 AP-autoconfiguration **Renew（CMDU 10）**，
@@ -160,22 +161,23 @@ lab（合成对端）和路由器私有 namespace 中验证。
 
 ## 未验证 / 已知缺口
 
-- 真实中兴子节点：入网、型号/软件版本字段、`Friendlyname`、掉线后 `Active`、
-  中兴私有路径（VersionMode 0/1）全部未测。
-- M2 带 Tear Down 位的原因（怀疑 lab M1 缺 Multi-AP Extension 属性）。
-- 1905 帧能否经 DSA/软件桥到达 CPU 与 veth：真实 LAN 上未测（`attach` 脚本和 init 已写，未安装）。
-- 多节点后的 Renew 是否需逐节点确认；Renew 之后节点重新 M1 的完整流程只测了合成对端。
-- `OpenWrt` 打包、init、LuCI 页面（`openwrt/`）：UCI 映射和 LuCI 表单已覆盖服务配置的全部键（见下一节），用 UCI 读取桩和私有实验室验证；**没有在真实 OpenWrt 上跑过 procd 和 LuCI**，依赖上述未验证项，不应视为功能完成。
+- **OpenWrt 包**（2026-10-18）：`zte-mesh`、`luci-app-zte-mesh`、`luci-i18n-zte-mesh-zh-cn` 已装在测试路由器上（默认 `enabled=0`）。
+  在真实 procd/rpcd 上验证过：空配置时 init 拒绝启动并说明原因；挂在一个空的隔离网桥上启动；`reload_config` 热更新漫游阈值，守护进程 PID 不变；
+  rpcd `status`/`restart`/`reboot_node`/`light_node`；配置不合法时重载会停掉服务；停止后进程、`zmesh0` 和运行文件都清干净。
+  **没做**：用已安装的包接真实子节点（真子节点测试一直用 tmpfs 运行包，程序相同）；LuCI 页面在浏览器里的效果。
+- 关主 SSID 的路径（`radioN.enabled=0`、主 SSID 隐藏的热更新、定时 `scope=all`）没在真子节点上试过（会断开用户的 Wi-Fi）。
+- 拓扑页：回程 RSSI、树状图、每个 AP 下的终端列表、软件版本字段没有做；终端数没有独立核对（GAP P2 #10）。
+- 访客限速：1905 里没有字段，主控推不下去（GAP P2 #12）。
+- 长时间稳定性、多个子节点、子节点开着自组网 V2 而控制器关的组合。
+- 原厂为什么不发 `BeaconMetricsQuery`（REPLAY_RESULTS 15.2）。
 
 ## 复现
 
 ```sh
-sh port/mesh-shim/build.sh                                    # Mac / ARM64 Docker
-python3 port/mesh-shim/device-controller-smoke.py --host root@192.168.5.1   # lab（含 CMDU 10）
-# 服务模式（tmpfs，不安装）：需 -DSERVICE_ROOT='"/tmp/zte-mesh-svc/root"' 的 ns-run
-python3 port/mesh-shim/openwrt/make-runtime.py --ns-run out/mesh-shim/ns-run-svctest \
-    --archive out/mesh-shim/zte-mesh-svctest.tar.gz --extra port/mesh-shim/openwrt/zte-mesh/files/attach
-python3 port/mesh-shim/dev-service-smoke.py --host root@192.168.5.1 --port 22 --no-attach   # 完全私有（含 mesh.v2 重启步骤）；接 LAN 需 --expect-macs；LAN 上的 ssh 是 22 端口
+sh build.sh                                        # mac：完整构建和主机测试
+python3 device-controller-smoke.py                 # 实验室：真实 multiapd 在私有命名空间里初始化（含 CMDU 10）
+sh tools/build/runtime.sh svctest                  # tmpfs 运行包（启动器根 /tmp/zte-mesh-svc/root）
+python3 dev-service-smoke.py --no-attach           # 完全私有地跑服务（含 mesh.v2 重启步骤）；接 LAN 需 --expect-macs
 ```
 
 x86_64 主机可用 `Dockerfile.cross`（`make ROUTERCC=aarch64-linux-gnu-gcc`）交叉构建。

@@ -1,5 +1,7 @@
 # shim 对照原厂 mesh 的缺口分析与工作清单
 
+> **路径说明（2026-10-18 迁入 sr1010-mesh 仓库）：** 本文写于迁移之前，文中路径按当时的布局：mac 上的 `zx279133/port/mesh-shim/` 即现在的仓库根目录，`out/mesh-shim/` 即 `out/`；`session/…`、pcap、`db-baseline-s000.txt`、`vendor-log-debug.txt` 在 `evidence/`（只在 mac 上，不入库）；`tools/<脚本>` 即 `tools/capture/<脚本>`；`/tmp/buildNN.sh` 由 `tools/build/container-make.sh` 取代；`/tmp/shim-bak-*` 备份已删除（由 git 历史取代）；当时手工编的 `ns-run-al` 即现在 Makefile 的 `ns-run-svctest` 目标（运行包内容逐字节相同），当时说的旧 `ns-run-svctest` 文件已不存在。
+
 证据来源：同目录 `FEATURE_MAP.md`（逐项实验）、`session/`（抓包、日志、库快照）、`db-baseline-s000.txt`（原厂最初整库）、
 mac 上 `port/mesh-shim`（shim 源码与文档，规范副本在 mac，不是本机 `~/code/build-mesh`）。时间 2026-10-16。
 

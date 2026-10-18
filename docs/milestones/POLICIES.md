@@ -1,6 +1,6 @@
 # B.2.2：Master / Domain 策略表与跨进程写入
 
-> **状态更新（2026-10-12）：** 本文记录 B.2.2 里程碑（Master/Domain 策略表）。之后服务配置 `roam.*`、`band_steer.*` 会写入 `MULTIAPDOMAIN1`/`MultiAPMaster`；**Z506 固件没有解析漫游阈值 TLV 的代码，漫游阈值不会在这台子路由上生效**（见 [FINDINGS.md](FINDINGS.md) 第 11 节、[REAL_CHILD.md](REAL_CHILD.md) 4.5 节）。
+> **状态更新（2026-10-12）：** 本文记录 B.2.2 里程碑（Master/Domain 策略表）。之后服务配置 `roam.*`、`band_steer.*` 会写入 `MULTIAPDOMAIN1`/`MultiAPMaster`；**Z506 固件没有解析漫游阈值 TLV 的代码，漫游阈值不会在这台子路由上生效**（见 [FINDINGS.md](../FINDINGS.md) 第 11 节、[REAL_CHILD.md](../REAL_CHILD.md) 4.5 节）。
 
 本文保留 B.2.2 三表验收；当前命令扩展到八表/391 字段、counter=45，
 最新结果见 [WLAN_PROFILES.md](WLAN_PROFILES.md)。
@@ -86,18 +86,18 @@ ZTE_DB_ENGINE PASS shared_counter=21 native_engine=1 multiap_cfg_ready=1 policie
 8. 私有 IPC/网络/mount namespace、只读根、仅 IPC_OWNER；宿主 IPC 和接口
    名称快照前后一致。测试包不含 cspd，不使用真实无线/硬件设备。
 
-当前报告 `out/mesh-shim/device-db-report.json` 中三张表的 ready、读写、
+当前报告 `out/device-db-report.json` 中三张表的 ready、读写、
 Domain filter/row isolation 和跨进程写入验收为 true；整体
 `schema_ready`、`wlan_profile_ready`、`controller_ready` 仍为 false。
 
 ## 构建、回归与剩余工作
 
 ```sh
-sh port/mesh-shim/build.sh
-python3 port/mesh-shim/device-db-smoke.py --host root@192.168.5.1
+sh build.sh
+python3 device-db-smoke.py --host root@192.168.5.1
 ```
 
-`out/mesh-shim/mesh-policy-schema.json` 记录 Master/Domain 的完整字段/default/
+`out/mesh-policy-schema.json` 记录 Master/Domain 的完整字段/default/
 primary/save/offset。源码为 `mesh-policies.c`、`multiap_master.def`、
 `multiap_domain.def`；生成器只在显式调用时创建新定义，不覆盖现有源码；
 正常 build 只校验，不重写。

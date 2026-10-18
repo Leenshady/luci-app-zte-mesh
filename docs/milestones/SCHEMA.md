@@ -27,7 +27,7 @@
 的类型长度表。未知基线、指令、调用目标或不一致字段均拒绝。
 
 `prepare.py --analysis-cspd` 从校验过的 JFFS2/SquashFS 提取静态证据到
-`out/mesh-shim/analysis/cspd`（0600），不会放入 runtime 或上传设备。
+`out/analysis/cspd`（0600），不会放入 runtime 或上传设备。
 `build.sh` 自动做这项提取和静态核对。不要改用其他固件的散放 cspd。
 
 实际注册仍调用原厂 `dbCreateTbl`、`dbCreateDomainNew`、`dbAddRow` 和
@@ -62,7 +62,7 @@
 原厂 `TopoDiscoverInterval` 的 type=15、注册默认值=60，是不能把此 type
 统一限制为 0/1 的直接证据。字符串按内联内容读写，不把数据库中的指针
 传给外部 helper。字段与 offset 的完整清单生成于
-`out/mesh-shim/multiap-cfg-schema.json`；示例：Mode value +36、MeshName
+`out/multiap-cfg-schema.json`；示例：Mode value +36、MeshName
 +868、IFLink +1444、NoSteeringOUIs +1540。
 
 2952-byte 结构只用于此 ARM32 原厂边界，**不是 ARM64/helper RPC 协议**。
@@ -104,7 +104,7 @@ ZTE_DB_ENGINE PASS shared_counter=6 native_engine=1 multiap_cfg_ready=1 controll
 7. 私有 IPC/网络/mount namespace、只读根、仅 IPC_OWNER；宿主 IPC 和接口
    名称前后快照一致。DB 原始值、指针及凭据不进入日志。
 
-完整报告：`out/mesh-shim/device-db-report.json`。其中
+完整报告：`out/device-db-report.json`。其中
 `multiap_cfg_schema_ready=true`、`configuration_read_write_passed=true`，但
 整体 `schema_ready=false`、`controller_ready=false`，避免把单表进度误报为
 Controller 完成。原隔离保证与资源/进程组清理见 [DATABASE.md](DATABASE.md)。
@@ -112,8 +112,8 @@ Controller 完成。原隔离保证与资源/进程组清理见 [DATABASE.md](DA
 ## 复现与剩余工作
 
 ```sh
-sh port/mesh-shim/build.sh
-python3 port/mesh-shim/device-db-smoke.py --host root@192.168.5.1
+sh build.sh
+python3 device-db-smoke.py --host root@192.168.5.1
 ```
 
 新增 16 个离线测试，覆盖精确布局/原厂描述符和长度表，以及缺字段、重复
@@ -127,7 +127,7 @@ B.2 仍未完成：产品/节点身份、远端 WLAN profile、配置 helper/RPC
 
 ## 补充（2026-10-12）：几张表的真实语义
 
-以下来自读 `multiapd`/`cspd` 反汇编和真机读回，细节见 [FINDINGS.md](FINDINGS.md)。
+以下来自读 `multiapd`/`cspd` 反汇编和真机读回，细节见 [FINDINGS.md](../FINDINGS.md)。
 
 - **`MultiAPCfg`（偏移 = 36 + 32 × 字段序号，前 25 个字段（序号 0 到 24）都是 32 字节）：**
   `Mode`（0 自适应、1 Slave、2 Master、3 两者）、`Enable`（MESH 总开关）、`SetRoleEnable`（自适应角色开关，网页选"自适应"时置 1）、`RoleElect`、`WANForward`、

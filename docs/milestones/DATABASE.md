@@ -1,6 +1,6 @@
 # B.1 / B.2：原厂数据库引擎与配置实验
 
-> **状态更新（2026-10-12）：** 本文记录 B.1/B.2 里程碑（原厂数据库引擎实验）。之后又还原并建立了更多表（`P1905ComCfg`、`IPInterface`、`P1905_ACD`、`P1905AcdBssCfg`、`AclCfg`、`WLANWEP`、`P1905DeviceInfo`，见 [FINDINGS.md](FINDINGS.md) 第 12 节）。`libdbcspview.so` 仍然缺失，但不阻止现有表。
+> **状态更新（2026-10-12）：** 本文记录 B.1/B.2 里程碑（原厂数据库引擎实验）。之后又还原并建立了更多表（`P1905ComCfg`、`IPInterface`、`P1905_ACD`、`P1905AcdBssCfg`、`AclCfg`、`WLANWEP`、`P1905DeviceInfo`，见 [FINDINGS.md](../FINDINGS.md) 第 12 节）。`libdbcspview.so` 仍然缺失，但不阻止现有表。
 
 **通过的是 DB 服务端/客户端与八表逻辑配置边界，不是 Controller 启动验收。**
 B.1 验证真实缺失配置错误；B.2.1/2 恢复 Cfg/Master/Domain；B.2.3 新增五张
@@ -39,19 +39,19 @@ ZTE_MESH_SHIM return=dbAPIGetView status=-2
 
 ```sh
 # 只编译/做离线回归，不会自动部署或接入设备网络。
-sh port/mesh-shim/build.sh
+sh build.sh
 
 # 显式进行设备侧数据库实验。
-python3 port/mesh-shim/device-db-smoke.py --host root@192.168.5.1
+python3 device-db-smoke.py --host root@192.168.5.1
 ```
 
 主要产物：
 
-- `out/mesh-shim/db-engine-probe`：ARM32 原厂 glibc 2.26 的 DB 实验程序。
-- `out/mesh-shim/ns-run`：AArch64 静态隔离启动器。
-- `out/mesh-shim/device-db-report.json`：最新报告；单表状态为 true，整体 schema/Controller 仍为 false。
-- `out/mesh-shim/multiap-cfg-schema.json`：50 个字段的原始类型、默认值和视图 offset。
-- `out/mesh-shim/device-db/`：校验、宿主前后状态和完整 stdout/stderr。
+- `out/db-engine-probe`：ARM32 原厂 glibc 2.26 的 DB 实验程序。
+- `out/ns-run`：AArch64 静态隔离启动器。
+- `out/device-db-report.json`：最新报告；单表状态为 true，整体 schema/Controller 仍为 false。
+- `out/multiap-cfg-schema.json`：50 个字段的原始类型、默认值和视图 offset。
+- `out/device-db/`：校验、宿主前后状态和完整 stdout/stderr。
 
 程序没有用交叉工具链默认 glibc 链接最终 ELF；显式用 crt objects 和原厂
 库链接，实际只要求 `GLIBC_2.4`。所有强符号和 GNU 版本需求均通过闭包审计。
@@ -81,7 +81,7 @@ multiapd/cspd、命令/库路径替换、额外参数、shell 文本与 namespac
 
 ## 已恢复的 ABI 证据
 
-基线文件：`out/mesh-shim/runtime/lib/libdb.so`，SHA256
+基线文件：`out/runtime/lib/libdb.so`，SHA256
 `b8316a82f3726eddcf96dfa997c7a55bd08f825dc9808167600f751c302f7a1f`。
 
 | 项目 | 恢复结果 / 位置 |

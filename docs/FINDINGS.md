@@ -1,6 +1,6 @@
 # 逆向与真机发现汇总
 
-本文汇总整个项目里已经查实的事实，按主题组织。操作流程见 [TESTING.md](TESTING.md)，配置语法与各功能的验证结果见
+本文汇总整个项目里已经查实的事实，按主题组织。操作流程见 [DEVELOPMENT.md](DEVELOPMENT.md)，配置语法与各功能的验证结果见
 [REAL_CHILD.md](REAL_CHILD.md)，控制器能下发什么见 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)。
 
 可信度标记：**【真机】** 在测试子路由 ZXHN Z506（V1.0.0.2B2.8000）上抓包或读回验证过；**【代码】** 读到了反汇编，没在真机上跑；
@@ -96,8 +96,8 @@
 - 向 `multiapd.map.master` 发域配置事件 `0x10206`，和工厂调试通道 `/var/tmp/<进程>_asy`（报文格式已还原，见 `zte-debugcmd.c`），
   都没有效果，没有可靠的"热更新策略"。【真机】**（2026-10-17 更正）有可靠的热更新：** 当时的发送方式没有记录（推测把 `0x10206` 当成了事件号）；
   正确的是原厂 CM 设置函数用的同步 `SSEND(0x2401, {u32 消息号, char name[32], u32 0}, "multiapd.map.master")`，消息号 `0x10206`（域/漫游阈值）、
-  `0x10205`（主控策略），写库后发，子节点收到新的 `PolicyConfigReq` 并回 ACK。见 REPLAY_RESULTS（`mesh-vendor-capture`）第 11 节与 SERVICE.md。
-- 控制器的 `AL MAC` 目前固定为 `02:00:00:00:19:06`（需要做成可配置/唯一）。
+  `0x10205`（主控策略），写库后发，子节点收到新的 `PolicyConfigReq` 并回 ACK。见 [REPLAY_RESULTS](research/REPLAY_RESULTS.md) 第 11 节与 [SERVICE.md](SERVICE.md)。
+- 控制器的 `AL MAC` 默认 `02:00:00:00:19:06`；启动器的环境变量 `ZTE_MESH_AL_LAST`（最后一个字节）可以改，实验时用来让子节点当成新控制器（`mreplay.py --al-last`）。OpenWrt 包没有对应的 UCI 选项。
 
 ## 5. 自组网 V2（`P1905ComCfg`）
 
@@ -251,5 +251,5 @@ Web 代码在 `/home/httpd/webmodules`（Lua + `.lp`）和 `/home/httpd/public/j
 3. `VersionMode` 其余位；换值对真子路由的影响。
 4. 更早一次"只锁备用和射频、不锁主 Wi-Fi"的原因。
 5. 子路由 SSID 查询（索引 1 到 3）的真实应答（当前答"没有这个 SSID"，不影响 M2 路径）。
-6. 重启、LED、steering 等消息的触发路径；长稳；控制器异常退出后的恢复；`AL MAC` 可配置。
+6. steering 等终端动作的触发路径；长稳；控制器异常退出后的恢复。（重启子节点和指示灯 2026-10-18 已查清并实现，见 [research/FEATURE_MAP.md](research/FEATURE_MAP.md) 第 17 节；`AL MAC` 可由 `ZTE_MESH_AL_LAST` 改，还没有 UCI 选项。）
 7. 一次干净的"控制器关 V2 + 子路由开 V2"组合的真机验证（子路由当前关 V2；需要用户在子路由上打开开关）。

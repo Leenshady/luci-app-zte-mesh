@@ -110,12 +110,12 @@ codec corpus 的 ASan/UBSan 检查通过；这是 codec 检查，不是原厂库
 - `config-bridge-probe.c`：native ARM64 固定公开测试客户端。
 - `wlan-profiles.c`：ARM32 typed update/snapshot/readback/restore。
 - `device-bridge-smoke.py`：独立审计/打包/SSH/宿主快照验收。
-- `out/mesh-shim/device-bridge-report.json`：验收报告。
-- `out/mesh-shim/bridge-security-map.json`：公开 enum 证据。
+- `out/device-bridge-report.json`：验收报告。
+- `out/bridge-security-map.json`：公开 enum 证据。
 
 ```sh
-sh port/mesh-shim/build.sh
-python3 port/mesh-shim/device-bridge-smoke.py --host root@192.168.5.1
+sh build.sh
+python3 device-bridge-smoke.py --host root@192.168.5.1
 ```
 
 此程序**没有读取实际 UCI 或提供公开 socket/daemon/ubus endpoint**；只发送

@@ -1,6 +1,6 @@
 # B.3.2：真实 IEEE 1905 Topology Query/Response 闭环
 
-> **状态更新（2026-10-12）：** 本文记录 B.3.2/B.3.3 里程碑（发现、拓扑、AP-Autoconfig 在私有 veth 上的线上校验）。之后控制器已与真子路由完成 M1/M2、Renew、信道选择（CMDU `0x8006`）、ACL 等，见 [REAL_CHILD.md](REAL_CHILD.md) 与 [FINDINGS.md](FINDINGS.md)；原厂守护进程之外，服务自己构造的唯一一类报文是 `0x8006`（`controller-packet.c`）。
+> **状态更新（2026-10-12）：** 本文记录 B.3.2/B.3.3 里程碑（发现、拓扑、AP-Autoconfig 在私有 veth 上的线上校验）。之后控制器已与真子路由完成 M1/M2、Renew、信道选择（CMDU `0x8006`）、ACL 等，见 [REAL_CHILD.md](../REAL_CHILD.md) 与 [FINDINGS.md](../FINDINGS.md)；原厂守护进程之外，服务自己构造的唯一一类报文是 `0x8006`（`controller-packet.c`）。
 
 ## 已实测的边界
 
@@ -80,12 +80,12 @@ veth-lab ═ 私有 veth ═ lab-peer：不 enslave 到任何桥的独立实验�
   依赖 namespace、capability、只读 root、watchdog/process-group 边界。
 
 ```sh
-sh port/mesh-shim/build.sh
-python3 port/mesh-shim/device-controller-smoke.py --host root@192.168.5.1
+sh build.sh
+python3 device-controller-smoke.py --host root@192.168.5.1
 ```
 
-主要证据：`out/mesh-shim/device-controller-report.json`、
-`out/mesh-shim/device-controller/probe.{stdout,stderr}`。
+主要证据：`out/device-controller-report.json`、
+`out/device-controller/probe.{stdout,stderr}`。
 
 下一步仍留在隔离 lab：验证 AP-autoconfiguration/必要的 ZTE vendor TLV、
 WSC/M1/M2 及真实 profile/identity getter 依赖。不启动 cspd，不恢复厂商

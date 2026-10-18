@@ -1,5 +1,7 @@
 # 回放对比：原厂控制器 vs shim 控制器的冷启动入网
 
+> **路径说明（2026-10-18 迁入 sr1010-mesh 仓库）：** 本文写于迁移之前，文中路径按当时的布局：mac 上的 `zx279133/port/mesh-shim/` 即现在的仓库根目录，`out/mesh-shim/` 即 `out/`；`session/…`、pcap、`db-baseline-s000.txt`、`vendor-log-debug.txt` 在 `evidence/`（只在 mac 上，不入库）；`tools/<脚本>` 即 `tools/capture/<脚本>`；`/tmp/buildNN.sh` 由 `tools/build/container-make.sh` 取代；`/tmp/shim-bak-*` 备份已删除（由 git 历史取代）；当时手工编的 `ns-run-al` 即现在 Makefile 的 `ns-run-svctest` 目标（运行包内容逐字节相同），当时说的旧 `ns-run-svctest` 文件已不存在。
+
 目标：用同一台真子节点（Z506）、同一份配置（尽量贴近原厂最初基线），让 shim 的控制器做一次冷启动入网，把它发出的帧与原厂控制器的冷启动基准逐帧逐 TLV 对比，
 得到"哪些字段真的到了线上、哪些不一致"的清单。先**不**做通用的"喂整库"加载器：先用 shim 现有配置语法跑，差异里出现什么才补什么。
 
@@ -55,7 +57,7 @@ roam.rssi5=-70               # RoamRssiLmt5G
 
 ## 风险
 
-- 控制器真实向 LAN 发 1905 帧，可能重配真子节点。守则同 `TESTING.md` 第 5、6 节：未登记 MAC 先问用户；只用配置里的显式值；测完用原厂控制器的一次入网把子节点还原。
+- 控制器真实向 LAN 发 1905 帧，可能重配真子节点。守则同 `DEVELOPMENT.md` 第 5、6 节：未登记 MAC 先问用户；只用配置里的显式值；测完用原厂控制器的一次入网把子节点还原。
 - 主线冷启动失败需要用户给板子断电重启。
 - 站点保护依赖网桥转发表，手机连着子节点 Wi-Fi 时也在表里。
 

@@ -1,14 +1,14 @@
 # 真实子路由联调：已验证能力、配置语法与风险
 
 本文记录 SR1010 上的原厂 `multiapd`（Controller 角色，私有沙箱内）与一台真实 ZTE 子路由联调的结果。所有结论来自真机日志、抓包或对原厂二进制的反汇编；
-没有验证过的地方明确写出。协议层的深入分析在 [FINDINGS.md](FINDINGS.md)，构建/测试/守则在 [TESTING.md](TESTING.md)，
+没有验证过的地方明确写出。协议层的深入分析在 [FINDINGS.md](FINDINGS.md)，构建/测试/守则在 [DEVELOPMENT.md](DEVELOPMENT.md)，
 控制器能下发什么在 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)。
 
 测试对象：ZXHN Z506，固件 V1.0.0.2B2.8000（小兴小方糖），局域网地址 `192.168.5.216`，MAC `d4:b7:09:0d:77:30`。
 `MultiAPCfg.VersionMode=0`，`P1905_ACD.ACDRole=1`（Agent）。当前由用户设成：MESH 开、自组网 V2 关、角色自适应（选举后 `Mode=1` Slave、`SetRoleEnable=1`）。
 **我们从未改过子路由的模式。**
 
-## 1. 状态（2026-10-12）
+## 1. 状态（2026-10-12 的表，2026-10-18 更新了后几行）
 
 | 项目 | 结果 |
 |---|---|
@@ -27,9 +27,10 @@
 | 漫游阈值 | 能下发，Z506 固件没有解析代码，不会生效 |
 | 频段引导、双频合一 | 控制器侧参数已写入；实际引导行为未验证 |
 | 带宽 20/40/80/160 | 没有下发路径 |
-| 重启、LED、steering 动作 | 只在二进制里看到函数名，未做 |
+| 重启子节点、指示灯开关 | 真机通过（2026-10-18，REPLAY_RESULTS 16.1）；steering 动作未做 |
+| 访客限时、Wi-Fi 5 兼容、Wi-Fi 定时关闭 | 访客限时和定时（`scope=guest`）真机通过；Wi-Fi 5 兼容线上值正确，Z506 忽略；`scope=all` 只在实验室（REPLAY_RESULTS 16.4、16.5） |
 | 30 分钟以上长稳、控制器崩溃后恢复 | 未测 |
-| LuCI 应用、procd 服务化 | 未开始（按约定放在最后） |
+| LuCI 应用、procd 服务化 | 已打包（apk），在真实 procd/rpcd 上用隔离网桥验证；未用安装的包接真子节点（SERVICE.md） |
 
 ## 2. 入网的必要条件（缺一不可）
 
@@ -44,7 +45,7 @@
 | 槽位应答完整 | M2 带 Tear Down（`bMapAccessAttr=16`） | `CmWLANGetAPConfig` 必须对每个频段的槽位 0 到 3 都成功；`acdGetWLANCFG` 遍历 4 个槽位，任一失败就整体返回 -1，Tear Down 保持默认值 1 | `controller-profile.c`：无自有行的槽位返回 `InstExist=0`，不是错误 |
 | 每 BSS 的 `MapAccessAttr` | fronthaul 与回程区分 | 主 BSS 行设 32（fronthaul） | `wlan-profiles.c` |
 | 每 BSS 的 `ACLPolicy` | 见 §4.4 | 主 BSS 和访客 BSS 报 1，回程 BSS 报 0，与子路由原配置一致 | `wlan-profiles.c` |
-| `VersionMode` | 决定是否发 ZTE 私有厂商 TLV | 控制器保持 0（bit1 清零） | 服务配置 `version_mode`（见 FINDINGS.md 第 6 节） |
+| `VersionMode` | 决定是否发 ZTE 私有厂商 TLV | 控制器用原厂基线 128（bit1 清零才发 ZTE 私有 TLV；bit7 加 Wi-Fi 7 的 `0xdd`/`0xe0`） | 服务配置 `version_mode`（见 FINDINGS.md 第 6 节） |
 | 控制器的 `CurHop` | 子路由日志 `Get hop -2` | 启动时写 `MultiAPCfg.CurHop=2`（等于 `MaxHop`） | `multiap-cfg.c`；原因见 FINDINGS.md 第 7 节 |
 | 自组网 V2（`P1905ComCfg.Enable`） | 控制器是否严格检查邻居 | **默认 0（关）**，`mesh.v2=1` 开 | 服务配置；对外声明的身份和市场码不受它影响 |
 
@@ -201,8 +202,8 @@ vendor 消息只带 BeaconInterval、MaxHop 和一个 STA 绑定支持标志，*
 
 ## 5. 联调流程
 
-1. 准备：确认局域网里除子路由和控制器外没有未登记的终端（`dev-service-smoke.py` 读网桥转发表，不在 `--expect-macs` 里的 MAC 拒绝接入；手机连着子路由 Wi-Fi 时也在表里，断开后要等老化约 5 分钟）。放行某个未知 MAC 必须由用户明确同意（长期放行名单见 TESTING.md 第 5 节）。
-2. 运行：见 TESTING.md 第 3 节的命令；真机始终加 `--no-change`。
+1. 准备：确认局域网里除子路由和控制器外没有未登记的终端（`dev-service-smoke.py` 读网桥转发表，不在 `--expect-macs` 里的 MAC 拒绝接入；手机连着子路由 Wi-Fi 时也在表里，断开后要等老化约 5 分钟）。放行某个未知 MAC 必须由用户明确同意（长期放行名单见 DEVELOPMENT.md 第 5 节）。
+2. 运行：见 DEVELOPMENT.md 第 3 节的命令；真机始终加 `--no-change`。
 3. 触发重新入网：**不要 `kill` 子路由的 `multiapd`**（会留下残留状态，见 FINDINGS.md 3.4）。用重启控制器、`zte-meshctl renew-acd <band>` 或让用户重启子路由。
 4. 判断成功（子路由 `logctrl -r -g 1 -n` 日志）：`Tear down` 为 0；`bMapAccessAttr is 32`；`parse M2 success[0]`；`config M2[0]`（无变化）或 `config M2[1]`（已应用新配置）。
    控制器侧：`state.json` 里节点 `online:true`、`model:"ZXHN Z506"`、`zte:true`；子路由 `sendcmd multiapd.map.slave dev` 里有 `02:00:00:00:19:06`。
@@ -215,17 +216,14 @@ vendor 消息只带 BeaconInterval、MaxHop 和一个 STA 绑定支持标志，*
 - `iwconfig` 在刚重启或已关闭的接口上读回的 SSID 不可靠。
 - 代码路径里"实验室"和"真机"必须分开：身份、市场码只在 `--controller-service` 路径通过环境变量开启。
 - 不要在未确认语义前改 ACL 策略；不要切换子路由的 Mesh 模式；不要向真机推占位值。
-- 完整坑清单见 TESTING.md 第 6 节。
+- 完整坑清单见 DEVELOPMENT.md 第 6 节。
 
 ## 7. 未完成
 
-1. 子路由开着 V2 且控制器 `mesh.v2=0` 的真机验证；`Policy=2` 的限制行为、`allow` 策略、5G 驱动 ACL 读回。
-2. 额外 BSS 的免重启热更新；子路由 SSID 查询（索引 1 到 3）的真实应答。
-3. 终端动作（踢、封、引导）、状态输出（终端列表、AP 指标）、MaxHop/认证方式/无线电开关/上报参数等小项配置。
-4. 重启、LED、steering 等消息的触发路径。
-5. 长稳、控制器异常退出后的恢复；`AL MAC` 目前固定为 `02:00:00:00:19:06`，需要可配置/唯一。
-6. 之后才是 procd 服务化与 LuCI 应用。
-
+1. 子路由开着 V2 且控制器 `mesh.v2=0` 的真机验证；`Policy=2` 的限制行为、`allow` 策略、5G 驱动 ACL 读回；槽位上的 ACL。
+2. 关主 SSID 的路径（`radioN.enabled=0`、定时 `scope=all`）的真机验证（会断开用户的 Wi-Fi，要先征得同意）。
+3. 终端动作（踢、封、引导）、拓扑页的终端列表和回程 RSSI、MaxHop/上报参数等小项配置。
+4. 长稳、多个子节点、用已安装的 OpenWrt 包接真子节点。
 
 ## 槽位 1–3 的原厂配置（2026-10-17 在真子节点 Z506 上复现）
 
@@ -243,3 +241,21 @@ radio1.bss3.enabled=1  radio1.bss3.ssid=ZMESH-c4FsH5_5G   radio1.bss3.key=<KEY> 
 
 SSID 名称来自子节点自己保存的值（原厂控制器当时下发的）。额外槽位的 `MapAccessAttr`（槽位 3 为 64，其余 32）和 `VapIsolationEnable`（只有槽位 1 为 1）由程序按原厂基线设置，不是配置项。
 **注意：** 第 49 轮访客槽位 1 开着时子节点读回的 `VapIsolationEnable` 仍是 0（控制器的槽位 1 行里是 1）。访客网络的隔离行为没有验证，不要当作和原厂一致。
+
+## 子节点 `WLANCfg` 基线（2026-10-17 第 49 轮前读回，之后每轮结束都与它逐行相同）
+
+`tools/child/childread.sh` 的输出（只有非密钥字段；8 行的 `KeyPassphrase` 都是用户指定的 Wi-Fi 密码，不在这里写）：
+
+```
+AP1 InstExist=1 Enable=1 ESSID=cc BeaconType=3 ESSIDHideEnable=0 VapIsolationEnable=0 GuestSsid=0 MapAccessAttr=32 ACLPolicy=1
+AP2 InstExist=1 Enable=0 ESSID=ZTE-tsEG65_GUEST BeaconType=3 ESSIDHideEnable=0 VapIsolationEnable=0 GuestSsid=1 MapAccessAttr=32 ACLPolicy=1
+AP3 InstExist=1 Enable=0 ESSID=cc2-wifi5 BeaconType=6 ESSIDHideEnable=0 VapIsolationEnable=0 GuestSsid=0 MapAccessAttr=32 ACLPolicy=1
+AP4 InstExist=1 Enable=0 ESSID=ZMESH-c4FsH5_5G BeaconType=6 ESSIDHideEnable=1 VapIsolationEnable=0 GuestSsid=0 MapAccessAttr=64 ACLPolicy=0
+AP5 InstExist=1 Enable=1 ESSID=cc BeaconType=3 ESSIDHideEnable=0 VapIsolationEnable=0 GuestSsid=0 MapAccessAttr=32 ACLPolicy=1
+AP6 InstExist=1 Enable=0 ESSID=ZTE-tsEG65_GUEST BeaconType=3 ESSIDHideEnable=0 VapIsolationEnable=0 GuestSsid=1 MapAccessAttr=32 ACLPolicy=1
+AP7 InstExist=1 Enable=0 ESSID=cc2-5Gc-wifi5 BeaconType=6 ESSIDHideEnable=0 VapIsolationEnable=0 GuestSsid=0 MapAccessAttr=32 ACLPolicy=1
+AP8 InstExist=1 Enable=1 ESSID=ZMESH-c4FsH5_5G BeaconType=6 ESSIDHideEnable=1 VapIsolationEnable=0 GuestSsid=0 MapAccessAttr=64 ACLPolicy=0
+```
+
+另外 `LEDCfg.EnableLEDCfg=1`（指示灯开）。
+

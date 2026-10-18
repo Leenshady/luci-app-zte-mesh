@@ -1,5 +1,7 @@
 # 回放对比结果：shim 控制器 vs 原厂控制器（真子节点 Z506）
 
+> **路径说明（2026-10-18 迁入 sr1010-mesh 仓库）：** 本文写于迁移之前，文中路径按当时的布局：mac 上的 `zx279133/port/mesh-shim/` 即现在的仓库根目录，`out/mesh-shim/` 即 `out/`；`session/…`、pcap、`db-baseline-s000.txt`、`vendor-log-debug.txt` 在 `evidence/`（只在 mac 上，不入库）；`tools/<脚本>` 即 `tools/capture/<脚本>`；`/tmp/buildNN.sh` 由 `tools/build/container-make.sh` 取代；`/tmp/shim-bak-*` 备份已删除（由 git 历史取代）；当时手工编的 `ns-run-al` 即现在 Makefile 的 `ns-run-svctest` 目标（运行包内容逐字节相同），当时说的旧 `ns-run-svctest` 文件已不存在。
+
 日期 2026-10-16 晚。方法与工具见 `REPLAY_PLAN.md`。基准：`vendor-master-coldjoin-eth4.pcap` 的 12:33:37.5 起（原厂最初基线配置）。
 shim 在主线 f66c96d8（首次冷启动成功）上，由 `tools/mreplay.py` 在 mac 上驱动，子节点在 `lan1`。
 

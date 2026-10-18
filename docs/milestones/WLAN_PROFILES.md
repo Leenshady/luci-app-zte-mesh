@@ -1,6 +1,6 @@
 # B.2.3：WLAN / DevInfo 布局与隔离逻辑 profile
 
-> **状态更新（2026-10-12）：** 本文记录 B.2.3 里程碑（WLAN/DevInfo 布局与逻辑 profile）。之后 `wlan-profiles.c` 增加了：额外 BSS 行（槽位 1 到 3，`wlan_profiles_add_extra_bss`）、BeaconInterval（`wlan_profiles_set_beacon_interval`）、每 BSS 的 `ACLPolicy`（`wlan_profiles_set_acl_policy`）和 `AclCfg` 规则（`wlan_profiles_acl_apply`）。真机验证见 [REAL_CHILD.md](REAL_CHILD.md)。
+> **状态更新（2026-10-12）：** 本文记录 B.2.3 里程碑（WLAN/DevInfo 布局与逻辑 profile）。之后 `wlan-profiles.c` 增加了：额外 BSS 行（槽位 1 到 3，`wlan_profiles_add_extra_bss`）、BeaconInterval（`wlan_profiles_set_beacon_interval`）、每 BSS 的 `ACLPolicy`（`wlan_profiles_set_acl_policy`）和 `AclCfg` 规则（`wlan_profiles_acl_apply`）。真机验证见 [REAL_CHILD.md](../REAL_CHILD.md)。
 
 **通过的是字段布局、纯 DB/CF 查询和公开 fixture 的读写，仍不是可用
 Controller / 完整 WLAN backend。** 没有启动 cspd/multiapd，没有设置真实
@@ -106,12 +106,12 @@ ZTE_DB_ENGINE PASS shared_counter=45 native_engine=1 multiap_cfg_ready=1 policie
 
 - `profile_schema.py`、`wlan_*.def`、`dev_info.def`：metadata/公开零值及验证。
 - `wlan-profiles.c`：私有 DB 注册、纯 CF 原厂查询和跨进程测试；不是 ubus/RPC。
-- `out/mesh-shim/wlan-profile-schema.json`：180 字段/类型/default-policy/offset。
-- `out/mesh-shim/device-db-report.json`：设备验收。
+- `out/wlan-profile-schema.json`：180 字段/类型/default-policy/offset。
+- `out/device-db-report.json`：设备验收。
 
 ```sh
-sh port/mesh-shim/build.sh
-python3 port/mesh-shim/device-db-smoke.py --host root@192.168.5.1
+sh build.sh
+python3 device-db-smoke.py --host root@192.168.5.1
 ```
 
 报告中的 profile/identity **metadata ready 与 fixture read/write 为 true**；

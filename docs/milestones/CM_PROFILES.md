@@ -1,6 +1,6 @@
 # B.3.1：Controller-only CM profile 读取与私有 1905 RX
 
-> **状态更新（2026-10-12）：** 本文记录 B.3.1 里程碑，当时只支持两个公开实验实例（AP1/AP9）。现在 `controller-profile.c` 对每个频段的槽位 0 到 3 都应答：没有自有行的槽位返回 `InstExist=0`（不是错误，否则 `acdGetWLANCFG` 整体失败、M2 带 Tear Down）；仍只接受 WPA2-PSK + AES，且要求 `ZTE_MESH_DB_SANDBOX=1`。整体说明见 [FINDINGS.md](FINDINGS.md) 第 1 节，入网门槛见 [REAL_CHILD.md](REAL_CHILD.md) 第 2 节。
+> **状态更新（2026-10-12）：** 本文记录 B.3.1 里程碑，当时只支持两个公开实验实例（AP1/AP9）。现在 `controller-profile.c` 对每个频段的槽位 0 到 3 都应答：没有自有行的槽位返回 `InstExist=0`（不是错误，否则 `acdGetWLANCFG` 整体失败、M2 带 Tear Down）；仍只接受 WPA2-PSK + AES，且要求 `ZTE_MESH_DB_SANDBOX=1`。整体说明见 [FINDINGS.md](../FINDINGS.md) 第 1 节，入网门槛见 [REAL_CHILD.md](../REAL_CHILD.md) 第 2 节。
 
 ## 结论及边界
 
@@ -78,8 +78,8 @@ Peer 只保留验证元数据，不捕获/保存网络配置或 key payload。
 ## 验证与重现
 
 ```sh
-sh port/mesh-shim/build.sh
-python3 port/mesh-shim/device-controller-smoke.py --host root@192.168.5.1
+sh build.sh
+python3 device-controller-smoke.py --host root@192.168.5.1
 ```
 
 - 19 个 host CM 场景：正面视图、真实 caller key 形式、损坏 DB header/type/status、
@@ -91,7 +91,7 @@ python3 port/mesh-shim/device-controller-smoke.py --host root@192.168.5.1
   设备前后 SysV IPC 与接口名称不变。
 - 原厂进程 40 秒后受控 SIGKILL，外层 watchdog/process-group 清理逻辑不变。
 
-报告：`out/mesh-shim/device-controller-report.json`；日志仍做公开 key redaction 检查。
+报告：`out/device-controller-report.json`；日志仍做公开 key redaction 检查。
 报告区分 `rx1905_observed`、`tx1905_observed`、`native_dh_keygen_succeeded` 和
 `controller_ready`。宿主快照不是完整网络状态审计，安全依赖 namespace/capability。
 
