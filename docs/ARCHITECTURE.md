@@ -10,7 +10,7 @@ OpenWrt 的 `mesh_id`、usteer、DAWN 都换不来与原厂子节点的互通。
 
 本项目不重写协议，而是把原厂 SR1010 固件里同一版本的 `multiapd` 和它的 27 个库搬到 OpenWrt 上，在私有命名空间里当控制器运行，
 用“垫片”提供它依赖的环境，再用一个配置文件间接指挥它。线上的报文几乎全部由原厂守护进程自己构造；服务自己构造的只有信道选择请求
-（CMDU `0x8006`）。实测结果：冷入网、M2、策略、Renew 等报文与原厂主控逐字节一致（见 `research/REPLAY_RESULTS.md`）。
+（CMDU `0x8006`）。实测与原厂主控对比（见 `research/REPLAY_RESULTS.md`）：M2、`PolicyConfigReq`、Renew 和槽位消息除 MID 外逐字节相同；已知差别是 `MetricRptPolicy` 里无线电的顺序（不固定）、`CombinedInfraMetrics` 私有 TLV 的内容（取决于邻居状态）、`0200fe` 消息（原厂入网时 3 条，我们上线约 15 秒后 1 条）。
 
 ## 2. 运行时结构
 

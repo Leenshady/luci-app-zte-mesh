@@ -9,7 +9,7 @@
 | mac | `ssh 192.168.167.93`（mac 自己的 Wi-Fi，与路由器无关） | **仓库正本** `/Volumes/code/sr1010-mesh`（git，分支 `main`，没有远端）。编译在这里的离线 Docker 镜像 `sr1010-mesh-shim-builder` 里做；`out/`、`evidence/` 只在这里 |
 | 开发机 | — | 克隆 `~/code/sr1010-mesh`（`git clone 192.168.167.93:/Volumes/code/sr1010-mesh`）。改完提交后 `git push`：mac 仓库设了 `receive.denyCurrentBranch updateInstead`，推送直接更新 mac 的工作区 |
 | SR1010 路由器（主线 ImmortalWrt） | 从 mac：`ssh root@192.168.5.1`（LAN 侧，端口 22） | 实验室脚本默认 `--host root@192.168.5.1 --port 22`，都在 mac 上运行。路由器上没有 python3、没有 `pkill`，只有 BusyBox 和 `tcpdump` |
-| 真子路由 ZXHN Z506 | 从 mac：telnet `192.168.5.216:23`（`tools/child/ztetn.py` 的默认值） | 口令只从环境变量 `ZTE_TN_PASS` 读（用户名 `ZTE_TN_USER`，默认 root），**不要写进任何文件** |
+| 真子路由 ZXHN Z506 | 从 mac：telnet `192.168.5.216:23`（`tools/child/ztetn.py` 的默认值；地址由当时发 DHCP 的固件决定，路由器跑原厂固件时是 `192.168.5.3`，用 `--host` 或 `childread.sh` 的 `CHILD=` 改） | 口令只从环境变量 `ZTE_TN_PASS` 读（用户名 `ZTE_TN_USER`，默认 root），**不要写进任何文件** |
 | 构建机 | `ssh -p 2022 192.168.223.19`，ImmortalWrt 树 `~/workspace/immortalwrt` | 只用来编 OpenWrt 包（第 8 节） |
 
 ## 2. 构建
