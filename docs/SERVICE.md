@@ -127,6 +127,12 @@
 | `mesh_v2`、`mesh_role`（`master`/`auto`）、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | |
 | `band_steer`、`band_steer_rssi_24g/_5g`、`roam_rssi_24g/_5g`、`roam_force` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
 
+包里的默认配置（2026-10-19 起）把能取出厂值的选项都写上，LuCI 也显示同样的默认值，并在每项下面写明范围：`mode=zte_compat`、
+`mlo_enable=1`、`wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、
+信标 100 ms、信道 0（自动）、功率 2.4G 20 dBm / 5G 23 dBm（子节点都取最大档，即出厂值）、`band_steer=1`、引导阈值 -60/-110、
+漫游阈值 -60/-70、`roam_force=0`（出厂值见 `multiap_domain.def`）。`wifi_24g_key` 没有默认值，不填服务不启动。
+要让子路由保持自己的信道、功率，删掉对应选项（LuCI 里清空）。LuCI 列表区段的编辑框保存失败时会在框内写明原因（LuCI 自带的实现静默吞掉校验错误）。
+
 `config zte_mesh_bss`（可有多段）= 额外 SSID 槽位：`band`（24g/5g）、`slot`（1 到 3）、`enabled`、`ssid`、`key` 必填，`hidden`、`security`、`acl_policy` 可选。
 同一频段的槽位必须是 1..k（init 检查并写日志；服务也会拒绝，原因见 REPLAY_RESULTS 第 14.4 节）。
 `config zte_mesh_timer`（可有多段，最多 8 条）= Wi-Fi 定时关闭：`start`、`end`（HH:MM）必填，`days`（空格分隔的 mon tue wed thu fri sat sun，默认全部）、`scope`（`all` 或 `guest`，默认 `all`）可选；init 把路由器当前的 `date +%z` 换算成 `timer.utc_offset` 写进服务配置（夏令时切换后要重新保存设置）。

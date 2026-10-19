@@ -65,6 +65,31 @@ function badge(text, cls) {
 	return E('span', { 'class': 'ifacebadge', 'style': cls ? 'background:' + cls : null }, text);
 }
 
+/*
+ * A table section whose edit dialog says why it does not close. LuCI saves the
+ * dialog silently and drops the error, so a missing required field only shows
+ * as a red frame, often on a field that is out of sight.
+ */
+var ReportingGridSection = form.GridSection.extend({
+	handleModalSave: function(modalMap, ev) {
+		var self = this, args = arguments;
+		var mapNode = this.getActiveModalMap();
+		var activeMap = dom.findClassInstance(mapNode);
+
+		return activeMap.parse().then(function() {
+			return self.super('handleModalSave', args);
+		}).catch(function(e) {
+			var box = mapNode.querySelector('.zte-mesh-modal-error');
+
+			if (!box) {
+				box = E('div', { 'class': 'alert-message warning zte-mesh-modal-error' });
+				mapNode.insertBefore(box, mapNode.firstChild);
+			}
+			dom.content(box, E('p', [ _('Not saved: '), e.message ]));
+		});
+	}
+});
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -240,13 +265,14 @@ return view.extend({
 		o.value('standard', _('Standard Multi-AP (tested)'));
 		o.value('zte', _('ZTE enhanced (experimental)'));
 		o.value('zte_compat', _('ZTE compatible with older routers (experimental)'));
-		o.default = 'standard';
+		o.default = 'zte_compat';
 		o.description = _('Standard mode speaks plain IEEE 1905 / Multi-AP and omits the ZTE vendor extensions.');
 
 		o = s.taboption('general', form.Value, 'bridge', _('LAN bridge'));
 		o.default = 'br-lan';
 		o.datatype = 'maxlength(15)';
 		o.rmempty = false;
+		o.description = _('The bridge the child routers are cabled to (up to 15 characters, default br-lan).');
 
 		o = s.taboption('general', form.ListValue, 'mesh_role', _('Device role'));
 		o.value('', _('Default (master)'));
@@ -261,10 +287,11 @@ return view.extend({
 
 		o = s.taboption('general', form.Flag, 'mlo_enable', _('Wi-Fi 7 MLO'));
 		o.optional = true;
-		o.description = _('Tell child routers whether multi-link operation is on. Only Wi-Fi 7 children act on it.');
+		o.default = '1';
+		o.description = _('Tell child routers whether multi-link operation is on (factory default: on). Only Wi-Fi 7 children act on it.');
 
 		o = s.taboption('wifi', form.Flag, 'wifi_dual_band_sync', _('Same name and password on both bands'));
-		o.default = '0';
+		o.default = '1';
 		o.rmempty = false;
 		o.description = _('On: the 5 GHz band uses the 2.4 GHz name and password. Off: the 5 GHz name is the 2.4 GHz name plus the suffix below unless a 5 GHz name is given.');
 
@@ -283,8 +310,11 @@ return view.extend({
 				o.rmempty = true;
 				o.depends('wifi_dual_band_sync', '0');
 				o.placeholder = _('2.4 GHz name + suffix');
+				o.description = _('1 to 31 characters. Empty: the 2.4 GHz name plus the suffix below.');
 			} else {
 				o.rmempty = false;
+				o.default = 'ImmortalWrt';
+				o.description = _('1 to 31 characters. Required.');
 			}
 
 			o = s.taboption('wifi', form.Value, id + '_key', _('%s password').format(label));
@@ -294,45 +324,57 @@ return view.extend({
 				o.rmempty = true;
 				o.depends('wifi_dual_band_sync', '0');
 				o.placeholder = _('Same as 2.4 GHz');
+				o.description = _('8 to 63 characters. Empty: the 2.4 GHz password.');
 			} else {
 				o.rmempty = false;
+				o.placeholder = _('8 to 63 characters');
+				o.description = _('8 to 63 characters. Required; there is no default password, and the controller does not start without one.');
 			}
 
 			if (five) {
 				o = s.taboption('wifi', form.Value, 'wifi_5g_suffix', _('5 GHz name suffix'));
 				o.datatype = 'and(minlength(1),maxlength(8))';
-				o.placeholder = '-5G';
+				o.default = '-5G';
 				o.optional = true;
 				o.depends('wifi_dual_band_sync', '0');
-				o.description = _('Appended to the 2.4 GHz name when no 5 GHz name is given (factory default -5G).');
+				o.description = _('1 to 8 characters, appended to the 2.4 GHz name when no 5 GHz name is given (factory default -5G). The whole name must stay within 31 characters.');
 			}
 
 			o = s.taboption('wifi', form.Flag, id + '_hidden', _('%s hidden network name').format(label));
 			o.optional = true;
+			o.default = '0';
 
 			o = s.taboption('wifi', form.ListValue, id + '_security', _('%s security').format(label));
-			o.value('', _('Default (WPA2)'));
 			o.value('psk2', 'WPA2-PSK');
 			o.value('psk-mixed', 'WPA/WPA2-PSK');
 			o.value('sae-mixed', 'WPA2/WPA3');
 			o.value('sae', 'WPA3');
 			o.value('none', _('None (open network)'));
+			o.default = five ? 'psk-mixed' : 'sae-mixed';
 			o.optional = true;
 			o.description = _('Child routers without WPA3 treat WPA2/WPA3 as WPA2 and ignore WPA3-only. "None" makes the main network open.');
 
 			o = s.taboption('wifi', form.Value, id + '_beacon_interval', _('%s beacon interval (ms)').format(label));
 			o.datatype = 'range(20,1000)';
-			o.placeholder = '100';
+			o.default = '100';
 			o.optional = true;
+			o.description = _('20 to 1000 ms, factory default 100. Changing it restarts the radio of the child routers for a few seconds.');
 
 			o = s.taboption('wifi', form.Value, id + '_channel', _('%s channel').format(label));
-			o.datatype = 'uinteger';
-			o.placeholder = _('Leave empty to keep the child routers\' setting; 0 = automatic');
+			o.datatype = five ? 'or(range(0,0),range(36,165))' : 'range(0,13)';
+			o.default = '0';
 			o.optional = true;
+			o.description = five
+				? _('0 = automatic (factory default). Fixed: 36, 40, 44, 48, 52 to 64, 100 to 144 and 149 to 165 in steps of 4. Empty: keep the child routers\' setting.')
+				: _('0 = automatic (factory default). Fixed: 1 to 13. Empty: keep the child routers\' setting.');
 
 			o = s.taboption('wifi', form.Value, id + '_tx_power', _('%s transmit power (dBm, EIRP)').format(label));
 			o.datatype = 'range(0,30)';
+			o.default = five ? '23' : '20';
 			o.optional = true;
+			o.description = five
+				? _('0 to 30 dBm. The child routers round it to one of five levels: above 21 is full power (factory default), 20 to 21, 16 to 19, 10 to 15, below 10. Empty: keep the child routers\' setting.')
+				: _('0 to 30 dBm. The child routers round it to one of five levels: above 19 is full power (factory default), 16 to 19, 12 to 15, 8 to 11, below 8. Empty: keep the child routers\' setting.');
 
 			o = s.taboption('wifi', form.ListValue, id + '_acl_policy', _('%s MAC filter policy').format(label));
 			o.value('', _('Keep the child routers\' setting'));
@@ -346,28 +388,37 @@ return view.extend({
 
 		o = s.taboption('policy', form.Flag, 'band_steer', _('Band steering'));
 		o.optional = true;
-		o.description = _('Move capable devices to the better band. The factory turns this off together with the dual-band switch; here it is a separate choice.');
+		o.default = '1';
+		o.description = _('Move capable devices to the better band (factory default: on while both bands share a name). The factory turns this off together with the dual-band switch; here it is a separate choice.');
 
 		o = s.taboption('policy', form.Value, 'band_steer_rssi_24g', _('Band steering threshold, 2.4 GHz (dBm)'));
 		o.datatype = 'range(-110,-30)';
+		o.default = '-60';
 		o.optional = true;
-		o.description = _('Both thresholds must be set together.');
+		o.description = _('-110 to -30 dBm, factory default -60. The controller\'s own decision threshold; set both bands or neither.');
 		o = s.taboption('policy', form.Value, 'band_steer_rssi_5g', _('Band steering threshold, 5 GHz (dBm)'));
 		o.datatype = 'range(-110,-30)';
+		o.default = '-110';
 		o.optional = true;
+		o.description = _('-110 to -30 dBm, factory default -110. Set both bands or neither.');
 
 		o = s.taboption('policy', form.Value, 'roam_rssi_24g', _('Roaming threshold, 2.4 GHz (dBm)'));
 		o.datatype = 'range(-110,-30)';
+		o.default = '-60';
 		o.optional = true;
-		o.description = _('Both thresholds must be set together. The values are sent to the child routers; some models ignore them.');
+		o.description = _('-110 to -30 dBm, factory default -60 (the factory page allows -110 to -40). A device weaker than this is moved to a better router. Sent to the child routers; some models, the Z506 among them, ignore it. Set both bands or neither.');
 		o = s.taboption('policy', form.Value, 'roam_rssi_5g', _('Roaming threshold, 5 GHz (dBm)'));
 		o.datatype = 'range(-110,-30)';
+		o.default = '-70';
 		o.optional = true;
+		o.description = _('-110 to -30 dBm, factory default -70. Set both bands or neither.');
 
 		o = s.taboption('policy', form.Flag, 'roam_force', _('Force roaming on weak signal'));
 		o.optional = true;
+		o.default = '0';
+		o.description = _('Kick devices that stay on a weak signal (factory default: off).');
 
-		var b = m.section(form.GridSection, 'zte_mesh_bss', _('Extra Wi-Fi networks'),
+		var b = m.section(ReportingGridSection, 'zte_mesh_bss', _('Extra Wi-Fi networks'),
 			_('Guest, spare and hidden backhaul networks of the child routers. The slots of one band must be 1, 2, 3 in order without a gap: removing slot 1 while slot 2 exists is refused. Adding or removing a slot makes the child routers drop out of the topology for up to a minute; switching one on or off does not.'));
 		b.addremove = true;
 		b.anonymous = true;
@@ -376,12 +427,14 @@ return view.extend({
 		o = b.option(form.ListValue, 'band', _('Band'));
 		o.value('24g', '2.4 GHz');
 		o.value('5g', '5 GHz');
+		o.default = '24g';
 		o.rmempty = false;
 
 		o = b.option(form.ListValue, 'slot', _('Slot'));
 		o.value('1', _('1 (guest)'));
 		o.value('2', _('2 (spare)'));
 		o.value('3', _('3 (hidden backhaul)'));
+		o.default = '1';
 		o.rmempty = false;
 
 		o = b.option(form.Flag, 'enabled', _('Enabled'));
@@ -391,24 +444,28 @@ return view.extend({
 		o = b.option(form.Value, 'ssid', _('Network name (SSID)'));
 		o.datatype = 'and(minlength(1),maxlength(31))';
 		o.rmempty = false;
+		o.placeholder = _('1 to 31 characters');
+		o.description = _('1 to 31 characters. Required.');
 
 		o = b.option(form.Value, 'key', _('Password'));
 		o.password = true;
 		o.datatype = 'and(minlength(8),maxlength(63))';
 		o.rmempty = false;
 		o.modalonly = true;
+		o.placeholder = _('8 to 63 characters');
+		o.description = _('8 to 63 characters. Required, also for an open network (it is kept for when security is switched on).');
 
 		o = b.option(form.Flag, 'hidden', _('Hidden network name'));
 		o.optional = true;
 		o.modalonly = true;
 
 		o = b.option(form.ListValue, 'security', _('Security'));
-		o.value('', _('Default (WPA2)'));
 		o.value('psk2', 'WPA2-PSK');
 		o.value('psk-mixed', 'WPA/WPA2-PSK');
 		o.value('sae-mixed', 'WPA2/WPA3');
 		o.value('sae', 'WPA3');
 		o.value('none', _('None (open network)'));
+		o.default = 'psk2';
 		o.optional = true;
 		o.modalonly = true;
 
@@ -416,7 +473,8 @@ return view.extend({
 		o.datatype = 'range(1,10080)';
 		o.optional = true;
 		o.modalonly = true;
-		o.description = _('Guest time limit: the network is switched off this long after it came on. Switching it off and on again, or changing this value, restarts the countdown. Not kept across a controller restart.');
+		o.placeholder = _('Empty: no time limit');
+		o.description = _('1 to 10080 minutes (7 days); empty = no time limit. Guest time limit: the network is switched off this long after it came on. Switching it off and on again, or changing this value, restarts the countdown. Not kept across a controller restart.');
 
 		o = b.option(form.Flag, 'force_wifi5', _('Wi-Fi 5 compatible network'));
 		o.optional = true;
@@ -431,7 +489,7 @@ return view.extend({
 		o.optional = true;
 		o.modalonly = true;
 
-		var nm = m.section(form.GridSection, 'zte_mesh_node', _('Router names'),
+		var nm = m.section(ReportingGridSection, 'zte_mesh_node', _('Router names'),
 			_('Names for child routers, shown in the list above instead of the name the router reports. They are kept on this router only; the child routers keep their own names.'));
 		nm.addremove = true;
 		nm.anonymous = true;
@@ -440,12 +498,15 @@ return view.extend({
 		o = nm.option(form.Value, 'mac', _('MAC address'));
 		o.datatype = 'macaddr';
 		o.rmempty = false;
+		o.placeholder = 'aa:bb:cc:dd:ee:ff';
+		o.description = _('The MAC address shown for the router in the list above.');
 
 		o = nm.option(form.Value, 'name', _('Name'));
 		o.datatype = 'and(minlength(1),maxlength(63))';
 		o.rmempty = false;
+		o.description = _('1 to 63 characters.');
 
-		var t = m.section(form.GridSection, 'zte_mesh_timer', _('Wi-Fi schedule'),
+		var t = m.section(ReportingGridSection, 'zte_mesh_timer', _('Wi-Fi schedule'),
 			_('Switch Wi-Fi off during these windows on every child router. "All Wi-Fi" turns off the main networks and the guest and spare networks (the hidden backhaul network stays on); "Guest network" turns off guest network 1 only. A window that ends before it starts runs past midnight. Times are in the router\'s time zone (the zone in effect when the settings were saved).'));
 		t.addremove = true;
 		t.anonymous = true;
@@ -456,14 +517,16 @@ return view.extend({
 		}
 
 		o = t.option(form.Value, 'start', _('Off from'));
-		o.placeholder = '23:00';
+		o.default = '23:00';
 		o.rmempty = false;
 		o.validate = timeOfDay;
+		o.description = _('HH:MM, 00:00 to 23:59.');
 
 		o = t.option(form.Value, 'end', _('Back on at'));
-		o.placeholder = '07:00';
+		o.default = '07:00';
 		o.rmempty = false;
 		o.validate = timeOfDay;
+		o.description = _('HH:MM, 00:00 to 23:59. Earlier than the start: the window runs past midnight.');
 
 		o = t.option(form.MultiValue, 'days', _('On the days that start on'));
 		o.value('mon', _('Mon'));
@@ -481,7 +544,7 @@ return view.extend({
 		o.value('guest', _('Guest network'));
 		o.default = 'all';
 
-		var a = m.section(form.GridSection, 'zte_mesh_acl', _('MAC filter list'),
+		var a = m.section(ReportingGridSection, 'zte_mesh_acl', _('MAC filter list'),
 			_('Up to 16 devices. A rule applies to the main network of the chosen band or to one of its extra networks; the policy above decides whether listed devices are blocked or the only ones allowed.'));
 		a.addremove = true;
 		a.anonymous = true;
@@ -490,10 +553,13 @@ return view.extend({
 		o = a.option(form.Value, 'mac', _('MAC address'));
 		o.datatype = 'macaddr';
 		o.rmempty = false;
+		o.placeholder = 'aa:bb:cc:dd:ee:ff';
+		o.description = _('The address the device uses now: phones often use a private MAC per network.');
 
 		o = a.option(form.Value, 'name', _('Name'));
 		o.datatype = 'maxlength(20)';
 		o.optional = true;
+		o.description = _('Up to 20 characters: letters, digits and _ . -. Empty: acl1, acl2 and so on.');
 		o.validate = function(section_id, value) {
 			if (value === '' || /^[A-Za-z0-9_.-]+$/.test(value))
 				return true;

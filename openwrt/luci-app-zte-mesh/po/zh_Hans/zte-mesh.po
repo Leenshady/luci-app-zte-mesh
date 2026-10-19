@@ -177,9 +177,6 @@ msgstr "严格检查邻居是否为市场码相同的中兴设备。切换会重
 msgid "Wi-Fi 7 MLO"
 msgstr "Wi-Fi 7 MLO"
 
-msgid "Tell child routers whether multi-link operation is on. Only Wi-Fi 7 children act on it."
-msgstr "告诉子路由器是否开启多链路操作。只有 Wi-Fi 7 子路由器会响应。"
-
 msgid "Same name and password on both bands"
 msgstr "双频使用相同的名称和密码"
 
@@ -198,17 +195,11 @@ msgstr "与 2.4 GHz 相同"
 msgid "5 GHz name suffix"
 msgstr "5 GHz 名称后缀"
 
-msgid "Appended to the 2.4 GHz name when no 5 GHz name is given (factory default -5G)."
-msgstr "没有填 5 GHz 名称时附加在 2.4 GHz 名称后面(原厂默认 -5G)。"
-
 msgid "%s hidden network name"
 msgstr "%s 隐藏网络名称"
 
 msgid "%s security"
 msgstr "%s 加密方式"
-
-msgid "Default (WPA2)"
-msgstr "默认(WPA2)"
 
 msgid "None (open network)"
 msgstr "无(开放网络)"
@@ -221,9 +212,6 @@ msgstr "%s 信标间隔(毫秒)"
 
 msgid "%s channel"
 msgstr "%s 信道"
-
-msgid "Leave empty to keep the child routers' setting; 0 = automatic"
-msgstr "留空 = 保持子路由器现有设置;0 = 自动"
 
 msgid "%s transmit power (dBm, EIRP)"
 msgstr "%s 发射功率(dBm,EIRP)"
@@ -246,23 +234,14 @@ msgstr "只允许列表中的设备"
 msgid "Band steering"
 msgstr "频段引导"
 
-msgid "Move capable devices to the better band. The factory turns this off together with the dual-band switch; here it is a separate choice."
-msgstr "把支持的设备引导到更合适的频段。原厂在关闭双频合一时会一并关掉它;这里是单独的选项。"
-
 msgid "Band steering threshold, 2.4 GHz (dBm)"
 msgstr "频段引导阈值,2.4 GHz(dBm)"
-
-msgid "Both thresholds must be set together."
-msgstr "两个阈值必须同时设置。"
 
 msgid "Band steering threshold, 5 GHz (dBm)"
 msgstr "频段引导阈值,5 GHz(dBm)"
 
 msgid "Roaming threshold, 2.4 GHz (dBm)"
 msgstr "漫游阈值,2.4 GHz(dBm)"
-
-msgid "Both thresholds must be set together. The values are sent to the child routers; some models ignore them."
-msgstr "两个阈值必须同时设置。数值会发给子路由器,部分型号会忽略。"
 
 msgid "Roaming threshold, 5 GHz (dBm)"
 msgstr "漫游阈值,5 GHz(dBm)"
@@ -390,9 +369,6 @@ msgstr "关灯"
 msgid "Switch off after (minutes)"
 msgstr "多少分钟后关闭"
 
-msgid "Guest time limit: the network is switched off this long after it came on. Switching it off and on again, or changing this value, restarts the countdown. Not kept across a controller restart."
-msgstr "访客限时:网络开启后经过这么久会被关闭。把它关掉再打开,或改动这个值,会重新计时。主控重启后不保留。"
-
 msgid "Wi-Fi 5 compatible network"
 msgstr "Wi-Fi 5 兼容网络"
 
@@ -461,3 +437,93 @@ msgstr "路由器名称"
 
 msgid "Names for child routers, shown in the list above instead of the name the router reports. They are kept on this router only; the child routers keep their own names."
 msgstr "给子路由器起的名称,显示在上面的列表里,代替路由器自己报的名称。只保存在本路由器上,子路由器保留自己的名称。"
+
+msgid "Not saved: "
+msgstr "未保存："
+
+msgid "The bridge the child routers are cabled to (up to 15 characters, default br-lan)."
+msgstr "子路由器所连的网桥（最多 15 个字符，默认 br-lan）。"
+
+msgid "Tell child routers whether multi-link operation is on (factory default: on). Only Wi-Fi 7 children act on it."
+msgstr "告诉子路由器是否开启多链路（出厂默认：开）。只有 Wi-Fi 7 子路由器会响应。"
+
+msgid "1 to 31 characters. Empty: the 2.4 GHz name plus the suffix below."
+msgstr "1 到 31 个字符。留空：2.4 GHz 名称加下面的后缀。"
+
+msgid "1 to 31 characters. Required."
+msgstr "1 到 31 个字符，必填。"
+
+msgid "8 to 63 characters. Empty: the 2.4 GHz password."
+msgstr "8 到 63 个字符。留空：与 2.4 GHz 密码相同。"
+
+msgid "8 to 63 characters"
+msgstr "8 到 63 个字符"
+
+msgid "8 to 63 characters. Required; there is no default password, and the controller does not start without one."
+msgstr "8 到 63 个字符，必填。没有默认密码，不填主控不会启动。"
+
+msgid "1 to 8 characters, appended to the 2.4 GHz name when no 5 GHz name is given (factory default -5G). The whole name must stay within 31 characters."
+msgstr "1 到 8 个字符，未填 5 GHz 名称时接在 2.4 GHz 名称后面（出厂默认 -5G）。拼出的名称不能超过 31 个字符。"
+
+msgid "20 to 1000 ms, factory default 100. Changing it restarts the radio of the child routers for a few seconds."
+msgstr "20 到 1000 毫秒，出厂默认 100。修改后子路由器的射频会重启几秒。"
+
+msgid "0 = automatic (factory default). Fixed: 36, 40, 44, 48, 52 to 64, 100 to 144 and 149 to 165 in steps of 4. Empty: keep the child routers' setting."
+msgstr "0 = 自动（出厂默认）。固定信道：36、40、44、48，52 到 64、100 到 144、149 到 165（每隔 4 一个）。留空：不改动子路由器现有设置。"
+
+msgid "0 = automatic (factory default). Fixed: 1 to 13. Empty: keep the child routers' setting."
+msgstr "0 = 自动（出厂默认）。固定信道：1 到 13。留空：不改动子路由器现有设置。"
+
+msgid "0 to 30 dBm. The child routers round it to one of five levels: above 21 is full power (factory default), 20 to 21, 16 to 19, 10 to 15, below 10. Empty: keep the child routers' setting."
+msgstr "0 到 30 dBm。子路由器按 5 档取整：大于 21 为最大功率（出厂默认），20–21、16–19、10–15、小于 10。留空：不改动子路由器现有设置。"
+
+msgid "0 to 30 dBm. The child routers round it to one of five levels: above 19 is full power (factory default), 16 to 19, 12 to 15, 8 to 11, below 8. Empty: keep the child routers' setting."
+msgstr "0 到 30 dBm。子路由器按 5 档取整：大于 19 为最大功率（出厂默认），16–19、12–15、8–11、小于 8。留空：不改动子路由器现有设置。"
+
+msgid "Move capable devices to the better band (factory default: on while both bands share a name). The factory turns this off together with the dual-band switch; here it is a separate choice."
+msgstr "把支持双频的设备引导到更合适的频段（出厂默认：双频合一时开启）。原厂关闭双频合一时会一并关掉它，这里可以单独选择。"
+
+msgid "-110 to -30 dBm, factory default -60. The controller's own decision threshold; set both bands or neither."
+msgstr "-110 到 -30 dBm，出厂默认 -60。这是主控自己的判断阈值；两个频段要么都填，要么都不填。"
+
+msgid "-110 to -30 dBm, factory default -110. Set both bands or neither."
+msgstr "-110 到 -30 dBm，出厂默认 -110。两个频段要么都填，要么都不填。"
+
+msgid "-110 to -30 dBm, factory default -60 (the factory page allows -110 to -40). A device weaker than this is moved to a better router. Sent to the child routers; some models, the Z506 among them, ignore it. Set both bands or neither."
+msgstr "-110 到 -30 dBm，出厂默认 -60（原厂页面允许 -110 到 -40）。信号弱于此值的设备会被转到更好的路由器。这个值发给子路由器，部分型号（包括 Z506）会忽略。两个频段要么都填，要么都不填。"
+
+msgid "-110 to -30 dBm, factory default -70. Set both bands or neither."
+msgstr "-110 到 -30 dBm，出厂默认 -70。两个频段要么都填，要么都不填。"
+
+msgid "Kick devices that stay on a weak signal (factory default: off)."
+msgstr "把一直停在弱信号上的设备踢下线，让它重新连接（出厂默认：关）。"
+
+msgid "1 to 31 characters"
+msgstr "1 到 31 个字符"
+
+msgid "8 to 63 characters. Required, also for an open network (it is kept for when security is switched on)."
+msgstr "8 到 63 个字符，必填；开放网络也要填（留到以后开启加密时使用）。"
+
+msgid "Empty: no time limit"
+msgstr "留空：不限时"
+
+msgid "1 to 10080 minutes (7 days); empty = no time limit. Guest time limit: the network is switched off this long after it came on. Switching it off and on again, or changing this value, restarts the countdown. Not kept across a controller restart."
+msgstr "1 到 10080 分钟（7 天）；留空 = 不限时。访客网络时限：开启后经过这么久自动关闭。关掉再打开或修改此值会重新计时。主控重启后不保留。"
+
+msgid "The MAC address shown for the router in the list above."
+msgstr "上方列表中这台路由器的 MAC 地址。"
+
+msgid "1 to 63 characters."
+msgstr "1 到 63 个字符。"
+
+msgid "HH:MM, 00:00 to 23:59."
+msgstr "HH:MM 格式，00:00 到 23:59。"
+
+msgid "HH:MM, 00:00 to 23:59. Earlier than the start: the window runs past midnight."
+msgstr "HH:MM 格式，00:00 到 23:59。早于开始时间表示跨过午夜。"
+
+msgid "The address the device uses now: phones often use a private MAC per network."
+msgstr "填设备当前使用的地址：手机常对每个网络使用不同的私有 MAC。"
+
+msgid "Up to 20 characters: letters, digits and _ . -. Empty: acl1, acl2 and so on."
+msgstr "最多 20 个字符：字母、数字和 _ . -。留空则为 acl1、acl2 等。"
