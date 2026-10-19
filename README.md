@@ -46,7 +46,7 @@ sh build.sh                                    # 从固件提取运行环境、�
 sh tools/build/container-make.sh test-host     # 只跑主机测试；改了某个产物：container-make.sh db-engine-probe
 sh tools/build/runtime.sh svctest              # 实验室用的 tmpfs 运行包 out/zte-mesh-svctest.tar.gz
 python3 dev-service-smoke.py --no-attach --seconds 24   # 路由器上完全私有地跑一次服务（不接 LAN）
-sh tools/build/runtime.sh install              # OpenWrt 包用的运行包 out/zte-mesh-runtime.tar.gz
+sh tools/build/runtime.sh install              # OpenWrt 包用的运行包 openwrt/zte-mesh/zte-mesh-runtime.tar.gz（随仓库提交）
 ```
 
 OpenWrt 包的构建、真子节点测试的规矩和命令见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。

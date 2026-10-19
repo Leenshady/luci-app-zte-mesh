@@ -5,6 +5,8 @@ __pycache__/
 *.i64
 *.apk
 *.tar.gz
+# the OpenWrt package builds from this committed runtime
+!/openwrt/zte-mesh/zte-mesh-runtime.tar.gz
 # private lab evidence: pcaps, raw DB dumps, logs that may carry WSC/key material
 /evidence/
 *.pcap

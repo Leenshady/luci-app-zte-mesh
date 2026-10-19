@@ -21,7 +21,7 @@
 | `sh build.sh` | 完整流程：从固件提取并审计运行环境（`prepare.py`，需要 `unsquashfs`）、核对表结构证据、建镜像、`make all database controller test-host`、离线加载测试 |
 | `sh tools/build/container-make.sh <目标>...` | 在容器里编指定产物（`db-engine-probe`、`zte-meshctl`、`ns-run`、`runtime/lib/libzte_controller_trace.so` 等）或跑 `test-host`、`controller`。会先在容器里删掉旧产物，保留 make 的退出码 |
 | `sh tools/build/runtime.sh svctest` | 实验室运行包 `out/zte-mesh-svctest.tar.gz`（启动器的根是 `/tmp/zte-mesh-svc/root`，路由器上只写 tmpfs） |
-| `sh tools/build/runtime.sh install` | OpenWrt 包用的运行包 `out/zte-mesh-runtime.tar.gz`（根是 `/usr/lib/zte-mesh/root`） |
+| `sh tools/build/runtime.sh install` | OpenWrt 包用的运行包 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz`（随仓库提交；根是 `/usr/lib/zte-mesh/root`） |
 
 - 原厂固件镜像默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，`SR1010_VENDOR_ROOTFS` 可以改。重复准备会核对已有文件的哈希，不静默替换。
 - **在 mac 上不要原地覆盖源码文件再编译**：容器经 virtiofs 读源码，原地变短的文件会报 `is shorter than expected`，变长的可能编出新旧混合的东西。
@@ -104,23 +104,23 @@
 **打包**：
 
 ```sh
-# mac：生成运行包（含原厂二进制，不在 feed 里）
-sh tools/build/runtime.sh install                       # -> out/zte-mesh-runtime.tar.gz
+# mac：重新生成运行包（含原厂二进制，随 feed 提交）
+sh tools/build/runtime.sh install                       # -> openwrt/zte-mesh/zte-mesh-runtime.tar.gz，提交它
 # 构建机
+git -C ~/workspace/zte-mesh pull
 cd ~/workspace/immortalwrt
 ./scripts/feeds update zte_mesh
 ./scripts/feeds install -a -p zte_mesh                  # -> package/feeds/zte_mesh/{zte-mesh,luci-app-zte-mesh}
-cp zte-mesh-runtime.tar.gz dl/                          # 从 mac 拷来，用完删掉
 # .config 里加 CONFIG_PACKAGE_zte-mesh=m、CONFIG_PACKAGE_luci-app-zte-mesh=m、CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=m，再 make defconfig
 make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/luci-app-zte-mesh/compile
 # 产物：bin/targets/zte/zx279133/packages/zte-mesh-*.apk（nonshared，按目标放），
 #       bin/packages/aarch64_cortex-a53/zte_mesh/luci-*zte-mesh*.apk（按 feed 名放）
 ```
 
-- `dl/zte-mesh-runtime.tar.gz` 不在时，选了这些包的整树编译会在 `zte-mesh` 解包这一步失败。不编这些包时就别在 `.config` 里选它们。
+- 包直接解包同目录下提交的 `zte-mesh-runtime.tar.gz`，不需要往 `dl/` 里放东西；`ZTE_MESH_RUNTIME=` 可以指向别的运行包。
 - 大小：`zte-mesh` 4.1 MB（装上后占 jffs2 约 4.9 MB，解压约 8 MB，大头是原厂库），LuCI 和中文包合计约 11 KB。
 - 包没签名：`apk add --allow-untrusted`。卸载：`apk del luci-i18n-zte-mesh-zh-cn luci-app-zte-mesh zte-mesh`。
-- 运行包含原厂二进制，`zte-mesh` 是 `PKG_FLAGS:=nonshared` 的私有包，不进公开的软件源。
+- 运行包含原厂二进制，随这个公开仓库一起发布（2026-10-19 决定）。`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享的软件源。
 
 **版本控制**：仓库在 GitHub `cnjn/zte-mesh`；mac 上的 `/Volumes/code/zte-mesh` 是主要工作副本，构建机的 `~/workspace/zte-mesh` 是 feed 用的克隆。
 `out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。

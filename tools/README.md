@@ -8,7 +8,7 @@ passed as files that stay outside the repository. Unless noted, run them on the 
 | Script | What it does |
 |---|---|
 | `container-make.sh TARGET...` | Runs make targets in the offline builder container (`sr1010-mesh-shim-builder`): artifacts relative to `out/` (deleted inside the container first, see docs/DEVELOPMENT.md section 2) or `all`, `database`, `controller`, `test-host`. Keeps make's exit status. |
-| `runtime.sh install\|svctest` | Builds the matching launcher and packs `out/zte-mesh-runtime.tar.gz` (OpenWrt package, root `/usr/lib/zte-mesh/root`) or `out/zte-mesh-svctest.tar.gz` (tmpfs lab runs, root `/tmp/zte-mesh-svc/root`). |
+| `runtime.sh install\|svctest` | Builds the matching launcher and packs `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` (OpenWrt package, committed; root `/usr/lib/zte-mesh/root`) or `out/zte-mesh-svctest.tar.gz` (tmpfs lab runs, root `/tmp/zte-mesh-svc/root`). |
 
 ## capture/ (vendor study and real-child replay)
 

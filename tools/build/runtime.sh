@@ -1,6 +1,7 @@
 #!/bin/sh
 # Pack the audited vendor runtime + launcher (on the mac, after build.sh or container-make.sh).
-#   install  out/zte-mesh-runtime.tar.gz  for the OpenWrt package (ns-run for /usr/lib/zte-mesh/root)
+#   install  openwrt/zte-mesh/zte-mesh-runtime.tar.gz  for the OpenWrt package, committed with it
+#            (ns-run for /usr/lib/zte-mesh/root)
 #   svctest  out/zte-mesh-svctest.tar.gz  for the tmpfs lab tools (dev-*.py, tools/capture/mreplay.py)
 set -eu
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -9,7 +10,7 @@ case "${1:-}" in
 install)
 	sh "$REPO/tools/build/container-make.sh" ns-run
 	python3 "$REPO/openwrt/make-runtime.py" --output "$OUT" --ns-run "$OUT/ns-run" \
-		--archive "$OUT/zte-mesh-runtime.tar.gz" ;;
+		--archive "$REPO/openwrt/zte-mesh/zte-mesh-runtime.tar.gz" ;;
 svctest)
 	sh "$REPO/tools/build/container-make.sh" ns-run-svctest
 	python3 "$REPO/openwrt/make-runtime.py" --output "$OUT" --ns-run "$OUT/ns-run-svctest" \

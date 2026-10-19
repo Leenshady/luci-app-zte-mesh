@@ -1,17 +1,16 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# The ZTE multiapd Controller runtime for the SR1010. The vendor binaries are
-# NOT part of this repository: build the runtime tarball with
-#   sh tools/build/runtime.sh install      (in the sr1010-mesh repository; writes
-#   out/zte-mesh-runtime.tar.gz with an ns-run for /usr/lib/zte-mesh/root) and
-# point ZTE_MESH_RUNTIME at it (default: $(TOPDIR)/dl/zte-mesh-runtime.tar.gz).
+# The ZTE multiapd Controller runtime for the SR1010. The runtime tarball with
+# the vendor binaries and an ns-run for /usr/lib/zte-mesh/root is committed next
+# to this Makefile; regenerate it with `sh tools/build/runtime.sh install`.
+# ZTE_MESH_RUNTIME can point at another one.
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zte-mesh
 PKG_VERSION:=0.1.0
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-2.0-only
-# The tarball carries proprietary ARM32 vendor code that is kept private.
+# The tarball carries proprietary ARM32 vendor code; keep it out of shared builds.
 PKG_FLAGS:=nonshared
 
 include $(INCLUDE_DIR)/package.mk
@@ -34,7 +33,7 @@ define Package/zte-mesh/conffiles
 /etc/config/zte_mesh
 endef
 
-ZTE_MESH_RUNTIME ?= $(TOPDIR)/dl/zte-mesh-runtime.tar.gz
+ZTE_MESH_RUNTIME ?= $(CURDIR)/zte-mesh-runtime.tar.gz
 
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
