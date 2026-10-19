@@ -53,9 +53,9 @@ function normMac(mac) {
 	return (mac || '').toLowerCase();
 }
 
-/* Node 1905 AL MAC -> IPv4 address, using whatever the router has learned. */
+/* Node 1905 AL MAC -> IPv4 address, using whatever the router has learned (luci-rpc keys its hosts by upper-case MAC). */
 function lookupAddress(hints, mac) {
-	var host = hints && hints.hosts ? hints.hosts[normMac(mac)] : null;
+	var host = hints && hints.hosts ? hints.hosts[(mac || '').toUpperCase()] : null;
 	if (host && host.ipaddrs && host.ipaddrs.length)
 		return host.ipaddrs[0];
 	return null;
