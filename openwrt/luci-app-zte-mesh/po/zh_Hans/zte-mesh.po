@@ -441,8 +441,8 @@ msgstr "8 到 63 个字符。留空：与 2.4 GHz 密码相同。"
 msgid "8 to 63 characters"
 msgstr "8 到 63 个字符"
 
-msgid "8 to 63 characters. Required; there is no default password, and the controller does not start without one."
-msgstr "8 到 63 个字符，必填。没有默认密码，不填主控不会启动。"
+msgid "8 to 63 characters, default 00000000. Required: the controller does not start without one."
+msgstr "8 到 63 个字符，默认 00000000。必填：不填主控不会启动。"
 
 msgid "1 to 8 characters, appended to the 2.4 GHz name when no 5 GHz name is given (factory default -5G). The whole name must stay within 31 characters."
 msgstr "1 到 8 个字符，未填 5 GHz 名称时接在 2.4 GHz 名称后面（出厂默认 -5G）。拼出的名称不能超过 31 个字符。"

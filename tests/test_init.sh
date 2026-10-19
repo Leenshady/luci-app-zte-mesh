@@ -15,14 +15,17 @@ date() { printf '%s\n' "${STUB_TZ:-+0000}"; }
 config_load() {
 	SECS=""; local line cur="" n=0 k v t
 	while IFS= read -r line; do
+		line=${line#"${line%%[![:space:]]*}"}
 		case "$line" in
-		\#*|[[:space:]]*\#*) ;;
+		\#*) ;;
 		config\ *)
 			set -- $line; t=$2; cur=${3:-}; cur=${cur#\'}; cur=${cur%\'}
 			[ -n "$cur" ] || { n=$((n + 1)); cur=cfg$n; }
 			SECS="$SECS $cur"; eval "T_$cur=\$t" ;;
-		*option\ *)
-			line=${line#*option }; k=${line%% *}; v=${line#* }; v=${v#\'}; v=${v%\'}
+		option\ *)
+			line=${line#option }; k=${line%% *}; v=${line#* }
+			# like libuci: a quoted value ends at its closing quote, an unquoted '#' starts a comment
+			case "$v" in \'*) v=${v#\'}; v=${v%%\'*} ;; *) v=${v%%[[:space:]#]*} ;; esac
 			eval "V_${cur}_$k=\$v" ;;
 		esac
 	done < "$UCI"
@@ -84,23 +87,62 @@ radio1.key=password-5g"
 [ "$(cat "$RUNDIR/version_mode.host")" = 128 ] || { echo "FAIL legacy: version_mode.host"; fail=$((fail + 1)); }
 [ "$(cat "$RUNDIR/restart.sig")" = "128 " ] || { echo "FAIL legacy: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 
-# 1b. the shipped template, with only the 2.4 GHz name and key filled in: bands synchronised (the factory baseline), so the
-# empty 5 GHz name does not rename the child's 5 GHz network
+# 1b. the shipped template as it is (default name ImmortalWrt, default password 00000000): bands synchronised (the
+# factory baseline), so the 5 GHz band takes the 2.4 GHz name, key and security and the child's 5 GHz network is not renamed
 TEMPLATE=$(dirname "$INIT")/zte-mesh.config
-UCI_TEXT=$(sed -e "s/option wifi_24g_ssid ''/option wifi_24g_ssid 'home'/" -e "s/option wifi_24g_key ''/option wifi_24g_key 'password-24'/" "$TEMPLATE")
+UCI_TEXT=$(cat "$TEMPLATE")
 run template 0 "version_mode=128
 radio0.enabled=1
-radio0.ssid=home
-radio0.key=password-24
+radio0.ssid=ImmortalWrt
+radio0.key=00000000
+radio0.hidden=0
+radio0.beacon_type=12
+radio0.beacon_interval=100
+radio0.channel=0
+radio0.tx_power=20
 radio1.enabled=1
-wifi.dual_band_sync=1"
-# the same template without the sync line: an empty 5 GHz name is derived (not refused), which renames the 5 GHz network
+radio1.hidden=0
+radio1.beacon_type=12
+radio1.beacon_interval=100
+radio1.channel=0
+radio1.tx_power=23
+wifi.dual_band_sync=1
+wifi.essid_suffix=-5G
+mesh.v2=0
+mlo.enable=1
+band_steer.enabled=1
+roam.force=0
+band_steer.rssi24=-60
+band_steer.rssi5=-110
+roam.rssi24=-60
+roam.rssi5=-70"
+# the same template without the sync line: an empty 5 GHz name is derived (not refused), which renames the 5 GHz network,
+# and the 5 GHz band keeps its own security
 UCI_TEXT=$(printf '%s\n' "$UCI_TEXT" | grep -v wifi_dual_band_sync)
 run template-no-sync 0 "version_mode=128
 radio0.enabled=1
-radio0.ssid=home
-radio0.key=password-24
-radio1.enabled=1"
+radio0.ssid=ImmortalWrt
+radio0.key=00000000
+radio0.hidden=0
+radio0.beacon_type=12
+radio0.beacon_interval=100
+radio0.channel=0
+radio0.tx_power=20
+radio1.enabled=1
+radio1.hidden=0
+radio1.beacon_type=6
+radio1.beacon_interval=100
+radio1.channel=0
+radio1.tx_power=23
+wifi.essid_suffix=-5G
+mesh.v2=0
+mlo.enable=1
+band_steer.enabled=1
+roam.force=0
+band_steer.rssi24=-60
+band_steer.rssi5=-110
+roam.rssi24=-60
+roam.rssi5=-70"
 
 # 2. OpenWrt spellings of booleans; without a mode option the VersionMode is the fixed 128 as well
 UCI_TEXT="config zte_mesh 'main'

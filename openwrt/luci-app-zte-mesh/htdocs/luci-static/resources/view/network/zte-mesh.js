@@ -257,6 +257,7 @@ return view.extend({
 		s.tab('policy', _('Roaming and steering'));
 
 		o = s.taboption('general', form.Flag, 'enabled', _('Enable'));
+		o.default = '1';
 		o.rmempty = false;
 
 		o = s.taboption('general', form.Value, 'bridge', _('LAN bridge'));
@@ -319,8 +320,9 @@ return view.extend({
 				o.description = _('8 to 63 characters. Empty: the 2.4 GHz password.');
 			} else {
 				o.rmempty = false;
+				o.default = '00000000';
 				o.placeholder = _('8 to 63 characters');
-				o.description = _('8 to 63 characters. Required; there is no default password, and the controller does not start without one.');
+				o.description = _('8 to 63 characters, default 00000000. Required: the controller does not start without one.');
 			}
 
 			if (five) {

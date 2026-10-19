@@ -130,7 +130,7 @@
 包里的默认配置（2026-10-19 起）把能取出厂值的选项都写上，LuCI 也显示同样的默认值，并在每项下面写明范围：`mesh_v2=0`（自组网关）、
 `mlo_enable=1`、`wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、
 信标 100 ms、信道 0（自动）、功率 2.4G 20 dBm / 5G 23 dBm（子节点都取最大档，即出厂值）、`band_steer=1`、引导阈值 -60/-110、
-漫游阈值 -60/-70、`roam_force=0`（出厂值见 `multiap_domain.def`）。`wifi_24g_key` 没有默认值，不填服务不启动。
+漫游阈值 -60/-70、`roam_force=0`（出厂值见 `multiap_domain.def`）。`enabled=1`（默认启用）、`wifi_24g_key=00000000`（默认密码；清空则服务不启动）。
 要让子路由保持自己的信道、功率，删掉对应选项（LuCI 里清空）。LuCI 列表区段的编辑框保存失败时会在框内写明原因（LuCI 自带的实现静默吞掉校验错误）。
 
 `config zte_mesh_bss`（可有多段）= 额外 SSID 槽位：`band`（24g/5g）、`slot`（1 到 3）、`enabled`、`ssid`、`key` 必填，`hidden`、`security`、`acl_policy` 可选。
