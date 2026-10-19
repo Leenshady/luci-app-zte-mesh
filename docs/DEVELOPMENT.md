@@ -94,7 +94,7 @@
 ## 8. OpenWrt 包与版本控制
 
 **feed**：本仓库是 ImmortalWrt 的一个 feed，包在 `openwrt/` 下（`zte-mesh`、`luci-app-zte-mesh`，中文翻译包 `luci-i18n-zte-mesh-zh-cn`
-由 `luci.mk` 自动生成）。构建机的 ImmortalWrt 树（25.12，目标 `zte/zx279133`，apk 包管理，分支 `sr1010-dualboot`）里登记了两处：
+由 `luci.mk` 自动生成）。构建机的 ImmortalWrt 树（25.12，目标 `zte/zx279133`，apk 包管理，分支 `sr1010-zx279133`）里登记了两处：
 
 | 文件 | 内容 | 用途 |
 |---|---|---|
