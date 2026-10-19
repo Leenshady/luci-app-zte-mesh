@@ -56,11 +56,10 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	                 zte_mesh_acl: new Set(['mac', 'name', 'band', 'bss']), zte_mesh_timer: new Set(['start', 'end', 'days', 'scope']), zte_mesh_node: new Set(['mac', 'name']) };
 	const block = text.slice(text.indexOf('# 8. every optional main option'), text.indexOf('run all-options'));
 	for (const m of block.matchAll(/^\toption (\w+) '/gm)) wanted.zte_mesh.add(m[1]);
-	for (const m of text.matchAll(/option (wifi_5g_ssid|wifi_5g_key|wifi_5g_suffix|wifi_dual_band_sync|wifi_24g_ssid|wifi_24g_key|wifi_5g_enabled|wifi_24g_enabled|mode|enabled|bridge) /g)) wanted.zte_mesh.add(m[1]);
+	for (const m of text.matchAll(/option (wifi_5g_ssid|wifi_5g_key|wifi_5g_suffix|wifi_dual_band_sync|wifi_24g_ssid|wifi_24g_key|wifi_5g_enabled|wifi_24g_enabled|enabled|bridge) /g)) wanted.zte_mesh.add(m[1]);
 	let bad = 0;
 	for (const [type, set] of Object.entries(wanted)) {
 		for (const name of set) {
-			if (type === 'zte_mesh' && ['mode'].includes(name)) { if (!registered.zte_mesh[name]) { console.log('missing', type, name); bad++; } continue; }
 			if (!registered[type] || !registered[type][name]) { console.log('LuCI form lacks', type, name); bad++; }
 		}
 	}

@@ -19,16 +19,11 @@ service_triggers() {
 	procd_add_reload_trigger zte_mesh
 }
 
-# Map the UCI mode to the vendor VersionMode bit mask (bit1 = no ZTE TLVs). The factory baseline is
-# 128: bit7 adds the Wi-Fi 7 MLD TLVs (0xdd, 0xe0) and nothing else (replay runs 15/16). Not applied
-# to "standard" until that mode has been run against a child with bit7 set.
-version_mode() {
-	case "$1" in
-	zte) echo 128 ;;
-	zte_compat) echo 129 ;;
-	*) echo 2 ;;
-	esac
-}
+# The controller's VersionMode bit mask, fixed at the SR1010 factory value 128: ZTE vendor TLVs on (bit1 clear),
+# bit7 adds the Wi-Fi 7 MLD TLVs (0xdd, 0xe0) and nothing else (replay runs 15/16). A child applies an M2 in the
+# controller's mode. The factory UI has no setting for it; its one mesh switch is the self-organizing network
+# (mesh_v2). The old UCI option 'mode' is ignored.
+VERSION_MODE=128
 
 # ---- UCI input checks -------------------------------------------------------------------------
 # The service validates its configuration file again and rejects the whole file on any bad line;
@@ -100,18 +95,22 @@ emit() { printf '%s=%s\n' "$1" "$2" >> "$CFG_TMP"; }
 # band_name RADIO -> the UCI spelling of the band
 band_name() { [ "$1" = 0 ] && echo 24g || echo 5g; }
 
-# Optional per-band options of the main section. $1 = radio (0/1). Returns non-zero (after logging) on a bad value.
+# Optional per-band options of the main section. $1 = radio (0/1), $2 = 1 when the bands are synchronised: the 5 GHz
+# radio then takes the hidden flag, security and MAC filter policy of the 2.4 GHz band, as it takes its name and key.
+# Returns non-zero (after logging) on a bad value.
 emit_band_options() {
-	local radio="$1" b v code
+	local radio="$1" b s v code
 	b=$(band_name "$radio")
-	config_get v main "wifi_${b}_hidden" ""
+	s=$b
+	[ "$2" = 1 ] && s=24g
+	config_get v main "wifi_${s}_hidden" ""
 	if [ -n "$v" ]; then
-		v=$(bool01 "$v") || { bad "wifi_${b}_hidden must be 0 or 1"; return 1; }
+		v=$(bool01 "$v") || { bad "wifi_${s}_hidden must be 0 or 1"; return 1; }
 		emit "radio$radio.hidden" "$v"
 	fi
-	config_get v main "wifi_${b}_security" ""
+	config_get v main "wifi_${s}_security" ""
 	if [ -n "$v" ]; then
-		code=$(security_code "$v") || { bad "wifi_${b}_security must be none, psk2, psk-mixed, sae or sae-mixed"; return 1; }
+		code=$(security_code "$v") || { bad "wifi_${s}_security must be none, psk2, psk-mixed, sae or sae-mixed"; return 1; }
 		emit "radio$radio.beacon_type" "$code"
 	fi
 	config_get v main "wifi_${b}_beacon_interval" ""
@@ -129,9 +128,9 @@ emit_band_options() {
 		is_int "$v" 0 30 || { bad "wifi_${b}_tx_power must be 0..30 (dBm)"; return 1; }
 		emit "radio$radio.tx_power" "$v"
 	fi
-	config_get v main "wifi_${b}_acl_policy" ""
+	config_get v main "wifi_${s}_acl_policy" ""
 	if [ -n "$v" ]; then
-		case "$v" in disabled|ban|allow) ;; *) bad "wifi_${b}_acl_policy must be disabled, ban or allow"; return 1 ;; esac
+		case "$v" in disabled|ban|allow) ;; *) bad "wifi_${s}_acl_policy must be disabled, ban or allow"; return 1 ;; esac
 		emit "radio$radio.acl_policy" "$v"
 	fi
 }
@@ -270,9 +269,8 @@ timer_section() {
 
 # Writes $RUNDIR/config atomically (0600). Returns non-zero when incomplete or invalid.
 write_config() {
-	local mode e0 s0 k0 e1 s1 k1 sync suffix v radio key a b
+	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b
 	config_load zte_mesh
-	config_get mode main mode standard
 	config_get e0 main wifi_24g_enabled 1
 	config_get s0 main wifi_24g_ssid ""
 	config_get k0 main wifi_24g_key ""
@@ -313,7 +311,7 @@ write_config() {
 	( umask 077; : > "$CFG_TMP" ) || return 1
 	BSS_SEEN="" BSS_FAIL="" ACL_COUNT=0 ACL_FAIL="" TIMER_COUNT=0 TIMER_FAIL=""
 
-	emit version_mode "$(version_mode "$mode")"
+	emit version_mode "$VERSION_MODE"
 	emit radio0.enabled "$e0"
 	emit radio0.ssid "$s0"
 	emit radio0.key "$k0"
@@ -323,7 +321,7 @@ write_config() {
 		[ -n "$s1" ] && emit radio1.ssid "$s1"
 		[ -n "$k1" ] && emit radio1.key "$k1"
 	fi
-	emit_band_options 1 || { rm -f "$CFG_TMP"; return 1; }
+	emit_band_options 1 "$sync" || { rm -f "$CFG_TMP"; return 1; }
 
 	# Network-level and policy options: written only when set, so an untouched router keeps the fixed defaults.
 	config_get v main wifi_dual_band_sync ""
@@ -385,10 +383,10 @@ write_config() {
 	[ "$TIMER_COUNT" = 0 ] || emit timer.utc_offset "$(tz_offset_minutes)"
 
 	mv "$CFG_TMP" "$RUNDIR/config" || { rm -f "$CFG_TMP"; return 1; }
-	echo "$(version_mode "$mode")" > "$RUNDIR/version_mode.host"
+	echo "$VERSION_MODE" > "$RUNDIR/version_mode.host"
 	# Which optional policy keys exist (names only): a key that appears or disappears needs a restart, a changed value does not
 	{ grep -E '^(mesh\.role|wifi\.dual_band_sync|band_steer\.|roam\.|mlo\.enable)' "$RUNDIR/config" | cut -d= -f1 | sort
-	  version_mode "$mode"; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
+	  echo "$VERSION_MODE"; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
 }
 
 start_service() {

@@ -27,18 +27,6 @@ msgstr "已停止"
 msgid "Controller address (AL MAC)"
 msgstr "主控地址 (AL MAC)"
 
-msgid "Network mode"
-msgstr "组网模式"
-
-msgid "ZTE enhanced"
-msgstr "中兴增强互通"
-
-msgid "ZTE compatible"
-msgstr "中兴兼容旧版"
-
-msgid "Standard Multi-AP"
-msgstr "标准 Multi-AP"
-
 msgid "Wired port"
 msgstr "有线端口"
 
@@ -57,8 +45,8 @@ msgstr "最近的配置问题"
 msgid "Pending"
 msgstr "待处理"
 
-msgid "The network mode changed; restart the controller to apply it."
-msgstr "组网模式已更改,请重启主控使其生效。"
+msgid "A setting changed that the controller reads only at start; restart the controller to apply it."
+msgstr "有只在启动时读取的设置已更改,请重启主控使其生效。"
 
 msgid "Report"
 msgstr "状态报告"
@@ -108,18 +96,6 @@ msgstr "Wi-Fi 配置"
 msgid "Enable"
 msgstr "启用"
 
-msgid "Standard Multi-AP (tested)"
-msgstr "标准 Multi-AP(已测试)"
-
-msgid "ZTE enhanced (experimental)"
-msgstr "中兴增强互通(实验性)"
-
-msgid "ZTE compatible with older routers (experimental)"
-msgstr "中兴兼容旧版路由器(实验性)"
-
-msgid "Standard mode speaks plain IEEE 1905 / Multi-AP and omits the ZTE vendor extensions."
-msgstr "标准模式只使用 IEEE 1905 / Multi-AP,不发送中兴私有扩展。"
-
 msgid "LAN bridge"
 msgstr "LAN 桥"
 
@@ -168,11 +144,17 @@ msgstr "自适应"
 msgid "The factory \"main router / adaptive\" switch. Only the controller role is supported. Changing from main router to adaptive restarts the mesh daemon twice and the child routers drop out of the topology for a short while; adding or removing this option restarts the service."
 msgstr "原厂的\"主路由 / 自适应\"开关。只支持主控角色。从主路由改为自适应会让组网守护进程重启两次,子路由器会短暂掉出拓扑;添加或删除此选项会重启服务。"
 
-msgid "Self-organizing network V2"
-msgstr "自组网 V2"
+msgid "Self-organizing network"
+msgstr "自组网"
 
-msgid "Strictly check that neighbours are ZTE devices with the same market code. Switching restarts the mesh daemon (the child routers drop out of the topology for up to a minute)."
-msgstr "严格检查邻居是否为市场码相同的中兴设备。切换会重启组网守护进程(子路由器最多一分钟内掉出拓扑)。"
+msgid "On (ZTE enhanced)"
+msgstr "开(中兴增强模式)"
+
+msgid "Off (ZTE compatible)"
+msgstr "关(中兴兼容模式)"
+
+msgid "The factory MESH switch. On (ZTE enhanced): only ZTE child routers with the same market code are accepted. Off (ZTE compatible, default): any child router is accepted. Switching restarts the mesh daemon (the child routers drop out of the topology for up to a minute)."
+msgstr "原厂的 MESH 开关。开(中兴增强模式):只接受市场码相同的中兴子路由器。关(中兴兼容模式,默认):接受任何子路由器。切换会重启组网守护进程(子路由器最多一分钟内掉出拓扑)。"
 
 msgid "Wi-Fi 7 MLO"
 msgstr "Wi-Fi 7 MLO"
@@ -180,8 +162,8 @@ msgstr "Wi-Fi 7 MLO"
 msgid "Same name and password on both bands"
 msgstr "双频使用相同的名称和密码"
 
-msgid "On: the 5 GHz band uses the 2.4 GHz name and password. Off: the 5 GHz name is the 2.4 GHz name plus the suffix below unless a 5 GHz name is given."
-msgstr "开:5 GHz 使用 2.4 GHz 的名称和密码。关:除非单独填了 5 GHz 名称,否则 5 GHz 名称 = 2.4 GHz 名称 + 下方的后缀。"
+msgid "On: the 5 GHz band uses the 2.4 GHz name, password, security, hidden setting and MAC filter policy. Off: the 5 GHz name is the 2.4 GHz name plus the suffix below unless a 5 GHz name is given."
+msgstr "开:5 GHz 使用 2.4 GHz 的名称、密码、安全方式、隐藏设置和 MAC 过滤策略。关:除非单独填了 5 GHz 名称,否则 5 GHz 名称 = 2.4 GHz 名称 + 下方的后缀。"
 
 msgid "Off switches the main network of this band off on the child routers."
 msgstr "关闭会让子路由器上这个频段的主网络关闭。"

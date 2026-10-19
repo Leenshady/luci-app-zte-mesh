@@ -70,7 +70,7 @@ BASE="config zte_mesh 'main'
 	option wifi_24g_key 'password-24'
 	option wifi_5g_enabled '1'"
 
-# 1. legacy file: byte-identical to what the previous init wrote
+# 1. legacy file: byte-identical to what the previous init wrote (its old 'mode' option is ignored now)
 UCI_TEXT="$BASE
 	option wifi_5g_ssid 'home-5'
 	option wifi_5g_key 'password-5g'"
@@ -88,7 +88,7 @@ radio1.key=password-5g"
 # empty 5 GHz name does not rename the child's 5 GHz network
 TEMPLATE=$(dirname "$INIT")/zte-mesh.config
 UCI_TEXT=$(sed -e "s/option wifi_24g_ssid ''/option wifi_24g_ssid 'home'/" -e "s/option wifi_24g_key ''/option wifi_24g_key 'password-24'/" "$TEMPLATE")
-run template 0 "version_mode=2
+run template 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=home
 radio0.key=password-24
@@ -96,13 +96,13 @@ radio1.enabled=1
 wifi.dual_band_sync=1"
 # the same template without the sync line: an empty 5 GHz name is derived (not refused), which renames the 5 GHz network
 UCI_TEXT=$(printf '%s\n' "$UCI_TEXT" | grep -v wifi_dual_band_sync)
-run template-no-sync 0 "version_mode=2
+run template-no-sync 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=home
 radio0.key=password-24
 radio1.enabled=1"
 
-# 2. standard mode, OpenWrt spellings of booleans
+# 2. OpenWrt spellings of booleans; without a mode option the VersionMode is the fixed 128 as well
 UCI_TEXT="config zte_mesh 'main'
 	option wifi_24g_enabled 'on'
 	option wifi_24g_ssid 'a'
@@ -110,7 +110,7 @@ UCI_TEXT="config zte_mesh 'main'
 	option wifi_5g_enabled 'false'
 	option wifi_5g_ssid 'b'
 	option wifi_5g_key '87654321'"
-run standard-bools 0 "version_mode=2
+run standard-bools 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=a
 radio0.key=12345678
@@ -216,7 +216,38 @@ UCI_TEXT="config zte_mesh 'main'
 	option roam_rssi_24g '-60'
 	option roam_rssi_5g '-70'
 	option roam_force '0'"
-run all-options 0 "version_mode=129
+run all-options 0 "version_mode=128
+radio0.enabled=1
+radio0.ssid=cc
+radio0.key=12345678
+radio0.hidden=0
+radio0.beacon_type=12
+radio0.beacon_interval=100
+radio0.channel=6
+radio0.tx_power=20
+radio0.acl_policy=ban
+radio1.enabled=1
+radio1.hidden=0
+radio1.beacon_type=12
+radio1.beacon_interval=200
+radio1.channel=149
+radio1.tx_power=30
+radio1.acl_policy=ban
+wifi.dual_band_sync=1
+mesh.v2=1
+mesh.role=auto
+mlo.enable=0
+band_steer.enabled=1
+roam.force=0
+band_steer.rssi24=-60
+band_steer.rssi5=-110
+roam.rssi24=-60
+roam.rssi5=-70"
+[ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 128 " ] ||
+	{ echo "FAIL all-options: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
+# 8b. without dual-band sync the 5 GHz band keeps its own hidden flag, security and MAC filter policy
+UCI_TEXT=$(printf '%s\n' "$UCI_TEXT" | sed "s/wifi_dual_band_sync '1'/wifi_dual_band_sync '0'/")
+run all-options-no-sync 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=cc
 radio0.key=12345678
@@ -233,7 +264,7 @@ radio1.beacon_interval=200
 radio1.channel=149
 radio1.tx_power=30
 radio1.acl_policy=allow
-wifi.dual_band_sync=1
+wifi.dual_band_sync=0
 mesh.v2=1
 mesh.role=auto
 mlo.enable=0
@@ -243,8 +274,6 @@ band_steer.rssi24=-60
 band_steer.rssi5=-110
 roam.rssi24=-60
 roam.rssi5=-70"
-[ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 129 " ] ||
-	{ echo "FAIL all-options: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 
 # 9. bad optional values name the option
 for bad in "wifi_24g_hidden 2" "wifi_24g_security wep" "wifi_24g_beacon_interval 19" "wifi_24g_beacon_interval 1001" "wifi_24g_channel 14" \

@@ -116,18 +116,18 @@
 
 | UCI 选项 | 服务键 | 说明 |
 |---|---|---|
-| `enabled`、`mode`、`bridge` | `version_mode`（`standard` 2、`zte` 128、`zte_compat` 129） | 同以前 |
+| `enabled`、`bridge` | `version_mode` 固定 128 | `VersionMode` 是 SR1010 原厂值 128（Z506 自己的值是 0，子节点应用 M2 时跟随控制器的值）；原厂界面没有这个设置。以前的 `mode` 选项（`standard` 2、`zte` 128、`zte_compat` 129）已删除，写了也被忽略；129（bit0）从没在真子节点上验证过，2026-10-19 用户的配置用它时子节点关掉了 Wi-Fi |
 | `wifi_24g_enabled` / `wifi_5g_enabled`、`wifi_24g_ssid` / `_key` | `radio0.enabled/ssid/key`、`radio1.enabled` | 2.4G 名称和密钥必填；布尔值接受 1/yes/on/true/enabled 和 0/no/off/false/disabled；`enabled=0` 会让子节点这个频段的主 SSID 真的关掉 |
-| `wifi_dual_band_sync` | `wifi.dual_band_sync` | 1：5G 用 2.4G 的名称和密码，`wifi_5g_ssid/key` 被忽略（不写 `radio1.ssid/key`）；0 或不写：见下 |
+| `wifi_dual_band_sync` | `wifi.dual_band_sync` | 1：5G 用 2.4G 的名称、密码、安全方式、隐藏设置和 MAC 过滤策略，`wifi_5g_ssid/key/security/hidden/acl_policy` 被忽略（不写 `radio1.ssid/key`，`radio1.beacon_type/hidden/acl_policy` 取 2.4G 的值），LuCI 里这几项也不显示；0 或不写：见下 |
 | `wifi_5g_ssid`、`wifi_5g_key` | `radio1.ssid/key`（仅在 sync 关时） | 都可以留空：5G 名称 = 2.4G 名称 + `wifi_5g_suffix`（原厂规则，REPLAY_RESULTS 第 15.1 节），5G 密钥 = 2.4G 密钥 |
 | `wifi_5g_suffix` | `wifi.essid_suffix` | 1 到 8 个可打印字符，默认 `-5G`；派生名超过 31 字节会被拒绝 |
 | `wifi_24g_hidden` / `wifi_5g_hidden` | `radioN.hidden` | |
 | `wifi_24g_security` / `wifi_5g_security` | `radioN.beacon_type` | `none`=0、`psk2`=3、`psk-mixed`=6、`sae`=10、`sae-mixed`=12；`none` 会让真实网络变成开放网络 |
 | `wifi_*_beacon_interval`、`_channel`、`_tx_power`、`_acl_policy` | `radioN.beacon_interval/channel/tx_power/acl_policy` | 范围同 REAL_CHILD.md 第 3 节（信道按频段白名单，0 = 自动） |
-| `mesh_v2`、`mesh_role`（`master`/`auto`）、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | |
+| `mesh_v2`、`mesh_role`（`master`/`auto`）、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 是 LuCI 的"自组网"开关，即原厂的 MESH 开关（`P1905ComCfg.Enable`）：开 = 中兴增强模式，只接受市场码相同的中兴子路由；关 = 中兴兼容模式，接受任何子路由（默认） |
 | `band_steer`、`band_steer_rssi_24g/_5g`、`roam_rssi_24g/_5g`、`roam_force` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
 
-包里的默认配置（2026-10-19 起）把能取出厂值的选项都写上，LuCI 也显示同样的默认值，并在每项下面写明范围：`mode=zte_compat`、
+包里的默认配置（2026-10-19 起）把能取出厂值的选项都写上，LuCI 也显示同样的默认值，并在每项下面写明范围：`mesh_v2=0`（自组网关）、
 `mlo_enable=1`、`wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、
 信标 100 ms、信道 0（自动）、功率 2.4G 20 dBm / 5G 23 dBm（子节点都取最大档，即出厂值）、`band_steer=1`、引导阈值 -60/-110、
 漫游阈值 -60/-70、`roam_force=0`（出厂值见 `multiap_domain.def`）。`wifi_24g_key` 没有默认值，不填服务不启动。

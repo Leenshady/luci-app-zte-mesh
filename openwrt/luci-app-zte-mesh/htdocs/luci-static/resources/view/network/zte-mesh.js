@@ -123,10 +123,8 @@ return view.extend({
 
 		if (state && state.running) {
 			row(_('Controller address (AL MAC)'), state.al_mac || '-');
-			row(_('Network mode'), {
-				0: _('ZTE enhanced'), 1: _('ZTE compatible'), 2: _('Standard Multi-AP'),
-				128: _('ZTE enhanced'), 129: _('ZTE compatible')
-			}[state.version_mode] || String(state.version_mode));
+			row(_('Self-organizing network'), uci.get('zte_mesh', 'main', 'mesh_v2') === '1'
+				? _('On (ZTE enhanced)') : _('Off (ZTE compatible)'));
 			row(_('Wired port'), info.attached ? badge(_('Attached to the LAN bridge'), '#46a546')
 			                                   : badge(_('Not attached'), '#b94a48'));
 			row(_('Wi-Fi updates sent'), String(state.config_applied));
@@ -135,7 +133,7 @@ return view.extend({
 		if (state && state.config_error)
 			row(_('Last configuration problem'), E('span', { 'style': 'color:#b94a48' }, state.config_error));
 		if (state && state.restart_required)
-			row(_('Pending'), _('The network mode changed; restart the controller to apply it.'));
+			row(_('Pending'), _('A setting changed that the controller reads only at start; restart the controller to apply it.'));
 		if (stale && info.running)
 			row(_('Report'), _('No fresh status for %d s').format(info.age));
 
@@ -261,13 +259,6 @@ return view.extend({
 		o = s.taboption('general', form.Flag, 'enabled', _('Enable'));
 		o.rmempty = false;
 
-		o = s.taboption('general', form.ListValue, 'mode', _('Network mode'));
-		o.value('standard', _('Standard Multi-AP (tested)'));
-		o.value('zte', _('ZTE enhanced (experimental)'));
-		o.value('zte_compat', _('ZTE compatible with older routers (experimental)'));
-		o.default = 'zte_compat';
-		o.description = _('Standard mode speaks plain IEEE 1905 / Multi-AP and omits the ZTE vendor extensions.');
-
 		o = s.taboption('general', form.Value, 'bridge', _('LAN bridge'));
 		o.default = 'br-lan';
 		o.datatype = 'maxlength(15)';
@@ -281,9 +272,10 @@ return view.extend({
 		o.optional = true;
 		o.description = _('The factory "main router / adaptive" switch. Only the controller role is supported. Changing from main router to adaptive restarts the mesh daemon twice and the child routers drop out of the topology for a short while; adding or removing this option restarts the service.');
 
-		o = s.taboption('general', form.Flag, 'mesh_v2', _('Self-organizing network V2'));
-		o.optional = true;
-		o.description = _('Strictly check that neighbours are ZTE devices with the same market code. Switching restarts the mesh daemon (the child routers drop out of the topology for up to a minute).');
+		o = s.taboption('general', form.Flag, 'mesh_v2', _('Self-organizing network'));
+		o.default = '0';
+		o.rmempty = false;
+		o.description = _('The factory MESH switch. On (ZTE enhanced): only ZTE child routers with the same market code are accepted. Off (ZTE compatible, default): any child router is accepted. Switching restarts the mesh daemon (the child routers drop out of the topology for up to a minute).');
 
 		o = s.taboption('general', form.Flag, 'mlo_enable', _('Wi-Fi 7 MLO'));
 		o.optional = true;
@@ -293,7 +285,7 @@ return view.extend({
 		o = s.taboption('wifi', form.Flag, 'wifi_dual_band_sync', _('Same name and password on both bands'));
 		o.default = '1';
 		o.rmempty = false;
-		o.description = _('On: the 5 GHz band uses the 2.4 GHz name and password. Off: the 5 GHz name is the 2.4 GHz name plus the suffix below unless a 5 GHz name is given.');
+		o.description = _('On: the 5 GHz band uses the 2.4 GHz name, password, security, hidden setting and MAC filter policy. Off: the 5 GHz name is the 2.4 GHz name plus the suffix below unless a 5 GHz name is given.');
 
 		function profile(band, label) {
 			var id = 'wifi_' + band;
@@ -343,6 +335,8 @@ return view.extend({
 			o = s.taboption('wifi', form.Flag, id + '_hidden', _('%s hidden network name').format(label));
 			o.optional = true;
 			o.default = '0';
+			if (five)
+				o.depends('wifi_dual_band_sync', '0');
 
 			o = s.taboption('wifi', form.ListValue, id + '_security', _('%s security').format(label));
 			o.value('psk2', 'WPA2-PSK');
@@ -353,6 +347,8 @@ return view.extend({
 			o.default = five ? 'psk-mixed' : 'sae-mixed';
 			o.optional = true;
 			o.description = _('Child routers without WPA3 treat WPA2/WPA3 as WPA2 and ignore WPA3-only. "None" makes the main network open.');
+			if (five)
+				o.depends('wifi_dual_band_sync', '0');
 
 			o = s.taboption('wifi', form.Value, id + '_beacon_interval', _('%s beacon interval (ms)').format(label));
 			o.datatype = 'range(20,1000)';
@@ -382,6 +378,8 @@ return view.extend({
 			o.value('ban', _('Block listed devices'));
 			o.value('allow', _('Allow only listed devices'));
 			o.optional = true;
+			if (five)
+				o.depends('wifi_dual_band_sync', '0');
 		}
 		profile('24g', _('2.4 GHz'));
 		profile('5g', _('5 GHz'));
