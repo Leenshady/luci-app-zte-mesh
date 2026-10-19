@@ -407,6 +407,11 @@ start_service() {
 
 	procd_open_instance controller
 	procd_set_param command "$NSRUN" "$ROOT" /lib/ld-linux.so.3 --library-path /lib /bin/db-engine-probe --controller-service
+	# The identity a real ZTE child accepts (REAL_CHILD.md section 2): this router's public vendor and
+	# model (no serial) and the child's market code, as mreplay.py --identity passes them. Without them
+	# the child rejects the ZTE layer (reason=1/2): no ZTE node data, no LED or reboot actions.
+	procd_set_param env ZTE_MESH_REAL_MANUFACTURER=ZTE "ZTE_MESH_REAL_MODEL=ZXSLC SR1010" \
+		ZTE_MESH_REAL_MARKET_SIGN=8000
 	procd_set_param respawn 3600 5 0
 	procd_set_param stderr 1
 	procd_set_param stdout 1
