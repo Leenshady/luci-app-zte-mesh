@@ -185,7 +185,8 @@ jobs:
           docker run --rm -e HOME=/tmp \
             -v "$PWD:/src" -w /src debian:bookworm \
             sh -c 'apt-get update -qq >/dev/null &&
-                   apt-get install -y --no-install-recommends gcc-arm-linux-gnueabi make python3 >/dev/null &&
+                   apt-get install -y --no-install-recommends \
+                     gcc-arm-linux-gnueabi libc6-dev-armel-cross make python3 >/dev/null &&
                    arm-linux-gnueabi-gcc --version | head -1 &&
                    ldd --version | head -1 &&
                    python3 tools/lab/bootstrap-out.py &&
