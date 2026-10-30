@@ -33,6 +33,7 @@ on:
       - ns-run.c
       - controller-net.c
       - shim.c
+      - agent-mm.c
       - controller-service.c
       - controller-run.c
       - controller-packet.c
@@ -211,16 +212,52 @@ jobs:
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Build libzte_agent_mm.so (ARM32, vendor glibc)
+        id: agentmm
+        run: |
+          set +e
+          LOG=prebuilt/agent-mm-build.log
+          : > "$LOG"
+          # Same story as the shim, and the same reason it lives here: this is the
+          # library that turns the agent's "the row is written but the configuration
+          # manager is not there" (-3) into success, which is what lets an M2 finish
+          # instead of being retried. It was in spawn_daemon()'s LD_PRELOAD all along
+          # and simply never got built, so every enrollment on a device without cspd
+          # ended in "config failed" and another M1.
+          mkdir -p build/runtime
+          tar -xzf openwrt/zte-mesh/zte-mesh-runtime.tar.gz -C build/runtime >>"$LOG" 2>&1
+          L=build/runtime/root/lib
+          arm-linux-gnueabi-gcc -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden \
+            -fno-unwind-tables -fno-asynchronous-unwind-tables \
+            -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
+            -Wl,-z,defs -Wl,-soname,libzte_agent_mm.so \
+            -L"$L" -Wl,-rpath-link,"$L" agent-mm.c \
+            -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc \
+            -o prebuilt/libzte_agent_mm.so >>"$LOG" 2>&1
+          rc=$?
+          echo "rc=$rc" >>"$LOG"
+          if [ $rc -eq 0 ]; then
+            file prebuilt/libzte_agent_mm.so >>"$LOG" 2>&1
+            ls -l prebuilt/libzte_agent_mm.so >>"$LOG"
+            # The two interposed setters must be the only exported symbols, or the
+            # daemon would resolve something else through this library by accident.
+            arm-linux-gnueabi-nm -D --defined-only prebuilt/libzte_agent_mm.so >>"$LOG" 2>&1
+            sha256sum prebuilt/libzte_agent_mm.so > prebuilt/libzte_agent_mm.so.sha256
+          fi
+          cat "$LOG"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
       - name: Publish to this branch
         run: |
           git config user.name "lab-tools"
           git config user.email "lab-tools@users.noreply.github.com"
           git add -f prebuilt/
-          git commit -m "lab: ns-run rc=${{ steps.nsrun.outputs.rc }}/${{ steps.nsrunarm.outputs.rc }} shim rc=${{ steps.shim.outputs.rc }} probe rc=${{ steps.probe.outputs.rc }} $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
+          git commit -m "lab: ns-run rc=${{ steps.nsrun.outputs.rc }}/${{ steps.nsrunarm.outputs.rc }} shim rc=${{ steps.shim.outputs.rc }} probe rc=${{ steps.probe.outputs.rc }} agent-mm rc=${{ steps.agentmm.outputs.rc }} $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Upload as artifacts too
-        if: steps.nsrun.outputs.rc == '0' && steps.nsrunarm.outputs.rc == '0' && steps.shim.outputs.rc == '0' && steps.probe.outputs.rc == '0'
+        if: steps.nsrun.outputs.rc == '0' && steps.nsrunarm.outputs.rc == '0' && steps.shim.outputs.rc == '0' && steps.probe.outputs.rc == '0' && steps.agentmm.outputs.rc == '0'
         uses: actions/upload-artifact@v4
         with:
           name: lab-tools
@@ -228,7 +265,7 @@ jobs:
           if-no-files-found: error
 
       - name: Fail if a build did not produce a binary
-        if: steps.nsrun.outputs.rc != '0' || steps.nsrunarm.outputs.rc != '0' || steps.shim.outputs.rc != '0' || steps.probe.outputs.rc != '0'
+        if: steps.nsrun.outputs.rc != '0' || steps.nsrunarm.outputs.rc != '0' || steps.shim.outputs.rc != '0' || steps.probe.outputs.rc != '0' || steps.agentmm.outputs.rc != '0'
         run: |
           echo "see prebuilt/*.log on this branch" >&2
           exit 1
