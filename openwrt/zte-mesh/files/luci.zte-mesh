@@ -67,9 +67,12 @@ call)
 		attached=false
 		[ -e /sys/class/net/zmesh0/master ] && attached=true
 		role=$(uci -q get zte_mesh.main.mesh_role 2>/dev/null)
-		case "$role" in master|auto|slave) ;; *) role=master ;; esac
-		# What the child-side applier (usr/libexec/zte-mesh/wlan-sync) did last time it ran. It runs outside the
-		# sandbox and cannot be seen from inside it, so it leaves a plain key=value file next to the plan.
+		# Three roles, reported under the names the form offers. "auto" is what a main router used to be called and
+		# is still accepted on input, so it is reported as "main"; anything unknown falls back to the default.
+		case "$role" in master|slave) ;; main|auto) role=main ;; *) role=master ;; esac
+		# What the Wi-Fi applier (usr/libexec/zte-mesh/wlan-sync) did last time it ran. It runs outside the sandbox
+		# and cannot be seen from inside it, so it leaves a plain key=value file next to the plan. Both roles that
+		# apply a profile here -- a child from the M2, a main router from its own configuration -- write it.
 		sync=null
 		if [ -s "$RUNDIR/wlan-sync.status" ]; then
 			sy_epoch=$(sed -n 's/^epoch=//p' "$RUNDIR/wlan-sync.status" | head -n 1)

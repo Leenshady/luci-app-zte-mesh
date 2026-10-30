@@ -755,3 +755,78 @@ return E([
 `dom.create()` 的语义实现（数组递归展开、首参为 null 时抛同一个 TypeError），改视图前跑一次就能复现同一个
 异常，改后通过——子路由页面至少不会因为这条路径再白一次。
 
+
+## 14. 2026-10-31 第三轮：角色拆成三个，主路由也能把档案落到本机
+
+### 14.1 为什么拆
+
+原厂那台"主路由"是**既当主控、又自己发 Wi-Fi**的盒子，一个开关就够。但 OpenWrt 这边的现实是反过来的：
+SR1010 这类机器是**有线网关、没有射频**，当年给它做主的正是它。所以"控制"和"自己也发"必须能分开：
+
+| `mesh_role` | 给子路由下发档案 | 应用到本机 `/etc/config/wireless` | 线上 `mesh.role` |
+|---|---|---|---|
+| `master`（默认；未设置也等于它） | 是 | **不动** | `master` |
+| `main` | 是 | **是**（plan 由 `write_config` 写） | `auto` |
+| `slave` | 否 | 是（plan 由服务从 M2 读出来写） | `slave` |
+
+`main` 用的就是原厂的"主路由 / 自适应"，所以**线上一个字节没改**：还是 `auto`，还是 `Mode 0 → 2` 的选举替身
+（第 12 节）。旧的 `auto` 值继续被接受、含义与 `main` 相同，升级过的配置不用动。反过来，语义变化只有一处：
+以前 LuCI 把 `master` 叫作"主路由"，现在 `master` 是"仅主控"——它在**行为上**和以前一样（以前也没人改本机
+无线），只是名字改了；想真的把网络发出去，得选"主路由"。
+
+### 14.2 一个 plan 只能有一个生产者
+
+子路由的 plan 是 `agent-sync.c` 从 `WLANCfg`/`WLANPSK` 读出来的（第 11 节），主路由没有 M2 可等——它就是
+发 M2 的那台。所以主路由的 plan 由 `write_config` 直接写（`write_local_plan`），格式与 `agent-sync.c`
+逐字段相同（`rows=`、`i.radio/slot/ssid/key/enabled/hidden/access/beacon_type`），`wlan-sync` 不关心来源。
+
+三条规则，写在 `write_config` 的 case 里：
+
+- `main`/`auto`：写 `$RUNDIR/wlan-plan`（0600）。
+- `slave`：**一个字节都不碰**。`write_config` 在 reload 时也会跑，删掉它等于把正在用的 plan 抽走，而服务只在
+  行变化时才重发（`agent_sync_reset()` 只在启动时调）——子路由会安静地停止应用。`tests/test_init.sh` 的
+  `role-slave-keeps-plan` 就是钉这个的。
+- 其余（`master`、空）：`rm -f`。上一步角色留下的 plan 不该被一个已经不跑的 `wlan-sync` 应用。
+
+### 14.3 5 GHz 的派生值要写第二遍，这是这次改动里唯一的知识重复
+
+daemon 自己会用 `wifi.dual_band_sync` / `wifi.essid_suffix` 派生 5G 的名称和密钥，而 plan 必须**写全**。
+第二遍推导就是漂移的来源，所以：`emit_band_options` 顺手把该频段的 `hidden` / `beacon_type` 读回给调用方
+（`BAND_HIDDEN` / `BAND_BEACON`），5G 的名称/密钥只在 `write_config` 里算一次（`s1_air` / `k1_air`），
+emit 与 plan 都用它。测试用 `role-main`（sync 关、5G 全空 → `home-5G` / 2.4G 的密钥）和 `role-main-sync`
+（sync 开、`wifi_5g_ssid` 写了也被忽略、隐藏与加密跟随 2.4G）两条用例把它钉住。
+
+### 14.4 设备证据
+
+控制器（VM，192.168.1.20，**零个 wifi-device**）`mesh_role=main` 之后：
+
+```
+/run/zte-mesh/wlan-plan   316 B, -rw-------, rows=2
+  0.ssid=ZTEMESHCTRL  0.key=Ztemesh2631!  0.hidden=0  0.beacon_type=12  0.access=32
+  1.ssid=ZTEMESHCTRL  1.key=Ztemesh2631!  1.hidden=0  1.beacon_type=12  1.access=32
+ZTE_MESH_SERVICE cfg mode=2 set_role_enable=1 en_master_only=1 cur_hop=2 max_hop=2
+wlan-sync: no radio device for 2g; left alone
+wlan-sync: no radio device for 5g; left alone
+wlan-sync: plan applied nothing new          # status: result=ok changed=0
+ubus call luci.zte-mesh status → "role": "main"
+```
+
+`procd` 里多了一个 `wlan-sync` 实例；`mesh_role=master` 之后同一个文件消失、实例消失、`"role": "master"`，
+子节点（`02:00:00:00:19:e3`）全程 `online=1`。
+
+子路由（ax3600，三个 wifi-device）上用临时 `RUNDIR` 直接调 `write_config`（不动正在跑的服务）：
+
+```
+rc=0   /tmp/r2/wlan-plan 316 B -rw-------
+0.ssid=ImmortalWrt  0.key=Ztemesh2631!      # 本机自己的档案（sync=1，5G 跟随 2.4G）
+```
+
+也就是说：**没有射频的控制器**里这台逻辑一条不差地跑通（只是最后一步无事可做），**有射频的机器**上它产出
+的 plan 就是那台机器该广播的东西。
+
+### 14.5 有意的取舍
+
+没有加 `apply_local_wifi` 之类的开关：**角色本身就是那个开关**。多一个布尔值就多一种"角色说主路由、开关说
+不要"的组合，而这两种状态在页面上没法解释。仅主控要是还有射频，启动日志里会明说一句
+（`controller-only role: the Wi-Fi profile goes to the child routers only ...`），因为这是最容易看成"plan
+没生效"的一种配置。

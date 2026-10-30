@@ -1,13 +1,19 @@
 #!/bin/sh
-# Apply the child (agent) role's Wi-Fi plan to the host's own Wi-Fi configuration.
+# Apply a Wi-Fi plan to the host's own Wi-Fi configuration.
 #
 #   wlan-sync [PLAN] [--once]
 #
-# The mesh service runs inside a private sandbox: it can write /run/zte-mesh, and nothing else. When it runs as a
-# child, the profile the controller sent arrives as an M2, the vendor daemon writes it into its configuration
-# database, and the service turns those rows into PLAN (see agent-sync.c). This script is the other half: it
-# maps the plan onto /etc/config/wireless and reloads the radios, which is the step the factory image leaves to
-# cspd and its driver layer.
+# The mesh service runs inside a private sandbox: it can write /run/zte-mesh, and nothing else. Two roles publish a
+# plan there, and this script does not care which:
+#
+#   child router   the profile the controller sent arrives as an M2, the vendor daemon writes it into its
+#                  configuration database, and the service turns those rows into PLAN (agent-sync.c).
+#   main router    this router is the controller, so there is no M2 to wait for: the service writes PLAN from the
+#                  profile it hands to the child routers (write_local_plan in zte-mesh.init).
+#
+# Either way this script is the other half: it maps the plan onto /etc/config/wireless and reloads the radios, which
+# is the step the factory image leaves to cspd and its driver layer. A controller-only router has no plan and no
+# instance of this script -- its own radios are not its business.
 #
 # Only the main BSS of each band is applied (slot 0). The extra SSID slots (1..3) are reported and skipped: the
 # factory daemon drives them through its own driver interface, and inventing hostapd sections for them here

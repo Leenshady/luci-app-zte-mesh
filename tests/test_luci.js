@@ -93,6 +93,13 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	const counts = { main: Object.keys(registered.zte_mesh || {}).length,
 		bss: Object.keys(registered.zte_mesh_bss || {}).length,
 		acl: Object.keys(registered.zte_mesh_acl || {}).length, child: '' };
+	// Device role: three roles now. "auto" is the old name of the main router role and still works on input, but the
+	// form offers the three current names and nothing else, so the page cannot write a value the init script refuses.
+	{
+		const ro = (registered.zte_mesh || {}).mesh_role;
+		const vals = ro ? ro.values.map(v => Array.isArray(v) ? v[0] : v).join(',') : '';
+		if (vals !== 'master,main,slave') { console.log('device role list is "' + vals + '", want master,main,slave'); bad++; }
+	}
 	for (const k of Object.keys(registered)) delete registered[k];
 	uciRole = 'slave';
 	await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
@@ -103,6 +110,17 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		if (!m.backhaul) { console.log('child form lacks the backhaul choice'); bad++; }
 			if (registered.zte_mesh_bss || registered.zte_mesh_acl || registered.zte_mesh_timer) { console.log('child form still offers the controller grids'); bad++; }
 		counts.child = Object.keys(registered.zte_mesh || {}).length + ' options';
+	}
+	// Main router: the controller half is still there -- it is what hands the profile out -- and the local half only
+	// changes the wording, so the form is the controller form. The child-only backhaul choice must not appear.
+	{
+		for (const k of Object.keys(registered)) delete registered[k];
+		uciRole = 'main';
+		await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
+		const m = registered.zte_mesh || {};
+		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2'].filter(n => !m[n]);
+		if (missing.length) { console.log('main router form lacks the controller options:', missing.join(' ')); bad++; }
+		if (m.backhaul) { console.log('main router form offers the child-only backhaul choice'); bad++; }
 	}
 	console.log(bad ? 'luci test: FAIL' : 'luci test: ok (' + counts.main + ' main options, ' + counts.bss + ' slot options, ' + counts.acl + ' ACL options, child form ' + counts.child + ')');
 	process.exit(bad ? 1 : 0);

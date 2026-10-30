@@ -4,11 +4,15 @@ msgstr ""
 "Language: zh_Hans\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+
 msgid "ZTE Mesh"
 msgstr "中兴组网"
 
-msgid "Manage ZTE child routers over the wired LAN. This router acts as the mesh controller; the child routers receive the Wi-Fi profile below."
-msgstr "通过有线局域网管理中兴子路由器。本路由器作为组网主控，子路由器会收到下方的 Wi-Fi 配置。"
+msgid "The main router: this router is the mesh controller and also broadcasts the Wi-Fi profile below, so it and its child routers put the same network on the air."
+msgstr "主路由：本机既是组网主控，也自己广播下面这套 Wi-Fi，于是它和子路由在空中是同一个网络。"
+
+msgid "A controller without Wi-Fi of its own: it manages the child routers and gives them the Wi-Fi profile below. This router's own radios are left alone."
+msgstr "本身不带无线的控制器：只管理子路由并把下面这套 Wi-Fi 下发给它们，本机无线保持原样不动。"
 
 msgid "The ZTE Mesh runtime is not installed on this router."
 msgstr "本路由器尚未安装中兴组网运行环境。"
@@ -133,14 +137,14 @@ msgstr "漫游与频段引导"
 msgid "Device role"
 msgstr "设备角色"
 
-msgid "Default (master)"
-msgstr "默认（主路由）"
+msgid "Controller only"
+msgstr "仅主控"
+
+msgid "Controller only: this router manages the child routers and gives them the Wi-Fi profile, but its own radios are left exactly as they are. That is the shape of most wired OpenWrt boxes at the head of a mesh, so it is the default. Main router: the same controller that also broadcasts the profile itself -- pick this when the box has Wi-Fi and should put the network on the air too. Child router: this router is a mesh agent, it hands nothing out and the controller gives it the Wi-Fi name, key and security. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. On the two roles that apply a profile here, a radio device that was switched off is switched on when the band is enabled, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until a different profile arrives. Changing the role restarts the service and reloads this page, and the child routers drop out of the topology for a short while."
+msgstr "仅主控：本机管理子路由、把 Wi-Fi 档案下发给它们，自己的射频原样不动。这是有线 OpenWrt 盒子做组网头端时最常见的形态，所以是默认值。主路由：同一个主控，但自己也广播这套档案——盒子带无线、并且应该把网络发到空中时选它。子路由：本机是 mesh 代理，不下发任何东西，由主控给出 Wi-Fi 名称、密码与加密方式。子路由启动时先用本机正在广播的无线网络，直到主控下发自己的配置，所以这里不需要填任何东西：选中子路由后，Wi-Fi、漫游与额外网络设置都会隐藏。在会把档案应用到本机的这两个角色上，某个频段启用时原先关着的射频设备会被打开——射频关着就等于什么都没发射；此后被手动关掉的射频会一直关着，直到来了不同的档案。改角色会重启服务并重新加载本页，子路由器会短暂掉出拓扑。"
 
 msgid "Main router"
 msgstr "主路由"
-
-msgid "Adaptive"
-msgstr "自适应"
 
 msgid "Child router"
 msgstr "子路由"
@@ -156,9 +160,6 @@ msgstr "Multi-AP(4 地址）"
 
 msgid "How the child role reaches the controller over the radio. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network the controller sends becomes its own BSS marked as a Multi-AP backhaul, and the main SSIDs are marked as fronthaul, so the mesh control traffic crosses the radio as 4-address Ethernet. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the controller has sent a backhaul network."
 msgstr "子路由通过无线回连控制器的方式。关闭：只应用主 SSID，与之前一致。Multi-AP：控制器下发的隐藏回程网络会成为独立的 BSS 并标记为 Multi-AP 回程，主 SSID 标记为前传，组网控制报文因此能以 4 地址以太网帧穿过无线。需要编译了 Multi-AP 支持的 hostapd（完整 wpad，不是 wpad-basic)；控制器没有下发回程网络之前不会创建任何东西。"
-
-msgid "The factory \"main router / adaptive\" switch, plus the child side of it. Main router and adaptive keep this router the controller; child router makes it a mesh agent that receives its Wi-Fi name, key and security from the controller and applies them to its own radios. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. A radio device that was switched off is switched on when the controller enables its band, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until the controller sends a different profile. Changing from main router to adaptive restarts the mesh daemon twice and the child routers drop out of the topology for a short while; a different role restarts the service and reloads this page."
-msgstr "原厂的\"主路由 / 自适应\"开关，外加它的子路由一侧。主路由与自适应让本机继续做主控；子路由把本机变成 mesh 代理，由主控下发 Wi-Fi 名称、密码与加密方式并应用到本机射频。子路由启动时先用本机正在广播的无线网络，直到主控下发自己的配置，所以这里不需要填任何东西：选中子路由后，Wi-Fi 配置、漫游与额外网络设置都会隐藏。控制器启用某个频段时，原先关着的射频设备会被打开——射频关着就等于什么都没发射；此后被手动关掉的射频会一直关着，直到控制器下发不同的配置。从主路由改为自适应会让组网守护进程重启两次，子路由器会短暂掉出拓扑；改成别的角色会重启服务并重新加载本页。"
 
 msgid "This router is a mesh child: the controller manages it and gives it the Wi-Fi name, password and security."
 msgstr "本机是 mesh 子路由：由主控管理，Wi-Fi 名称、密码与加密方式都由主控下发。"
@@ -186,6 +187,9 @@ msgstr "开：5 GHz 使用 2.4 GHz 的名称、密码、安全方式、隐藏设
 
 msgid "Off switches the main network of this band off on the child routers."
 msgstr "关闭会让子路由器上这个频段的主网络关闭。"
+
+msgid "Off switches the main network of this band off here and on the child routers."
+msgstr "关闭后，本频段的主网络在本机和子路由上都会关掉。"
 
 msgid "2.4 GHz name + suffix"
 msgstr "2.4 GHz 名称 + 后缀"
@@ -531,6 +535,9 @@ msgstr "最多 20 个字符：字母、数字和 _ . -。留空则为 acl1、acl
 
 msgid "Child router, managed by the controller"
 msgstr "子路由，由主控管理"
+
+msgid "Controller only: this router's own radios are not managed here"
+msgstr "仅主控：本机无线不在这里管理"
 
 msgid "Wi-Fi synchronisation"
 msgstr "Wi-Fi 同步"
