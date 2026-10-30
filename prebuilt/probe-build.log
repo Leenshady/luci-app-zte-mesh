@@ -10,7 +10,6 @@ debconf: delaying package configuration, since apt-utils is not installed
 arm-linux-gnueabi-gcc (Debian 12.2.0-14) 12.2.0
 ldd (Debian GLIBC 2.36-9+deb12u14) 2.36
 reading openwrt/zte-mesh/zte-mesh-runtime.tar.gz
-  note: 1 bundle entries are not in SHA256SUMS: root/dev/urandom
   closure: 27 libraries, audit clean (0 unresolved versions)
 writing /src/out
   multiapd + 27 libraries -> /src/out/runtime
@@ -24,4 +23,4 @@ arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -
   /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtend.o /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crtn.o -o out/db-engine-probe
 rc=0
 prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=547486916c8b65d4c4a2be34d8f3acdfeb059ddd, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 193364 Oct 30 21:18 prebuilt/db-engine-probe
+-rwxr-xr-x 1 runner runner 193364 Oct 30 22:08 prebuilt/db-engine-probe
