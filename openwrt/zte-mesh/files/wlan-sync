@@ -26,6 +26,12 @@
 #
 # Nothing is applied that the plan does not change: the script compares every value first and only commits and
 # reloads when at least one differs.
+#
+# One thing beyond the plan's own fields: a wifi-device that is switched off is switched on when the plan enables
+# the main BSS of its band (see enable_radio). A radio cannot broadcast while its device is disabled, and routers
+# arrive that way -- the factory image and the lab's ax3600 ship every wifi-device disabled -- so without it the
+# child holds the controller's SSID in /etc/config/wireless and puts nothing on the air. It only ever writes 0, so
+# a band the plan disables keeps its device and with it the backhaul BSS of that band.
 set -u
 
 PLAN=${1:-/run/zte-mesh/wlan-plan}
@@ -62,6 +68,36 @@ encryption_of() {
 	esac
 }
 
+# uci_true VALUE -> 1 when the value is a true-ish UCI boolean, 0 otherwise. UCI accepts the word forms as well as
+# 1/0, and a config edited by hand (or written by another tool) may well say `true`.
+uci_true() {
+	case "$1" in 1|[Tt][Rr][Uu][Ee]|on|yes) echo 1 ;; *) echo 0 ;; esac
+}
+
+# radio_off SECTION -> 1 when that wifi-device is switched off. A missing `disabled` means the radio is on, which
+# is also what "no wifi-device at all" answers -- callers only ask about a device they already resolved.
+radio_off() {
+	uci_true "$(uci -q get "wireless.$1.disabled" 2>/dev/null)"
+}
+
+# enable_radio DEVICE BAND -> switch a switched-off wifi-device on, because the controller says its band should be
+# on the air. Only 0 is ever written: a band the plan disables keeps its device, since switching the device off
+# would take that band's backhaul BSS down with it, and that BSS is the control path. This is not a watchdog
+# either: it runs when the plan changes, so a radio switched off by hand afterwards stays off until the controller
+# publishes a different profile.
+#
+# It exists because a router can arrive with its radios off -- the factory image and the lab's ax3600 ship every
+# wifi-device disabled -- and then the child has the controller's SSID in /etc/config/wireless and nothing on the
+# air, which looks like "the plan is not applied" while it is applied perfectly.
+enable_radio() {
+	local device="$1" band="$2"
+	[ "$(radio_off "$device")" = 1 ] || return 0
+	uci -q set "wireless.$device.disabled=0"
+	changed
+	log "radio $device ($band) was switched off; switched on so the controller's network can go on the air"
+	return 0
+}
+
 # radio_section_of BAND -> the wifi-device that serves that band (2g / 5g)
 #
 # The band is a name, not a section, and a board may carry two devices on one band: the xiaomi,ax3600 in the lab
@@ -87,7 +123,7 @@ radio_section_of() {
 		*) continue ;;
 		esac
 		candidates="$candidates $section"
-		[ "$(uci -q get "wireless.$section.disabled" 2>/dev/null)" = 1 ] || live="$live $section"
+		[ "$(radio_off "$section")" = 1 ] || live="$live $section"
 	done
 	[ -n "$candidates" ] || return 1
 	if [ -n "$pin" ]; then
@@ -160,6 +196,7 @@ apply_backhaul() {
 	local device iface main main_network enc
 	device=$(radio_section_of "$band") || { log "no usable $band radio; backhaul left alone"; return 1; }
 	enc=$(encryption_of "${beacon:-3}") || { log "backhaul on $band: unknown security mode ${beacon:-?}; left alone"; return 1; }
+	[ "$enabled" = 1 ] && enable_radio "$device" "$band"
 	iface=zte_backhaul_$band
 	if [ "$(uci -q get "wireless.$iface" 2>/dev/null)" != wifi-iface ]; then
 		uci -q set "wireless.$iface=wifi-iface"
@@ -252,6 +289,7 @@ apply_plan() {
 		enc=$(encryption_of "${beacon:-3}") || { log "radio $radio: unknown security mode ${beacon:-?}; left alone"; continue; }
 		device=$(radio_section_of "$band") || { log "no usable $band radio; left alone"; continue; }
 		iface=$(ap_iface_of "$device") || { log "no AP interface on $device ($band); left alone"; continue; }
+		[ "$enabled" = 1 ] && enable_radio "$device" "$band"
 		set_opt "$iface" disabled "$([ "$enabled" = 1 ] && echo 0 || echo 1)"
 		set_opt "$iface" ssid "$ssid"
 		[ -n "$hidden" ] && set_opt "$iface" hidden "$hidden"

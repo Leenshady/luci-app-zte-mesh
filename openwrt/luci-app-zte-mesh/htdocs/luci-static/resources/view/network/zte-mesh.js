@@ -302,7 +302,7 @@ return view.extend({
 		o.value('auto', _('Adaptive'));
 		o.value('slave', _('Child router'));
 		o.optional = true;
-		o.description = _('The factory "main router / adaptive" switch, plus the child side of it. Main router and adaptive keep this router the controller; child router makes it a mesh agent that receives its Wi-Fi name, key and security from the controller and applies them to its own radios. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. Changing from main router to adaptive restarts the mesh daemon twice and the child routers drop out of the topology for a short while; a different role restarts the service and reloads this page.');
+		o.description = _('The factory "main router / adaptive" switch, plus the child side of it. Main router and adaptive keep this router the controller; child router makes it a mesh agent that receives its Wi-Fi name, key and security from the controller and applies them to its own radios. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. A radio device that was switched off is switched on when the controller enables its band, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until the controller sends a different profile. Changing from main router to adaptive restarts the mesh daemon twice and the child routers drop out of the topology for a short while; a different role restarts the service and reloads this page.');
 
 		/* Only a child has a controller to reach over the radio. */
 		if (child) {
@@ -636,14 +636,22 @@ return view.extend({
 		}, _('Restart controller'));
 
 		return m.render().then(function(formNode) {
-			return E([
+			var sections = [
 				E('div', { 'class': 'cbi-section' }, [
 					E('h3', _('Status')), statusBox,
 					E('div', { 'class': 'cbi-page-actions', 'style': 'text-align:left' }, restart)
-				]),
-				child ? null : E('div', { 'class': 'cbi-section' }, [ E('h3', _('Child routers')), nodesBox ]),
-				formNode
-			]);
+				])
+			];
+
+			/* dom.create() calls itself on every element of an array and takes html.charCodeAt(0) on what it
+			 * gets, so a null slot in this list is a TypeError ("Cannot read properties of null (reading
+			 * 'charCodeAt')") and the whole page comes up empty: exactly what happened on a child, where this
+			 * section does not exist. The section is left out of the list, not nulled out of it. */
+			if (!child)
+				sections.push(E('div', { 'class': 'cbi-section' }, [ E('h3', _('Child routers')), nodesBox ]));
+
+			sections.push(formNode);
+			return E(sections);
 		});
 	}
 });

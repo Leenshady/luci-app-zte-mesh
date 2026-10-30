@@ -264,6 +264,39 @@ sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
 check "one live 5g radio: applied there" zte-agent-5g "$(val default_radio1.ssid)"
 check "one live 5g radio: no warning" 0 "$(grep -c 'several 5g radios' "$LOG")"
 
+# --- radios that are switched off --------------------------------------------------------------------------
+# The plan is the controller's word on what should be on the air, and a disabled wifi-device cannot put anything
+# there. The factory image and the lab's ax3600 ship every device disabled, which is exactly how a child ends up
+# with the controller's SSID in /etc/config/wireless and no BSS in the air.
+seed_db
+printf '1' > "$DB/radio1.disabled"
+sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
+check "radio off: switched on for the plan" 0 "$(val radio1.disabled)"
+check "radio off: said so in the log" yes "$(has 'radio1 (5g) was switched off')"
+check "radio off: that band's BSS is enabled" 0 "$(val default_radio1.disabled)"
+check "radio off: nothing is invented for the other band" "" "$(val radio0.disabled)"
+
+# A band the plan disables keeps its device: switching the device off would take the band's backhaul BSS with it.
+sed -e 's/^0.enabled=1$/0.enabled=0/' "$PLAN" > "$T/plan-band-off"
+seed_db
+printf '1' > "$DB/radio0.disabled"
+sh "$WLAN_SYNC" "$T/plan-band-off" --once >"$T/out" 2>&1
+check "band off: the radio is left off" 1 "$(val radio0.disabled)"
+check "band off: its BSS is switched off" 1 "$(val default_radio0.disabled)"
+
+# A radio that is already on is not written: the loop runs every couple of seconds, it must not churn UCI.
+seed_db
+printf '0' > "$DB/radio1.disabled"
+: > "$LOG"
+sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
+check "radio on: never written" 0 "$(grep -c '^set radio1.disabled' "$LOG")"
+
+# UCI booleans have word forms, and a hand-edited config uses them.
+seed_db
+printf 'true' > "$DB/radio1.disabled"
+sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
+check "radio off spelled true: switched on" 0 "$(val radio1.disabled)"
+
 # --- backhaul (multi_ap) ---------------------------------------------------------------------------------
 # A plan as the controller actually fills it: slot 0 is the fronthaul BSS (MapAccessAttr 32) and slot 3 of
 # the 2.4 GHz band is the hidden backhaul BSS (64). Only the 2.4 GHz band gets a backhaul row here, so the
@@ -337,6 +370,24 @@ sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
 check "second backhaul run sets nothing" 0 "$(grep -c '^set ' "$LOG")"
 check "second backhaul run commits nothing" 0 "$(grep -c '^commit ' "$LOG")"
 check "second backhaul run reloads nothing" 0 "$(grep -c '^wifi ' "$LOG")"
+
+# The backhaul BSS needs a radio that is on as well, and that is the shape of a real child: its 2.4 GHz device is
+# switched off, and the controller's backhaul rides that band. The fronthaul row comes first and switches it on.
+seed_db
+printf '1' > "$DB/radio0.disabled"
+backhaul_on
+sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "backhaul on a switched-off radio: radio on" 0 "$(val radio0.disabled)"
+check "backhaul on a switched-off radio: BSS created" wifi-iface "$(val type.zte_backhaul_2g)"
+
+# A backhaul row the plan disables does not switch the device on only to switch its own BSS off again.
+sed -e 's/^0.enabled=1$/0.enabled=0/' -e 's/^1.enabled=1$/1.enabled=0/' "$PLAN_BH" > "$T/plan-bh-off"
+seed_db
+printf '1' > "$DB/radio0.disabled"
+backhaul_on
+sh "$WLAN_SYNC" "$T/plan-bh-off" --once >"$T/out" 2>&1
+check "disabled backhaul: the radio is left off" 1 "$(val radio0.disabled)"
+check "disabled backhaul: BSS created but off" 1 "$(val zte_backhaul_2g.disabled)"
 
 # Switching back to off undoes both halves, and says so.
 backhaul_off

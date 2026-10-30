@@ -48,14 +48,14 @@
 | B2 | 发 M1、收 M2、凭据落 `WLANCfg` / `WLANPSK` | ☑️ | 两个频段各一份，`m2_match=1` | — |
 | B3 | setter 兜底（配置管理器返回 -3 时读回校验再报 0） | ☑️ | `libzte_agent_mm.so`，沙箱专用 | — |
 | B4 | 库 → 计划的发布（`agent-sync` → `/run/zte-mesh/wlan-plan`） | ☑️ | `published=1 rows=2` | — |
-| B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化） | ☑️ | 53 项测试 | — |
-| B6 | 回程 BSS：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 53 项测试含开关双向复原 | — |
+| B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化；plan 启用某 band 时把关着的 radio 设备打开，只写 0） | ☑️ | 86 项测试 | — |
+| B6 | 回程 BSS：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 86 项测试含开关双向复原 | — |
 | B7 | UCI / init / LuCI 暴露 `mesh_role` + `backhaul` | ☑️ | init 69、rpcd 16 | — |
 | B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | 本轮；init `role-slave-borrow` | — |
 | B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | 本轮；`test_luci.js`（主控 31 项 / 子路由 4 项） | — |
 | B10 | rpcd `status` 返回角色 | ☑️ | 本轮；rpcd 18 项 | — |
 | B11 | 子路由侧应用额外槽位（slot 1–3 现在只记日志） | ⬜ | `wlan-sync` 明确跳过 | 3 |
-| B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | 本轮；wlan-sync 60 项、rpcd 18 项 | — |
+| B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | 本轮；wlan-sync 86 项、rpcd 18 项 | — |
 | B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | ⬜ | 只做了 AP 侧 | 4 |
 | B14 | 真机：本机当子路由，接真主控（有线回程） | ⬜ | 只在合成主控下验过 | 2 |
 | B15 | `CmWLANMapSsidCfgSync2Repeater` 对齐（libcmapi 内部调用，替身命中不到） | ⬜ | 沙箱里是 no-op | 5 |

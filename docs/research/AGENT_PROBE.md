@@ -716,4 +716,42 @@ plan**。对一个被 M2 现场配置的子路由来说这正好是反的：plan
 | 子路由（192.168.1.1） | `running=1`，`cur_hop=2 max_hop=2`（此前 `-2`） |
 | M1 次数 | 一个服务生命周期 1 次（此前 3 次） |
 | 下发的 Wi-Fi | `/run/zte-mesh/wlan-plan` 与 `/etc/config/wireless` 都是控制器的 `ZTEMESHCTRL` |
-| 未落地 | 本机三个 `wifi-device` 都是 `disabled=1`（镜像/自配状态），所以 BSS 谁都没起来；`wlan-sync` 只写 `wifi-iface`，不动 radio 的开关 |
+| 未落地 | 本机三个 `wifi-device` 都是 `disabled=1`（镜像/自配状态），所以 BSS 谁都没起来；见 13.8，现在由 `wlan-sync` 在 plan 启用某 band 时把对应设备打开 |
+
+### 13.8 第五个改动（B 方案）：plan 说这个 band 要开，就把关着的 radio 设备打开
+
+配置已经对了、空中什么都没有，是因为 radio 设备本身 `disabled=1`——而 `wlan-sync` 过去只写 `wifi-iface`，
+从不碰 radio 的开关。这在这台机上不是偶发：出厂镜像和实验室的 ax3600，三个 `wifi-device` **全是关的**。
+
+现在 `apply_plan` 在某个 band 的主 BSS `enabled=1` 时调 `enable_radio`；backhaul 行也一样，回程 BSS 同样需要
+radio 开着才有地方承载。
+
+- 只写 `disabled=0`，从不写 1。plan 说这个 band 关的时候一个字段都不碰设备：把设备关掉会连带把该 band 的
+  backhaul BSS 一起杀掉，而那是控制面的通路。
+- 不是看门狗：它只在 plan 变化时跑一次。用户之后手动关掉的 radio 会一直关着，直到控制器下发不同的 profile。
+- UCI 布尔有词形（`true` / `on` / `yes`），手改的配置会用；`radio_off()` 一并认，`radio_section_of` 判断
+  "哪个候选还活着"也改用它，免得两个函数对"关着"的理解不一致。
+
+### 13.9 第六个 bug：`E([ ..., null, ... ])` 让子路由角色整页空白
+
+选成子路由之后，页面抛 `TypeError: Cannot read properties of null (reading 'charCodeAt')`。起因在 `render()`
+的收尾：
+
+```js
+return E([
+    E('div', ...),                 // Status
+    child ? null : E('div', ...),  // Child routers
+    formNode
+]);
+```
+
+`dom.create()` 对数组是**逐个元素**递归调 `create()`，而 `create()` 的第一件事是 `html.charCodeAt(0)`，
+于是 `create(null)` 直接抛。`E('div', attrs, [ok, null])` 不会抛：那条路走的是 `append()`，它跳过 null。
+差别就在"数组元素"与"子节点"。
+
+修法是那一节**不进列表**（`sections.push`），不是往列表里塞 `null`。
+
+测试为什么没抓到：`tests/test_luci.js` 的 `E` 桩接受任何参数，连 `null` 都包成一个对象。现在桩按
+`dom.create()` 的语义实现（数组递归展开、首参为 null 时抛同一个 TypeError），改视图前跑一次就能复现同一个
+异常，改后通过——子路由页面至少不会因为这条路径再白一次。
+

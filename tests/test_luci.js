@@ -32,7 +32,23 @@ const src = fs.readFileSync(viewFile, 'utf8').replace(/^'use strict';/, '').repl
 mocks.uci.get = (pkg, sec, opt) => (pkg === 'zte_mesh' && sec === 'main' && opt === 'mesh_role' ? uciRole : null);
 const names = Object.keys(mocks);
 const fn = new Function(...names, '_', 'E', src);
-const E = (t, a, c) => ({ t, a, c, kids: [], appendChild(x) { this.kids.push(x); return x; } });
+// dom.create() semantics, as far as the view can trip over them: the first argument is used directly
+// (html.charCodeAt(0)), so E(null) throws "Cannot read properties of null (reading 'charCodeAt')". An array is
+// unpacked by calling create() on every element, so E([ ok, null ]) throws the same way, while
+// E('div', attrs, [ ok, null ]) does not: that path goes through append(), which skips nulls. The stub used to
+// accept anything, which is why the child role could break in a browser while this test stayed green.
+const newNode = (t, a, c) => ({ t, a, c, kids: [], appendChild(x) { this.kids.push(x); return x; } });
+const E = (t, a, c) => {
+	if (Array.isArray(t)) {
+		const frag = newNode('#document-fragment');
+		for (const kid of t)
+			frag.appendChild(E(kid));
+		return frag;
+	}
+	if (t === null || t === undefined)
+		throw new TypeError("Cannot read properties of null (reading 'charCodeAt')");
+	return newNode(t, a, c);
+};
 const result = fn(...names.map(n => mocks[n]), s => s, E);
 (async () => {
 	const data = [{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}, undefined];
