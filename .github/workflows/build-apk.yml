@@ -95,12 +95,27 @@ jobs:
       - name: Install feeds
         working-directory: sr1010/immortalwrt
         run: |
-          # Point the local feed at the checkout and pull the official feeds
-          # (luci is required by luci-app-zte-mesh via $(TOPDIR)/feeds/luci/luci.mk).
-          echo "src-link zte_mesh $(pwd)/../../zte-mesh/openwrt" > feeds.conf
+          # Do NOT write feeds.conf from scratch: a bare `> feeds.conf` drops
+          # packages/luci/routing/telephony, and then
+          # `package/feeds/luci/luci-base/compile` has no rule at all
+          # ("No rule to make target"). Start from the fork's own list and only
+          # swap the zte_mesh entry, whose upstream src-git points at
+          # cnjn/zte-mesh.git and would shadow our checkout.
+          grep -vE '^[[:space:]]*src-(git|link|cdns|hg|svn|bzr)[[:space:]]+zte_mesh([[:space:]]|$)' \
+            feeds.conf.default > feeds.conf
+          FEED_DIR="$(cd ../../zte-mesh/openwrt && pwd)"
+          printf 'src-link zte_mesh %s\n' "$FEED_DIR" >> feeds.conf
+          cat feeds.conf
+
           ./scripts/feeds update -a
-          ./scripts/feeds install -a -p zte_mesh
           ./scripts/feeds install -a
+
+          # Fail fast with a clear message instead of a cryptic make error later.
+          test -f package/feeds/zte_mesh/zte-mesh/Makefile || {
+            echo "zte_mesh feed not linked into package/feeds" >&2; exit 1; }
+          test -f package/feeds/luci/luci-base/Makefile || {
+            echo "luci feed missing: package/feeds/luci/luci-base" >&2; exit 1; }
+          echo "feeds ok: $(ls package/feeds)"
 
       - name: Configure target
         working-directory: sr1010/immortalwrt
