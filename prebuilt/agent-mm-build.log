@@ -1,6 +1,6 @@
-agent-mm.c: In function ‘log_line’:
-agent-mm.c:66:15: error: ignoring return value of ‘write’ declared with attribute ‘warn_unused_result’ [-Werror=unused-result]
-   66 |         (void)write(STDERR_FILENO, text, (size_t)n < sizeof(text) ? (size_t)n : sizeof(text) - 1);
-      |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-cc1: all warnings being treated as errors
-rc=1
+rc=0
+prebuilt/libzte_agent_mm.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=3fe50d3f49b5315a8c5e92196866f77dddb338bd, not stripped
+-rwxr-xr-x 1 runner runner 6436 Oct 30 21:18 prebuilt/libzte_agent_mm.so
+000006d8 T CmWLANSetAPConfig
+00000828 T CmWLANSetPsk
+00000978 T zte_agent_mm_layout
