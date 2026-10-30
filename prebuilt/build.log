@@ -11,6 +11,6 @@ failed with musl-gcc (rc=1)
 === gcc ===
 built with gcc
 rc=0
-prebuilt/ns-run-x86_64: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=910f3fa6408dc223ecae35830971cd6ddc4bed99, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 826944 Oct 30 16:11 prebuilt/ns-run-x86_64
-2b39b97d9da73182df65121957e5a1abdb92735a019f561c51137413efbf25af  prebuilt/ns-run-x86_64
+prebuilt/ns-run-x86_64: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=d210463a5ec3ed7883abee7dfa76125d9e04dc52, for GNU/Linux 3.2.0, not stripped
+-rwxr-xr-x 1 runner runner 826984 Oct 30 16:15 prebuilt/ns-run-x86_64
+ae004cde504f50a0bf9c4161ebaead568ed54dcb40c8655015b3c41f5d3f58d6  prebuilt/ns-run-x86_64
