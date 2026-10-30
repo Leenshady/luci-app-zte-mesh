@@ -9,8 +9,13 @@ name: Build lab tools
 #              be built against the *factory* glibc (2.26) that sits in the
 #              runtime tarball, so it is linked with -nostdlib against that
 #              rootfs instead of the toolchain's own libc.
+#  * db-engine-probe - the ARM32 host side of the sandbox (parse_config, the
+#              service loop, controller-run). The one inside the runtime tarball
+#              was frozen at the pack date, so a source change that is not
+#              recompiled here keeps the device on the old behaviour while the
+#              config it is fed already uses the new keys.
 #
-# Both are published to this branch so the VM can fetch them over plain https:
+# All of them are published to this branch so a device can fetch them over plain https:
 #
 #   wget -O /usr/libexec/zte-mesh/ns-run \
 #     https://raw.githubusercontent.com/<owner>/<repo>/lab-tools/prebuilt/ns-run-x86_64
@@ -28,6 +33,20 @@ on:
       - ns-run.c
       - controller-net.c
       - shim.c
+      - controller-service.c
+      - controller-run.c
+      - controller-packet.c
+      - controller-wsc.c
+      - controller-wsc-crypto.c
+      - agent-sync.c
+      - multiap-cfg.c
+      - mesh-policies.c
+      - wlan-profiles.c
+      - mesh-bridge.c
+      - db-engine-probe.c
+      - '*.h'
+      - '*.def'
+      - Makefile
       - openwrt/zte-mesh/zte-mesh-runtime.tar.gz
       - .github/workflows/build-lab-tools.yml
   workflow_dispatch:
@@ -147,16 +166,45 @@ jobs:
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Build db-engine-probe (ARM32, vendor glibc)
+        id: probe
+        run: |
+          set +e
+          LOG=prebuilt/probe-build.log
+          : > "$LOG"
+          # tools/lab/bootstrap-out.py rebuilds the compile-time out/ tree from
+          # the runtime tarball (out/runtime/{bin,lib} + a synthetic
+          # manifest.json), which is everything the Makefile links against. It
+          # is the documented replacement for prepare.py on a machine that does
+          # not have the factory image.
+          python3 tools/lab/bootstrap-out.py >>"$LOG" 2>&1
+          echo "bootstrap rc=$?" >>"$LOG"
+          # Needs the same crt1.o/ld-linux.so.3 pair the factory daemon links
+          # against, so the target keeps -nostdlib and takes the toolchain's own
+          # start files. -march/-mfloat come from the Makefile rule.
+          make out/db-engine-probe ARTIFACTS=out ARMCC=arm-linux-gnueabi-gcc >>"$LOG" 2>&1
+          rc=$?
+          echo "rc=$rc" >>"$LOG"
+          if [ $rc -eq 0 ]; then
+            cp out/db-engine-probe prebuilt/db-engine-probe
+            file prebuilt/db-engine-probe >>"$LOG" 2>&1
+            ls -l prebuilt/db-engine-probe >>"$LOG"
+            sha256sum prebuilt/db-engine-probe > prebuilt/db-engine-probe.sha256
+          fi
+          cat "$LOG"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
       - name: Publish to this branch
         run: |
           git config user.name "lab-tools"
           git config user.email "lab-tools@users.noreply.github.com"
           git add -f prebuilt/
-          git commit -m "lab: ns-run rc=${{ steps.nsrun.outputs.rc }}/${{ steps.nsrunarm.outputs.rc }} shim rc=${{ steps.shim.outputs.rc }} $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
+          git commit -m "lab: ns-run rc=${{ steps.nsrun.outputs.rc }}/${{ steps.nsrunarm.outputs.rc }} shim rc=${{ steps.shim.outputs.rc }} probe rc=${{ steps.probe.outputs.rc }} $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Upload as artifacts too
-        if: steps.nsrun.outputs.rc == '0' && steps.nsrunarm.outputs.rc == '0' && steps.shim.outputs.rc == '0'
+        if: steps.nsrun.outputs.rc == '0' && steps.nsrunarm.outputs.rc == '0' && steps.shim.outputs.rc == '0' && steps.probe.outputs.rc == '0'
         uses: actions/upload-artifact@v4
         with:
           name: lab-tools
@@ -164,7 +212,7 @@ jobs:
           if-no-files-found: error
 
       - name: Fail if a build did not produce a binary
-        if: steps.nsrun.outputs.rc != '0' || steps.nsrunarm.outputs.rc != '0' || steps.shim.outputs.rc != '0'
+        if: steps.nsrun.outputs.rc != '0' || steps.nsrunarm.outputs.rc != '0' || steps.shim.outputs.rc != '0' || steps.probe.outputs.rc != '0'
         run: |
           echo "see prebuilt/*.log on this branch" >&2
           exit 1
