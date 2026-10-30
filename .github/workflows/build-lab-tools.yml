@@ -175,21 +175,22 @@ jobs:
           # The header set matters as much as the libraries here: the probe is
           # linked with -nostdlib against the factory glibc 2.26 in the runtime
           # tarball, so it must not reference symbols that only exist in a newer
-          # libc. Compiling on the runner's own glibc does exactly that --
+          # libc. Compiling on the runner's glibc 2.39 does exactly that --
           # time()/clock_gettime()/ioctl() get redirected to __time64,
           # __clock_gettime64 and __ioctl_time64, and sscanf() to __isoc23_sscanf,
           # none of which glibc 2.26 defines (link error "undefined reference to
-          # __time64"). bullseye's glibc 2.31 predates all of those redirections
-          # and matches what the release binary was built with, so the compile
-          # happens in that image rather than on ubuntu-24.04.
+          # __time64"; __isoc23_sscanf arrived in 2.38). bookworm's glibc 2.36
+          # predates the C23 redirection and, with _TIME_BITS pinned to 32, keeps
+          # the 32-bit time entry points the factory libc actually exports.
           docker run --rm -e HOME=/tmp \
-            -v "$PWD:/src" -w /src debian:bullseye \
+            -v "$PWD:/src" -w /src debian:bookworm \
             sh -c 'apt-get update -qq >/dev/null &&
                    apt-get install -y --no-install-recommends gcc-arm-linux-gnueabi make python3 >/dev/null &&
                    arm-linux-gnueabi-gcc --version | head -1 &&
                    ldd --version | head -1 &&
                    python3 tools/lab/bootstrap-out.py &&
-                   make out/db-engine-probe ARTIFACTS=out ARMCC=arm-linux-gnueabi-gcc' >>"$LOG" 2>&1
+                   make out/db-engine-probe ARTIFACTS=out \
+                     ARMCC="arm-linux-gnueabi-gcc -D_TIME_BITS=32"' >>"$LOG" 2>&1
           rc=$?
           # The container writes out/ as root; only the copied binary has to stay
           # writable by the runner (the commit step adds it).
