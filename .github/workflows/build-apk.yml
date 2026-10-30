@@ -32,7 +32,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential gawk unzip file wget python3 \
             rsync subversion git zstd libncurses-dev \
-            swig libssl-dev python3-dev lua5.1 liblua5.1-0-dev
+            swig libssl-dev python3-dev lua5.1 liblua5.1-0-dev \
+            meson ninja-build
 
       - name: Check out ImmortalWrt tree
         run: |
@@ -63,12 +64,14 @@ jobs:
           EOF
           make defconfig
 
-      - name: Download sources
+      - name: Install host tools
         working-directory: openwrt
         run: |
-          # The runtime tarball is committed next to the package Makefile, so no
-          # dl/ fetch is needed for it, but pull the rest once to warm the cache.
-          make -j"$(nproc)" tools/tar/compile || true
+          # apk (the .apk packager) is a meson host tool; meson/ninja and their
+          # staging glue (openwrt-native.txt.in) only land in staging_dir via
+          # `make tools/install`. Do this once, single-threaded, so a missing
+          # host tool fails loudly instead of silently skipping meson.
+          make -j1 V=s tools/install
 
       - name: Build packages
         working-directory: openwrt
