@@ -6,11 +6,17 @@ name: Build APK
 # from the cnjn/immortalwrt fork (branch `sr1010-zx279133`), which is the only
 # tree that carries that target.
 #
-# The ZTE target pins KERNEL_PATCHVER to 6.18 and consumes an EXTERNAL kernel
-# tree (Linux 6.18.38 from cnjn/linux-mainline-zte-zxslc-sr1010) instead of an
-# upstream tarball. The kernel tree is cloned and passed via
-# CONFIG_EXTERNAL_KERNEL_TREE so toolchain/kernel-headers can install UAPI
-# headers without trying to download a linux-6.18.38 tarball that does not exist.
+# The ZTE target pins KERNEL_PATCHVER to 6.18 with LINUX_VERSION 6.18.38, but
+# upstream kernel.org has no 6.18 tarball and the fork ships
+# `LINUX_KERNEL_HASH-6.18.38 = x`. toolchain/kernel-headers therefore fails in
+# `scripts/download.pl` with "Cannot find appropriate hash command".
+#
+# Fix: build the tarball ourselves from the prepared ZX279133 kernel tree
+# (cnjn/linux-mainline-zte-zxslc-sr1010), drop it into dl/ as
+# linux-6.18.38.tar.xz and record its real SHA256 in
+# target/linux/generic/kernel-6.18. The dl-file rule has no prerequisites, so
+# make then skips the download; the integrity check is satisfied by the hash we
+# write. Nothing is fetched from kernel.org.
 #
 # Trigger: manual (workflow_dispatch), on pushes to main, or on pull requests.
 
@@ -23,7 +29,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
 
     steps:
       - name: Check out this feed
@@ -38,7 +44,7 @@ jobs:
             build-essential gawk unzip file wget python3 \
             rsync subversion git zstd libncurses-dev \
             swig libssl-dev python3-dev lua5.1 liblua5.1-0-dev \
-            meson ninja-build
+            meson ninja-build xz-utils
 
       - name: Check out ImmortalWrt tree
         run: |
@@ -46,17 +52,43 @@ jobs:
           git clone --depth 1 --branch sr1010-zx279133 \
             https://github.com/cnjn/immortalwrt.git openwrt
 
-      - name: Check out external ZX279133 kernel tree
+      - name: Seed dl/ with the ZX279133 kernel tarball
         run: |
-          # The ZTE target uses an EXTERNAL kernel tree (Linux 6.18.38): there is
-          # no upstream 6.18 tarball to download, so toolchain/kernel-headers has
-          # no source/hash. Cloning the prepared tree lets kernel-headers install
-          # its UAPI headers from it instead of trying to fetch linux-6.18.38.tar.xz.
-          # The layout must be <dir>/linux-mainline-zte-zxslc-sr1010/linux-6.18.38
-          # next to <dir>/immortalwrt, and the kernel is a git submodule.
-          git clone --depth 1 --branch build --recurse-submodules \
+          # 1) Fetch the prepared kernel sources. They live on the
+          #    `codex/sr1010-mainline` branch of this repo (the superproject's
+          #    `build` branch only pins it as a submodule of the same URL), so a
+          #    shallow clone of the branch is enough and gives us the
+          #    `linux-6.18.38/` directory the build expects.
+          git clone --depth 1 --branch codex/sr1010-mainline \
             https://github.com/cnjn/linux-mainline-zte-zxslc-sr1010.git \
-            linux-mainline-zte-zxslc-sr1010
+            linux-6.18.38
+
+          test -f linux-6.18.38/Makefile || {
+            echo "kernel clone incomplete: no linux-6.18.38/Makefile" >&2
+            exit 1
+          }
+          grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' linux-6.18.38/Makefile
+
+          # 2) Pack it as dl/linux-6.18.38.tar.xz with a top-level
+          #    `linux-6.18.38/` directory, which is what Kernel/Prepare/Default
+          #    expects when it untars into KERNEL_BUILD_DIR. .git is excluded to
+          #    keep the archive small.
+          mkdir -p openwrt/dl
+          tar -C . --exclude=.git -cf - linux-6.18.38 \
+            | xz -T0 -3 > openwrt/dl/linux-6.18.38.tar.xz
+
+          # 3) Record the real SHA256 so the integrity check passes and the
+          #    dl rule (which has no prerequisites) is skipped entirely.
+          SHA256=$(sha256sum openwrt/dl/linux-6.18.38.tar.xz | cut -d' ' -f1)
+          sed -i "s|^LINUX_KERNEL_HASH-6.18.38 = .*|LINUX_KERNEL_HASH-6.18.38 = $SHA256|" \
+            openwrt/target/linux/generic/kernel-6.18
+
+          echo "tarball: $(du -h openwrt/dl/linux-6.18.38.tar.xz | cut -f1), sha256=$SHA256"
+          cat openwrt/target/linux/generic/kernel-6.18
+
+          # 4) The sources are no longer needed: the build untars the archive.
+          #    Free the space (a kernel checkout is well over 1 GB).
+          rm -rf linux-6.18.38
 
       - name: Install feeds
         working-directory: openwrt
@@ -71,15 +103,12 @@ jobs:
       - name: Configure target
         working-directory: openwrt
         run: |
-          # Select the target and mark the three packages to be built. Point
-          # CONFIG_EXTERNAL_KERNEL_TREE at the cloned kernel so kernel-headers
-          # (pulled in by toolchain/install) installs UAPI headers from it rather
-          # than trying to download a non-existent linux-6.18.38 tarball.
-          KERNEL_TREE="$(pwd)/../linux-mainline-zte-zxslc-sr1010/linux-6.18.38"
+          # Select the target and mark the three packages to be built. The
+          # kernel source is already in dl/ (see the previous step), so nothing
+          # here needs to fetch a kernel.
           cat >> .config <<EOF
           CONFIG_TARGET_zte=y
           CONFIG_TARGET_zte_zx279133=y
-          CONFIG_EXTERNAL_KERNEL_TREE="$KERNEL_TREE"
           CONFIG_PACKAGE_zte-mesh=m
           CONFIG_PACKAGE_luci-app-zte-mesh=m
           CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=m
@@ -93,16 +122,19 @@ jobs:
           # `toolchain/install` stages the aarch64_cortex-a53 gcc, which the
           # nonshared zte-mesh package pulls in via the toolchain/libgcc runtime
           # packages. Without it the build dies on a missing libgcc_s.so.
-          make -j1 V=s tools/install
-          make -j1 V=s toolchain/install
+          # kernel-headers (part of the toolchain chain) now unpacks our seeded
+          # dl/linux-6.18.38.tar.xz instead of hitting kernel.org.
+          df -h /
+          make -j$(nproc) V=s tools/install
+          make -j$(nproc) V=s toolchain/install
 
       - name: Build packages
         working-directory: openwrt
         run: |
-          # -j1 the first build so a host-tool failure is not drowned in
-          # parallel output; once green this can go parallel. The two packages
-          # are built in one invocation so their shared host deps (lua) resolve.
-          make -j1 V=s \
+          # The two packages are built in one invocation so their shared host
+          # deps (lua) resolve. A failing subpackage still prints its own
+          # "ERROR: <pkg> failed to build" line, so parallel is safe here.
+          make -j$(nproc) V=s \
             package/feeds/zte_mesh/zte-mesh/compile \
             package/feeds/zte_mesh/luci-app-zte-mesh/compile
 
