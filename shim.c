@@ -119,8 +119,8 @@ EXPORT void *shmat(int shmid, const void *shmaddr, int shmflg)
  */
 static int emulated_exec(const char *path, char *const argv[])
 {
-    void *(*real_execv)(const char *, char *const *) =
-        (void *(*)(const char *, char *const *))next_symbol("execv");
+    int (*real_execv)(const char *, char *const *) =
+        (int (*)(const char *, char *const *))next_symbol("execv");
     const char *emulator = emulated_lab ? getenv("ZTE_MESH_QEMU") : NULL;
     if (emulator && *emulator && path && !strcmp(path, "/lib/ld-linux.so.3")) {
         char *qemu_argv[32];
