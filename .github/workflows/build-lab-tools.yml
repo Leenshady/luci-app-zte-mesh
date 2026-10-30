@@ -172,23 +172,37 @@ jobs:
           set +e
           LOG=prebuilt/probe-build.log
           : > "$LOG"
-          # tools/lab/bootstrap-out.py rebuilds the compile-time out/ tree from
-          # the runtime tarball (out/runtime/{bin,lib} + a synthetic
-          # manifest.json), which is everything the Makefile links against. It
-          # is the documented replacement for prepare.py on a machine that does
-          # not have the factory image.
-          python3 tools/lab/bootstrap-out.py >>"$LOG" 2>&1
-          echo "bootstrap rc=$?" >>"$LOG"
-          # Needs the same crt1.o/ld-linux.so.3 pair the factory daemon links
-          # against, so the target keeps -nostdlib and takes the toolchain's own
-          # start files. -march/-mfloat come from the Makefile rule.
-          make out/db-engine-probe ARTIFACTS=out ARMCC=arm-linux-gnueabi-gcc >>"$LOG" 2>&1
+          # The header set matters as much as the libraries here: the probe is
+          # linked with -nostdlib against the factory glibc 2.26 in the runtime
+          # tarball, so it must not reference symbols that only exist in a newer
+          # libc. Compiling on the runner's own glibc does exactly that --
+          # time()/clock_gettime()/ioctl() get redirected to __time64,
+          # __clock_gettime64 and __ioctl_time64, and sscanf() to __isoc23_sscanf,
+          # none of which glibc 2.26 defines (link error "undefined reference to
+          # __time64"). bullseye's glibc 2.31 predates all of those redirections
+          # and matches what the release binary was built with, so the compile
+          # happens in that image rather than on ubuntu-24.04.
+          docker run --rm -e HOME=/tmp \
+            -v "$PWD:/src" -w /src debian:bullseye \
+            sh -c 'apt-get update -qq >/dev/null &&
+                   apt-get install -y --no-install-recommends gcc-arm-linux-gnueabi make python3 >/dev/null &&
+                   arm-linux-gnueabi-gcc --version | head -1 &&
+                   ldd --version | head -1 &&
+                   python3 tools/lab/bootstrap-out.py &&
+                   make out/db-engine-probe ARTIFACTS=out ARMCC=arm-linux-gnueabi-gcc' >>"$LOG" 2>&1
           rc=$?
+          # The container writes out/ as root; only the copied binary has to stay
+          # writable by the runner (the commit step adds it).
+          sudo chown -R "$(id -u):$(id -g)" out 2>/dev/null
           echo "rc=$rc" >>"$LOG"
           if [ $rc -eq 0 ]; then
             cp out/db-engine-probe prebuilt/db-engine-probe
             file prebuilt/db-engine-probe >>"$LOG" 2>&1
             ls -l prebuilt/db-engine-probe >>"$LOG"
+            # The one property that matters for this binary: no symbol newer than
+            # the factory glibc may have leaked in through the host headers.
+            arm-linux-gnueabi-nm -u prebuilt/db-engine-probe 2>/dev/null | grep -E '__time64|__clock_gettime64|__ioctl_time64|__isoc23_' >>"$LOG" 2>&1 &&
+              { echo "new-glibc symbols leaked into the link" >>"$LOG"; rc=3; }
             sha256sum prebuilt/db-engine-probe > prebuilt/db-engine-probe.sha256
           fi
           cat "$LOG"
