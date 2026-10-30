@@ -19,13 +19,26 @@ name: Build APK
 #    firmware", relative to the kernel tree. So the layout has to be
 #    <dir>/immortalwrt + <dir>/linux-mainline-zte-zxslc-sr1010/linux-6.18.38.
 #
-# `make package/<pkg>/compile` also walks the dependency graph in
-# tmp/.packagedeps, so building zte-mesh pulls in ip-full (and libmnl). It does
-# NOT pull in the kernel: the +kmod-veth / +kmod-sched-core deps are dropped
-# for this build (see the "Drop kernel-module deps" step) because config-6.18
-# has no CONFIG_VETH / CONFIG_NET_SCH_INGRESS, so those packages could only
-# ever be empty stubs - while still dragging package/kernel/linux, and hence a
-# full vendor kernel compile, into the graph.
+# `make package/<pkg>/compile` walks the dependency graph in tmp/.packagedeps,
+# so every declared runtime dep of zte-mesh gets built first. Two of them are
+# pointless (or actively harmful) to build here, and a CI-only sed trims them
+# from DEPENDS before defconfig:
+#
+#  * +kmod-veth +kmod-sched-core - config-6.18 has neither CONFIG_VETH nor
+#    CONFIG_NET_SCH_INGRESS/CONFIG_NET_CLS_ACT, so on this target they can only
+#    ever be empty stubs, yet naming them drags package/kernel/linux (and hence
+#    a kernel build) into the graph.
+#  * +ip-full - iproute2 comes from kernel.org and pulls iptables
+#    (PKG_BUILD_DEPENDS) from netfilter.org; both answer 403 to automated
+#    fetches often enough to waste whole runs, and neither is needed to package
+#    a script-only feed.
+#
+# The .apk therefore declares @TARGET_zte alone. The kernel package is
+# additionally neutralised rather than avoided: package/kernel/linux has an
+# EMPTY Build/Compile and its install step only copies $(LINUX_DIR)/modules.builtin
+# and strings modules.builtin.modinfo, so two empty placeholder files in the
+# kernel tree make it a zero-second no-op if it enters the graph anyway
+# (package/Makefile hardcodes `package-y += kernel/linux`).
 #
 # SPEED: the cross toolchain (binutils -> gcc/initial -> musl -> gcc/final) is
 # by far the most expensive part (~30-45 min) and always produces the same
@@ -92,6 +105,20 @@ jobs:
             exit 1
           }
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' "$KERNEL_TREE/Makefile"
+
+          # Neutralise package/kernel/linux. We never compile a kernel, and that
+          # package does not need one: its Build/Compile is empty and
+          # Package/kernel/install only (a) copies $(LINUX_DIR)/modules.builtin
+          # and (b) runs `strings` on modules.builtin.modinfo. Both files are
+          # produced by a real kernel build, so without them the install step
+          # dies on
+          #   make[2]: *** [Makefile:75: .../packages/.pkgdir/kernel.installed]
+          # even though nothing in our packages needs the kernel. Empty
+          # placeholders are enough: no built-in modules is the truth here,
+          # because no modules were built.
+          : > "$KERNEL_TREE/modules.builtin"
+          : > "$KERNEL_TREE/modules.builtin.modinfo"
+          ls -l "$KERNEL_TREE/modules.builtin" "$KERNEL_TREE/modules.builtin.modinfo"
 
       - name: Resolve cache key
         id: keys
@@ -180,36 +207,36 @@ jobs:
             echo "zte_mesh feed not linked into package/feeds" >&2; exit 1; }
           test -f package/feeds/luci/luci-base/Makefile || {
             echo "luci feed missing: package/feeds/luci/luci-base" >&2; exit 1; }
-          test -d package/feeds/packages/iproute2 || {
-            echo "iproute2 missing from the packages feed" >&2; exit 1; }
           echo "feeds ok: $(ls package/feeds)"
 
-      - name: Drop kernel-module deps for this build
+      - name: Trim runtime deps for this build
         working-directory: sr1010/immortalwrt
         run: |
-          # target/linux/zte/zx279133/config-6.18 has neither CONFIG_VETH nor
-          # CONFIG_NET_SCH_INGRESS / CONFIG_NET_CLS_ACT, so on this target
-          # kmod-veth and kmod-sched-core can only ever be empty stub packages.
-          # Naming them in DEPENDS is still enough to pull package/kernel/linux
-          # into the graph, and that package's install step ships
-          # $(LINUX_DIR)/modules.builtin - i.e. it silently demands a fully
-          # compiled vendor kernel (20-30 min, and uncacheable because with
-          # CONFIG_EXTERNAL_KERNEL_TREE the objects are written into the
-          # freshly cloned kernel tree, not into build_dir).
+          # `+kmod-veth +kmod-sched-core`: config-6.18 has no CONFIG_VETH and no
+          # CONFIG_NET_SCH_INGRESS/CONFIG_NET_CLS_ACT, so these could only ever be
+          # empty stub packages on this target - but naming them is enough to put
+          # package/kernel/linux (and a kernel build) in the dependency graph.
           #
-          # So the two stubs are dropped from THIS build only; the source keeps
-          # them. The resulting apk declares @TARGET_zte +ip-full, which is
-          # exactly what the target firmware already provides.
+          # `+ip-full`: iproute2 is fetched from kernel.org and build-depends on
+          # iptables from netfilter.org; both are 403-prone for automated fetches.
+          # None of the three is needed to package this feed: zte-mesh has no
+          # compile step at all (it unpacks a prebuilt runtime tarball), so the
+          # only thing the deps buy here is build time and flakiness.
           #
-          # This has to run before `make defconfig`, otherwise defconfig
-          # resolves the dependency and pins CONFIG_PACKAGE_kmod-veth=m, which
-          # drags the kernel package back in even though DEPENDS no longer
-          # mentions it.
+          # Trimmed for THIS build only; the source keeps the full DEPENDS. The
+          # resulting apk therefore declares @TARGET_zte only - which is exactly
+          # what the target firmware already provides (it ships ip-full and both
+          # stubs itself).
+          #
+          # Must run before `make defconfig`: defconfig resolves the dependencies
+          # and would pin CONFIG_PACKAGE_kmod-veth=m, dragging the kernel package
+          # back in even though DEPENDS no longer mentions it.
           MK=../../zte-mesh/openwrt/zte-mesh/Makefile
           echo "before: $(grep -n 'DEPENDS' "$MK")"
-          sed -i -E 's/[[:space:]]*\+kmod-veth[[:space:]]+\+kmod-sched-core[[:space:]]*$//' "$MK"
+          sed -i -E 's/[[:space:]]*\+(kmod-veth|kmod-sched-core|ip-full)//g' "$MK"
           echo "after:  $(grep -n 'DEPENDS' "$MK")"
-          grep -qE '\+kmod-' "$MK" && { echo "kmod deps still present in $MK" >&2; exit 1; }
+          grep -qE '\+(kmod-|ip-full)' "$MK" && {
+            echo "runtime deps were not trimmed in $MK" >&2; exit 1; }
           true
 
       - name: Configure target
@@ -321,9 +348,10 @@ jobs:
           }
 
           # Warm dl/ up front, with retries. netfilter.org and kernel.org
-          # intermittently answer 403 to automated fetches (that is what the
-          # curl(22) noise in earlier logs was), and one unlucky mirror sweep
-          # would otherwise abort the build long after the toolchain work.
+          # intermittently answer 403 to automated fetches, and one unlucky
+          # mirror sweep would otherwise abort the build long after the
+          # toolchain work. iproute2 is deliberately NOT built (see the
+          # "Trim runtime deps" step), so luci-base is the only download left.
           prefetch() {
             for i in 1 2 3; do
               make -j"$(nproc)" "$1" >>"$LOG" 2>&1 && return 0
@@ -333,16 +361,20 @@ jobs:
             fail "$1"
           }
           prefetch package/feeds/luci/luci-base/download
-          prefetch package/feeds/packages/iproute2/download
 
           # luci-base first: luci.mk needs the host po2lmo (and the luci libs)
           # before it can build luci-app-zte-mesh and its zh-cn translations.
           build package/feeds/luci/luci-base/compile
-          # iproute2 on its own so a download/compile failure there cannot be
-          # mistaken for a problem in our own package.
-          build package/feeds/packages/iproute2/compile
           build package/feeds/zte_mesh/zte-mesh/compile
           build package/feeds/zte_mesh/luci-app-zte-mesh/compile
+
+          # A green build with no artifact is the worst outcome: assert the
+          # packages are really there instead of trusting exit codes.
+          for stem in zte-mesh luci-app-zte-mesh; do
+            test -n "$(find bin -name "$stem-*.apk" -print -quit)" || {
+              echo "build reported success but produced no $stem apk" >&2; exit 1; }
+          done
+          find bin -name '*.apk' | grep -E 'zte-mesh' || true
 
       - name: Locate artifacts
         id: collect
