@@ -24,6 +24,13 @@ name: Build APK
 # kmod-veth / kmod-sched-core kernel modules - which is what needs the kernel
 # tree in the first place.
 #
+# SPEED: the cross toolchain (binutils -> gcc/initial -> musl -> gcc/final) is
+# by far the most expensive part (~30-45 min) and always produces the same
+# bytes for a given upstream commit. staging_dir + the host/toolchain build
+# trees are therefore cached, keyed on the upstream revisions only, so editing
+# our own packages never invalidates it. First run after a key change is slow;
+# later runs reach the package build in a couple of minutes.
+#
 # Trigger: manual (workflow_dispatch), on pushes to main, or on pull requests.
 
 on:
@@ -31,6 +38,12 @@ on:
   push:
     branches: [main]
   pull_request:
+
+# A superseded run is worthless: cancel the old one instead of paying for two
+# full toolchain builds in parallel (and fighting over the same cache key).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -77,20 +90,69 @@ jobs:
           }
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' "$KERNEL_TREE/Makefile"
 
-          # Fallback: also seed dl/ with a matching tarball. On the normal path
-          # (EXTERNAL_KERNEL_TREE honoured) kernel-headers symlinks the tree and
-          # never looks at this file, but if the symbol is ever dropped the dl
-          # rule then finds a real archive with a real SHA256 instead of failing
-          # on the fork's placeholder `LINUX_KERNEL_HASH-6.18.38 = x`
+      - name: Resolve cache key
+        id: keys
+        run: |
+          # Only UPSTREAM revisions go into the key. Editing our own feed (the
+          # packages, docs, this workflow) must not throw away a perfectly good
+          # toolchain - that is the whole point of the cache.
+          echo "owrt=$(git -C sr1010/immortalwrt rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "kernel=$(git -C sr1010/linux-mainline-zte-zxslc-sr1010/linux-6.18.38 rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore build cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          # staging_dir holds the install stamps for tools/ and toolchain/, so a
+          # hit turns `make tools/install` + `make toolchain/install` (~30-45 min
+          # of binutils -> gcc/initial -> musl -> gcc/final) into a no-op. The
+          # matching build trees are cached too, because their `.built` stamps
+          # are what actually stop the rebuild - restoring only staging_dir
+          # would leave make with nothing to believe. `build_dir` is taken
+          # wholesale instead of listing subdirs so a partially restored cache
+          # cannot happen; ~2 GB compressed, well inside the 10 GB repo budget.
+          path: |
+            sr1010/immortalwrt/dl
+            sr1010/immortalwrt/feeds
+            sr1010/immortalwrt/staging_dir
+            sr1010/immortalwrt/build_dir
+          key: owrt-${{ steps.keys.outputs.owrt }}-${{ steps.keys.outputs.kernel }}
+          # A stale staging_dir is still useful (make rebuilds only what
+          # changed), so fall back to the previous generation on a branch bump.
+          restore-keys: |
+            owrt-${{ steps.keys.outputs.owrt }}-
+            owrt-
+
+      - name: Report cache status
+        run: |
+          echo "cache hit: ${{ steps.cache.outputs.cache-hit }}"
+          du -sh sr1010/immortalwrt/staging_dir 2>/dev/null || echo "no staging_dir yet"
+          df -h /
+
+      - name: Seed dl/ with the kernel tarball
+        run: |
+          # Fallback path only: on the normal branch kernel-headers symlinks the
+          # external tree and never opens this file. But if
+          # CONFIG_EXTERNAL_KERNEL_TREE is ever dropped, the (prerequisite-free)
+          # dl rule then finds a real archive with a real SHA256 instead of
+          # failing on the fork's placeholder `LINUX_KERNEL_HASH-6.18.38 = x`
           # ("Cannot find appropriate hash command").
+          DL=sr1010/immortalwrt/dl/linux-6.18.38.tar.xz
           mkdir -p sr1010/immortalwrt/dl
-          tar -C "$(dirname "$KERNEL_TREE")" --exclude=.git -cf - linux-6.18.38 \
-            | xz -T0 -3 > sr1010/immortalwrt/dl/linux-6.18.38.tar.xz
-          SHA256=$(sha256sum sr1010/immortalwrt/dl/linux-6.18.38.tar.xz | cut -d' ' -f1)
+          if [ -f "$DL" ]; then
+            # Restored from the cache (same kernel commit => same tree). Repack
+            # nothing; just re-derive the hash from the bytes actually on disk,
+            # because that is what the integrity check compares against.
+            echo "kernel tarball: restored from cache"
+          else
+            tar -C sr1010/linux-mainline-zte-zxslc-sr1010 --exclude=.git -cf - linux-6.18.38 \
+              | xz -T0 -3 > "$DL"
+            echo "kernel tarball: packed from the clone"
+          fi
+          SHA256=$(sha256sum "$DL" | cut -d' ' -f1)
           sed -i "s|^LINUX_KERNEL_HASH-6.18.38 = .*|LINUX_KERNEL_HASH-6.18.38 = $SHA256|" \
             sr1010/immortalwrt/target/linux/generic/kernel-6.18
-          echo "kernel tarball: $(du -h sr1010/immortalwrt/dl/linux-6.18.38.tar.xz | cut -f1)"
-          df -h /
+          echo "tarball: $(du -h "$DL" | cut -f1), sha256=$SHA256"
 
       - name: Install feeds
         working-directory: sr1010/immortalwrt
@@ -151,8 +213,11 @@ jobs:
           # libgcc runtime packages the nonshared zte-mesh depends on.
           # kernel-headers is part of that chain and now links the external
           # kernel tree instead of downloading a tarball kernel.org never had.
-          make -j"$(nproc)" V=s tools/install
-          make -j"$(nproc)" V=s toolchain/install
+          #
+          # On a cache hit both are stamp-driven no-ops; they are still invoked
+          # so a partially restored cache is repaired rather than silently used.
+          time make -j"$(nproc)" V=s tools/install
+          time make -j"$(nproc)" V=s toolchain/install
 
       - name: Build packages
         working-directory: sr1010/immortalwrt
