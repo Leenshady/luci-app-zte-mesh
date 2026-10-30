@@ -20,9 +20,12 @@ name: Build APK
 #    <dir>/immortalwrt + <dir>/linux-mainline-zte-zxslc-sr1010/linux-6.18.38.
 #
 # `make package/<pkg>/compile` also walks the dependency graph in
-# tmp/.packagedeps, so building zte-mesh pulls in ip-full (and libmnl) plus the
-# kmod-veth / kmod-sched-core kernel modules - which is what needs the kernel
-# tree in the first place.
+# tmp/.packagedeps, so building zte-mesh pulls in ip-full (and libmnl). It does
+# NOT pull in the kernel: the +kmod-veth / +kmod-sched-core deps are dropped
+# for this build (see the "Drop kernel-module deps" step) because config-6.18
+# has no CONFIG_VETH / CONFIG_NET_SCH_INGRESS, so those packages could only
+# ever be empty stubs - while still dragging package/kernel/linux, and hence a
+# full vendor kernel compile, into the graph.
 #
 # SPEED: the cross toolchain (binutils -> gcc/initial -> musl -> gcc/final) is
 # by far the most expensive part (~30-45 min) and always produces the same
@@ -179,6 +182,34 @@ jobs:
             echo "luci feed missing: package/feeds/luci/luci-base" >&2; exit 1; }
           echo "feeds ok: $(ls package/feeds)"
 
+      - name: Drop kernel-module deps for this build
+        working-directory: sr1010/immortalwrt
+        run: |
+          # target/linux/zte/zx279133/config-6.18 has neither CONFIG_VETH nor
+          # CONFIG_NET_SCH_INGRESS / CONFIG_NET_CLS_ACT, so on this target
+          # kmod-veth and kmod-sched-core can only ever be empty stub packages.
+          # Naming them in DEPENDS is still enough to pull package/kernel/linux
+          # into the graph, and that package's install step ships
+          # $(LINUX_DIR)/modules.builtin - i.e. it silently demands a fully
+          # compiled vendor kernel (20-30 min, and uncacheable because with
+          # CONFIG_EXTERNAL_KERNEL_TREE the objects are written into the
+          # freshly cloned kernel tree, not into build_dir).
+          #
+          # So the two stubs are dropped from THIS build only; the source keeps
+          # them. The resulting apk declares @TARGET_zte +ip-full, which is
+          # exactly what the target firmware already provides.
+          #
+          # This has to run before `make defconfig`, otherwise defconfig
+          # resolves the dependency and pins CONFIG_PACKAGE_kmod-veth=m, which
+          # drags the kernel package back in even though DEPENDS no longer
+          # mentions it.
+          MK=../../zte-mesh/openwrt/zte-mesh/Makefile
+          echo "before: $(grep -n 'DEPENDS' "$MK")"
+          sed -i -E 's/[[:space:]]*\+kmod-veth[[:space:]]+\+kmod-sched-core[[:space:]]*$//' "$MK"
+          echo "after:  $(grep -n 'DEPENDS' "$MK")"
+          grep -qE '\+kmod-' "$MK" && { echo "kmod deps still present in $MK" >&2; exit 1; }
+          true
+
       - name: Configure target
         working-directory: sr1010/immortalwrt
         run: |
@@ -202,6 +233,15 @@ jobs:
           }
           sed -i '/^CONFIG_EXTERNAL_KERNEL_TREE=/d' .config
           printf 'CONFIG_EXTERNAL_KERNEL_TREE="%s"\n' "$KERNEL_TREE" >> .config
+
+          # Belt and braces: if anything re-selects a kmod, package/kernel/linux
+          # is back in the graph and the build dies on modules.builtin. Better
+          # to stop here with a readable message than 20 minutes later.
+          if grep -qE '^CONFIG_PACKAGE_kmod-(veth|sched-core)=' .config; then
+            echo "kmod deps were re-selected by defconfig:" >&2
+            grep -E '^CONFIG_PACKAGE_kmod-' .config >&2
+            exit 1
+          fi
 
           grep -n -E 'CONFIG_(TARGET_zte|EXTERNAL_KERNEL_TREE|PACKAGE_zte-mesh|PACKAGE_luci-app-zte-mesh)' .config
 
