@@ -17,65 +17,11 @@ writing /src/out
   manifest -> /src/out/manifest.json (synthetic, source=runtime-bundle)
 next: make -j$(nproc) all database
 arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden -fno-unwind-tables -fno-asynchronous-unwind-tables -march=armv7-a -mfloat-abi=soft -no-pie -nostdlib \
-  crt1.o crti.o \
+  /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crt1.o /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crti.o \
   /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtbegin.o db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c \
   -L/src/out/runtime/lib -Wl,-rpath-link,/src/out/runtime/lib -Wl,--dynamic-linker=/lib/ld-linux.so.3 \
   -Wl,--no-as-needed,--start-group -l:ld-linux.so.3 -l:libc.so.6 -l:libcapability.so -l:libcfapi.so -l:libcmapi.so -l:libcommfun.so -l:libcrypto.so.1.0.0 -l:libctype.so -l:libdb.so -l:libdhcp4ccfapi.so -l:libdhcp4ccmapi.so -l:libdhcp4scfapi.so -l:libdhcp4scmapi.so -l:libdl.so.2 -l:libevent.so -l:libgcc_s.so.1 -l:libieee1905cfapi.so -l:libieee1905cmapi.so -l:libjsonunify.so -l:libm.so.6 -l:libmultiapcfapi.so -l:libmultiapcmapi.so -l:liboss.so -l:libpthread.so.0 -l:libsha256.so -l:libssl.so.1.0.0 -l:libzte_slibc.so -lgcc -Wl,--end-group \
-  /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtend.o crtn.o -o out/db-engine-probe
-db-engine-probe.c:5:10: fatal error: errno.h: No such file or directory
-    5 | #include <errno.h>
-      |          ^~~~~~~~~
-compilation terminated.
-controller-run.c:6:10: fatal error: dlfcn.h: No such file or directory
-    6 | #include <dlfcn.h>
-      |          ^~~~~~~~~
-compilation terminated.
-controller-service.c:8:10: fatal error: dirent.h: No such file or directory
-    8 | #include <dirent.h>
-      |          ^~~~~~~~~~
-compilation terminated.
-controller-packet.c:5:10: fatal error: arpa/inet.h: No such file or directory
-    5 | #include <arpa/inet.h>
-      |          ^~~~~~~~~~~~~
-compilation terminated.
-controller-wsc.c:5:10: fatal error: arpa/inet.h: No such file or directory
-    5 | #include <arpa/inet.h>
-      |          ^~~~~~~~~~~~~
-compilation terminated.
-In file included from controller-wsc-crypto.c:6:
-/usr/lib/gcc-cross/arm-linux-gnueabi/12/include/stdint.h:9:16: fatal error: stdint.h: No such file or directory
-    9 | # include_next <stdint.h>
-      |                ^~~~~~~~~~
-compilation terminated.
-In file included from agent-sync.h:4,
-                 from agent-sync.c:14:
-/usr/lib/gcc-cross/arm-linux-gnueabi/12/include/stdint.h:9:16: fatal error: stdint.h: No such file or directory
-    9 | # include_next <stdint.h>
-      |                ^~~~~~~~~~
-compilation terminated.
-In file included from multiap-cfg.h:4,
-                 from multiap-cfg.c:2:
-/usr/lib/gcc-cross/arm-linux-gnueabi/12/include/stdint.h:9:16: fatal error: stdint.h: No such file or directory
-    9 | # include_next <stdint.h>
-      |                ^~~~~~~~~~
-compilation terminated.
-In file included from mesh-policies.h:4,
-                 from mesh-policies.c:2:
-/usr/lib/gcc-cross/arm-linux-gnueabi/12/include/stdint.h:9:16: fatal error: stdint.h: No such file or directory
-    9 | # include_next <stdint.h>
-      |                ^~~~~~~~~~
-compilation terminated.
-In file included from vendor-db.h:4,
-                 from wlan-profiles.c:7:
-/usr/lib/gcc-cross/arm-linux-gnueabi/12/include/stdint.h:9:16: fatal error: stdint.h: No such file or directory
-    9 | # include_next <stdint.h>
-      |                ^~~~~~~~~~
-compilation terminated.
-In file included from mesh-bridge.h:4,
-                 from mesh-bridge.c:2:
-/usr/lib/gcc-cross/arm-linux-gnueabi/12/include/stdint.h:9:16: fatal error: stdint.h: No such file or directory
-    9 | # include_next <stdint.h>
-      |                ^~~~~~~~~~
-compilation terminated.
-make: *** [Makefile:43: out/db-engine-probe] Error 1
-rc=2
+  /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtend.o /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crtn.o -o out/db-engine-probe
+rc=0
+prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=4c3f1e9b4a9a8affa699665f4f3e2bf16c31d5b7, for GNU/Linux 3.2.0, not stripped
+-rwxr-xr-x 1 runner runner 193364 Oct 30 16:49 prebuilt/db-engine-probe
