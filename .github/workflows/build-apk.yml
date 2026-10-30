@@ -64,14 +64,15 @@ jobs:
           EOF
           make defconfig
 
-      - name: Install host tools
+      - name: Install host tools and target toolchain
         working-directory: openwrt
         run: |
-          # apk (the .apk packager) is a meson host tool; meson/ninja and their
-          # staging glue (openwrt-native.txt.in) only land in staging_dir via
-          # `make tools/install`. Do this once, single-threaded, so a missing
-          # host tool fails loudly instead of silently skipping meson.
+          # `tools/install` stages host tools (meson/ninja for the apk packager);
+          # `toolchain/install` stages the aarch64_cortex-a53 gcc, which the
+          # nonshared zte-mesh package pulls in via the toolchain/libgcc runtime
+          # packages. Without it the build dies on a missing libgcc_s.so.
           make -j1 V=s tools/install
+          make -j1 V=s toolchain/install
 
       - name: Build packages
         working-directory: openwrt
