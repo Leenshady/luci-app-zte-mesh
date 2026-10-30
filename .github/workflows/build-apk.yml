@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential gawk unzip file wget python3 \
             rsync subversion git zstd libncurses-dev \
-            swig libssl-dev python3-dev
+            swig libssl-dev python3-dev lua5.1 liblua5.1-0-dev
 
       - name: Check out ImmortalWrt tree
         run: |
@@ -73,7 +73,10 @@ jobs:
       - name: Build packages
         working-directory: openwrt
         run: |
-          make -j"$(nproc)" \
+          # -j1 the first build so a host-tool failure is not drowned in
+          # parallel output; once green this can go parallel. The two packages
+          # are built in one invocation so their shared host deps (lua) resolve.
+          make -j1 V=s \
             package/feeds/zte_mesh/zte-mesh/compile \
             package/feeds/zte_mesh/luci-app-zte-mesh/compile
 
