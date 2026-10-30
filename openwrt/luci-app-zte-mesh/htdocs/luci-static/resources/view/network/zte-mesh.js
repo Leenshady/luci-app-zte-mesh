@@ -267,7 +267,10 @@ return view.extend({
 		 * networks from the controller, so those settings are not rendered there at all: an option that silently does
 		 * nothing is worse than a missing one, and one typed by accident is worse still. Changing the role reloads the
 		 * page (Save and Apply does), which is also when the service restarts, so the form is built once per role. */
-		var cfg = data[2], role = (cfg && cfg.get('zte_mesh', 'main', 'mesh_role')) || 'master';
+		/* uci.load() resolves to the list of package names it loaded, not to a
+		 * cursor: the data is in the module cache and is read back through
+		 * uci.get(). data[2] is only awaited for that side effect. */
+		var role = uci.get('zte_mesh', 'main', 'mesh_role') || 'master';
 		var child = (role === 'slave');
 
 		var m = new form.Map('zte_mesh', _('ZTE Mesh'), child
