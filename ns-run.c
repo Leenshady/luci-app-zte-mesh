@@ -99,13 +99,25 @@ static void isolate(const char *root, char **command)
     if (mount("tmpfs", path, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "size=1m,mode=1777"))
         fail("private-dev-shm");
     if (service || agent) {
-        struct stat source, target;
+        struct stat source = {0}, target = {0};
+        int stage = 0;
         /* The only writable host path: a root-owned private exchange directory
          * for the host-written config and the daemon's state report. The agent
          * observation needs it too: the daemon binds its OSS socket there. */
-        if (snprintf(path, sizeof(path), "%s" SERVICE_STATE, root) >= (int)sizeof(path) ||
-            lstat(SERVICE_STATE, &source) || !S_ISDIR(source.st_mode) || source.st_uid != 0 ||
-            (source.st_mode & 022) || stat(path, &target) || !S_ISDIR(target.st_mode)) {
+        if (snprintf(path, sizeof(path), "%s" SERVICE_STATE, root) >= (int)sizeof(path))
+            stage = 1, errno = ENAMETOOLONG;
+        else if (lstat(SERVICE_STATE, &source))
+            stage = 1;
+        else if (!S_ISDIR(source.st_mode) || source.st_uid != 0 || (source.st_mode & 022))
+            stage = 2, errno = EINVAL;
+        else if (stat(path, &target) || !S_ISDIR(target.st_mode))
+            stage = 3;
+        if (stage) {
+            /* The label is what the tests and the docs grep for; the detail line
+             * says which of the three conditions lost, because "EINVAL" alone
+             * cannot distinguish a symlinked /run from a missing directory. */
+            fprintf(stderr, "ZTE_DB_SANDBOX exchange-detail stage=%d host=%s mode=%03o uid=%u sandbox=%s errno=%d\n",
+                    stage, SERVICE_STATE, (unsigned)(source.st_mode & 07777), (unsigned)source.st_uid, path, errno);
             errno = EINVAL;
             fail("service-exchange-directory");
         }
