@@ -440,9 +440,52 @@ start_service() {
 	write_config || return 1
 	config_get role main mesh_role ""
 
+	# Two boxes must never present the same AL MAC. The vendor takes its AL MAC from br0, and a 1905 stack
+	# ignores frames whose source AL MAC is its own, so two sandboxes that both keep the built-in
+	# 02:00:00:00:19:06 look like one node talking to itself: both emit Search/Discovery, neither answers,
+	# and the topology stays at a single entry. The last byte is taken from this router's LAN MAC (unique on
+	# the segment by definition) unless zte_mesh.main.al_last overrides it; the rest is fixed because the
+	# address must stay locally administered for the vendor's route adapter to accept it.
+	al_last=$(cat "/sys/class/net/$bridge/address" 2>/dev/null)
+	al_last=${al_last##*:}
+	config_get al_last_override main al_last ""
+	[ -n "$al_last_override" ] && al_last=$al_last_override
+	case "$al_last" in
+	[0-9a-fA-F][0-9a-fA-F]) ;;
+	*) al_last=06 ;;
+	esac
+
 	# A previous sandbox's wire can only be left behind by a crash.
 	ip link del zmesh0 >/dev/null 2>&1
 	ip link del lab-peer >/dev/null 2>&1
+
+	# The daemon is a 32-bit ARM binary and the host is usually not. A kernel with CONFIG_COMPAT runs it
+	# natively, so the emulator is only used when the kernel says it cannot: x86-64 never can, and arm64
+	# only when CONFIG_COMPAT is off (the firmware build that turns it on is .github/workflows/
+	# build-firmware.yml). The emulator is opt-in by presence, overridable through zte_mesh.main.emulator
+	# ("none" forces the native path). Nothing is installed or loaded here; when neither works the service
+	# keeps failing the way it always did, with "execv errno=8" in the log.
+	emulator=""
+	config_get emulator main emulator ""
+	if [ "$emulator" = none ]; then
+		emulator=""
+	elif [ -z "$emulator" ]; then
+		compat=0
+		case "$(uname -m)" in
+		aarch64|arm64)
+			compat=$( (zcat /proc/config.gz 2>/dev/null || cat /proc/config 2>/dev/null) | grep -c '^CONFIG_COMPAT=y$')
+			;;
+		esac
+		if [ "$compat" = 0 ]; then
+			# The emulator is exec'd after the chroot, so it has to live inside the private root;
+			# the value passed on is the path as the sandbox sees it.
+			for candidate in "$ROOT/qemu-arm-static" "$ROOT/usr/bin/qemu-arm-static" "$ROOT/bin/qemu-arm-static"; do
+				[ -x "$candidate" ] && { emulator=${candidate#"$ROOT"}; break; }
+			done
+		fi
+	fi
+	emulated=""
+	[ -n "$emulator" ] && emulated="ZTE_MESH_EMULATED_LAB=1 ZTE_MESH_QEMU=$emulator"
 
 	procd_open_instance controller
 	procd_set_param command "$NSRUN" "$ROOT" /lib/ld-linux.so.3 --library-path /lib /bin/db-engine-probe --controller-service
@@ -450,7 +493,7 @@ start_service() {
 	# model (no serial) and the child's market code, as mreplay.py --identity passes them. Without them
 	# the child rejects the ZTE layer (reason=1/2): no ZTE node data, no LED or reboot actions.
 	procd_set_param env ZTE_MESH_REAL_MANUFACTURER=ZTE "ZTE_MESH_REAL_MODEL=ZXSLC SR1010" \
-		ZTE_MESH_REAL_MARKET_SIGN=8000
+		ZTE_MESH_REAL_MARKET_SIGN=8000 "ZTE_MESH_AL_LAST=$al_last" $emulated
 	procd_set_param respawn 3600 5 0
 	procd_set_param stderr 1
 	procd_set_param stdout 1

@@ -516,3 +516,90 @@ Multi-AP 的 backhaul BSS 正是 4 地址 BSS，正好是这套控制面缺的�
 （角色、`sync` 有值、`sync` 为 null），`test_wlan_sync.sh` 53 → **60**（状态文件六项 + 幂等后不残留频段），
 `test_luci.js` 修复后 **通过**。功能总账移到了 [../FEATURE_STATUS.md](../FEATURE_STATUS.md)，那里按难度
 排了剩下的项，本文件不再维护清单。
+
+## 12. 2026-10-31 两台设备真的组网了：AL MAC 冲突是唯一堵点
+
+第 11 节把 `mesh_role=slave` 做到"能起来"，但真机上控制器一直 `nodes: []`、两端
+`logread | grep -c rx1905` 都是 0。这一节是把它查通的过程与结论。
+
+### 12.1 先给"线上有没有帧"装一只眼睛：`tools/lab/spark.c`
+
+沙箱里的 daemon 到底发没发帧，日志说不清（`sendto` 只被抓到一部分，`send`/`sendmsg` 抓不到）。
+`tools/lab/spark.c`（同一个文件，`zig cc -target {x86_64,aarch64}-linux-musl -static` 出两个静态
+二进制）只看两件事：往指定接口的 1905.1 组播发一条 Topology Discovery，以及把收到的每个
+`0x893a` 帧的源/目的 MAC、CMDU 类型打出来。它自己开混杂模式（不是网桥端口的接口，网卡会先把
+组播/单播滤掉，早期"听不到"的结论有一半是这么来的）。
+
+用它直接测出的事实（两端都在同一 L2，路由器只有 `lan2` 有载波）：
+
+| 试验 | 结果 |
+|---|---|
+| VM 在 `eth0` 发广播，路由器 `br-lan` 收 | 收到（4 帧，60 B，被网卡补零到最小帧长） |
+| 路由器从 `lan2` 直接发广播，VM `eth0` 收 | 收不到，但 `tcpdump -i eth0` 能收到 —— 网桥端口的 ingress 帧**不会**再投给绑定在该端口上的 AF_PACKET 套接字 |
+| 路由器 `br-lan` 上抓 | 自己的 daemon 每 5 s 一条 `0x0007`（AP-Autoconfiguration Search）+ 每 5 s 一条 `0x0000` |
+| VM `br-lan` 上抓 | 静态：一条都没有 |
+
+结论：**子路由一侧的 agent 一直在正常发 Search；控制器一侧一条都不发**。但两边日志都干净，
+`actual_lab_bind=1 status=0`、`socket family=17 type=3 protocol=14985 success=1`、
+`packet_bind ifindex=5 protocol=35130 status=0` 全都成功。
+
+### 12.2 根因：两端 AL MAC 完全相同
+
+`controller-net.c` 给 `br0` 和 `veth-lab` 分配的 AL MAC 是写死的 `02:00:00:00:19:06`
+（`al_last_byte()` 的默认值 06）。`ns-run` 的 service 形态没有覆盖它，于是**两台设备都自称
+`02:00:00:00:19:06`**。1905 栈对"源 AL MAC 等于自己"的帧一律丢弃（这是防环的基本规则），
+所以两端各自的 Search/Discovery 在自己看来都是"自己发的"，对端发来的又被当成自己的回声：
+
+```
+# 修之前，两端抓到的每一帧都是同一个源地址，无法区分是谁发的
+02:00:00:00:19:06 > 01:80:c2:00:00:13  cmdu=0x0007  (Search)
+02:00:00:00:19:06 > 01:80:c2:00:00:13  cmdu=0x0000  (Discovery)
+```
+
+这也解释了为什么第 8、9 节的 lab 能跑通而真机不行：lab 里只有一个节点，自己发自己收，
+不存在冲突。
+
+### 12.3 修复：AL MAC 从 LAN MAC 派生，可覆盖
+
+`zte-mesh.init` 在 `start_service()` 里按 LAN 网桥 MAC 的最后一个字节派生出 AL MAC 末字节
+（`02:00:00:00:19:XX`，前缀不动，因为 `controller-route.c` 的 `GetRouteIFInfo` 要求它是本地
+管理地址），通过 `ZTE_MESH_AL_LAST` 传给 `ns-run`；`zte_mesh.main.al_last` 可以覆盖。
+
+同一个 commit 里补了第二件事：**模拟器的自动探测**。第 11 节为止 `ZTE_MESH_EMULATED_LAB=1` /
+`ZTE_MESH_QEMU=/qemu-arm-static` 是手工加在两台设备上的 env，仓库里没有，所以任何人重新部署一次
+init 就会把服务打回 `execv errno=8`。现在按 `uname -m` + `/proc/config.gz` 里的 `CONFIG_COMPAT`
+判断内核能不能直接跑 ARM32，不能且私有根里有 `qemu-arm-static` 才启用；
+`zte_mesh.main.emulator=none` 可以强制走原生路径。
+
+### 12.4 修好之后
+
+AL MAC 变成 `…:03`（VM）与 `…:e3`（路由器，取 `8c:de:f9:b3:d9:e3` 的末字节）之后：
+
+```
+01:29:06 02:00:00:00:19:03 > 01:80:c2:00:00:13  cmdu=0x0000  (控制器 Topology Discovery)
+01:29:08 02:00:00:00:19:06 > 02:00:00:00:19:03  cmdu=0x0004  (子节点的厂商私有帧，单播回来)
+01:29:08 02:00:00:00:19:03 > 02:00:00:00:19:06  cmdu=0x0004  (控制器回应)
+```
+
+`ubus call luci.zte-mesh status` 的 `nodes` 第一次出现子节点，而且是 ZTE 身份：
+
+```json
+{ "mac": "02:00:00:00:19:e3", "model": "ZXSLC SR1010", "name": "zte-shim-public-lab",
+  "zte": true, "online": true, "light": 0 }
+```
+
+连上之后稳态流量（各 40 s 采样）：`0x0004` 厂商私有心跳双向各 ~48/s 的对数、
+控制器发 `0x0002` Topology Query、子节点回 `0x0006` Link Metric Response（373 B）、
+偶发 `0x0000`。控制器同时每 10 s 发一次 `radio_select`，`response_code=1`。
+
+### 12.5 还没到的下一步：M1/M2
+
+`0x0007`（Search）在控制器出现之后就不再发了，而我们一帧 `0x0009`（WSC M1）也没抓到；
+子节点侧 `acdCreatWpaApConfileForM1` / `Build M1 phrase` 在启动时确实跑过（每频段一次），
+所以 M1 是**生成但没有发出**。也就是说卡点从"两端完全没有 1905"推进到了"枚举（enroll）
+这一步没起来"，与第 5 节第 3 条、第 11.5 节的判断一致：agent 的 acdc 状态机需要 cspd 的
+cooperator 推一把，而沙箱里没有 cspd。
+
+> 复现：`tools/lab/spark.c` 编出两个静态二进制，放到设备 `/tmp/spark`，
+> `spark <iface> listen|discovery [秒]`。注意网桥端口的 ingress 帧对绑定在该端口的套接字不可见，
+> 要抓"从线上进来的帧"请用 `tcpdump -i eth0`，要抓"daemon 发了什么"请用 `br-lan`。
