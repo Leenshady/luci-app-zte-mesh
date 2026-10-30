@@ -1,0 +1,127 @@
+reading openwrt/zte-mesh/zte-mesh-runtime.tar.gz
+  note: 1 bundle entries are not in SHA256SUMS: root/dev/urandom
+  closure: 27 libraries, audit clean (0 unresolved versions)
+writing /home/runner/work/zte-mesh/zte-mesh/out
+  multiapd + 27 libraries -> /home/runner/work/zte-mesh/zte-mesh/out/runtime
+  manifest -> /home/runner/work/zte-mesh/zte-mesh/out/manifest.json (synthetic, source=runtime-bundle)
+next: make -j$(nproc) all database
+bootstrap rc=0
+arm-linux-gnueabi-gcc -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden -fno-unwind-tables -fno-asynchronous-unwind-tables -march=armv7-a -mfloat-abi=soft -no-pie -nostdlib \
+  /usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/lib/crt1.o /usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/lib/crti.o \
+  /usr/lib/gcc-cross/arm-linux-gnueabi/13/crtbegin.o db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c \
+  -L/home/runner/work/zte-mesh/zte-mesh/out/runtime/lib -Wl,-rpath-link,/home/runner/work/zte-mesh/zte-mesh/out/runtime/lib -Wl,--dynamic-linker=/lib/ld-linux.so.3 \
+  -Wl,--no-as-needed,--start-group -l:ld-linux.so.3 -l:libc.so.6 -l:libcapability.so -l:libcfapi.so -l:libcmapi.so -l:libcommfun.so -l:libcrypto.so.1.0.0 -l:libctype.so -l:libdb.so -l:libdhcp4ccfapi.so -l:libdhcp4ccmapi.so -l:libdhcp4scfapi.so -l:libdhcp4scmapi.so -l:libdl.so.2 -l:libevent.so -l:libgcc_s.so.1 -l:libieee1905cfapi.so -l:libieee1905cmapi.so -l:libjsonunify.so -l:libm.so.6 -l:libmultiapcfapi.so -l:libmultiapcmapi.so -l:liboss.so -l:libpthread.so.0 -l:libsha256.so -l:libssl.so.1.0.0 -l:libzte_slibc.so -lgcc -Wl,--end-group \
+  /usr/lib/gcc-cross/arm-linux-gnueabi/13/crtend.o /usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/lib/crtn.o -o out/db-engine-probe
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccGcpgmN.o: in function `verify_attachment':
+db-engine-probe.c:(.text+0x8c): undefined reference to `__shmctl64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccGcpgmN.o: in function `bridge_test':
+db-engine-probe.c:(.text+0x304): undefined reference to `__shmctl64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccGcpgmN.o: in function `main':
+db-engine-probe.c:(.text.startup+0x1e0): undefined reference to `__shmctl64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: db-engine-probe.c:(.text.startup+0x440): undefined reference to `__shmctl64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccLl8uXW.o: in function `controller_respawn_daemon':
+controller-run.c:(.text+0x1c10): undefined reference to `__nanosleep64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccLl8uXW.o: in function `controller_boot':
+controller-run.c:(.text+0x2f68): undefined reference to `__shmctl64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccLl8uXW.o: in function `controller_shutdown_private':
+controller-run.c:(.text+0x3068): undefined reference to `__shmctl64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccLl8uXW.o: in function `controller_startup':
+controller-run.c:(.text+0x3170): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x323c): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x33f0): undefined reference to `__nanosleep64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x378c): undefined reference to `__shmctl64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccLl8uXW.o: in function `controller_agent_startup':
+controller-run.c:(.text+0x3970): undefined reference to `__ioctl_time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x3ad0): undefined reference to `__ioctl_time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x3b30): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x3b94): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x3cdc): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x3e48): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x3f20): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x4158): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x42ac): undefined reference to `__nanosleep64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x445c): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-run.c:(.text+0x49e4): undefined reference to `__shmctl64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `run_helper3':
+controller-service.c:(.text+0x160): undefined reference to `__nanosleep64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `normalize_mac':
+controller-service.c:(.text+0x31c): undefined reference to `__isoc23_strtoul'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `sched_windows':
+controller-service.c:(.text+0x3f4): undefined reference to `__gmtime64_r'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `read_peer':
+controller-service.c:(.text+0x800): undefined reference to `__isoc23_strtol'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x830): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x850): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `action_record':
+controller-service.c:(.text+0x940): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `topology_ready':
+controller-service.c:(.text+0x9b8): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `parse_config':
+controller-service.c:(.text+0xdc4): undefined reference to `__isoc23_strtoul'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0xe94): undefined reference to `__isoc23_strtoul'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x1330): undefined reference to `__isoc23_strtol'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x1b6c): undefined reference to `__isoc23_strtol'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x1c5c): undefined reference to `__isoc23_strtoul'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x1f34): undefined reference to `__isoc23_strtol'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x20e0): undefined reference to `__isoc23_strtoul'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x2220): undefined reference to `__isoc23_strtol'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x2594): undefined reference to `__isoc23_strtoul'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x25e8): undefined reference to `__isoc23_strtoul'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x2908): undefined reference to `__isoc23_strtoul'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `action_reconcile':
+controller-service.c:(.text+0x2c80): undefined reference to `__isoc23_sscanf'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `write_state':
+controller-service.c:(.text+0x303c): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x37b4): undefined reference to `__ioctl_time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `controller_service':
+controller-service.c:(.text+0x3a2c): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x3a50): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x3dc4): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x3f9c): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x4224): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x4398): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x4738): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x47bc): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x47f8): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x4974): undefined reference to `__nanosleep64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x4b58): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x4bc4): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x4f48): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x5218): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x5368): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o:controller-service.c:(.text+0x53c0): more undefined references to `__time64' follow
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc40P9DN.o: in function `controller_service':
+controller-service.c:(.text+0x5b60): undefined reference to `__isoc23_sscanf'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x5cfc): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x5da4): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x5ed4): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x6690): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x6864): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x6890): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x68e4): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-service.c:(.text+0x6978): undefined reference to `__time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccYmX09m.o: in function `wait_response':
+controller-packet.c:(.text+0x5b8): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-packet.c:(.text+0x650): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccYmX09m.o: in function `controller_inject_packet':
+controller-packet.c:(.text+0x870): undefined reference to `__ioctl_time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccYmX09m.o: in function `controller_wait_cmdu':
+controller-packet.c:(.text+0xbac): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-packet.c:(.text+0xbdc): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccYmX09m.o: in function `controller_radio_select':
+controller-packet.c:(.text+0xe58): undefined reference to `__ioctl_time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-packet.c:(.text+0x114c): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-packet.c:(.text+0x1194): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccWXH0RP.o: in function `controller_inject_wsc_m1':
+controller-wsc.c:(.text+0x1644): undefined reference to `__ioctl_time64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-wsc.c:(.text+0x1814): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: controller-wsc.c:(.text+0x1868): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc2xnqcr.o: in function `ready':
+mesh-bridge.c:(.text+0xe4): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc2xnqcr.o: in function `mb_read_message':
+mesh-bridge.c:(.text+0x89c): undefined reference to `__clock_gettime64'
+/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/cc2xnqcr.o: in function `mb_write_message':
+mesh-bridge.c:(.text+0xa30): undefined reference to `__clock_gettime64'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:43: out/db-engine-probe] Error 1
+rc=2
