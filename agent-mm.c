@@ -62,8 +62,13 @@ static void log_line(const char *format, ...)
     va_start(ap, format);
     n = vsnprintf(text, sizeof(text), format, ap);
     va_end(ap);
-    if (n > 0)
-        (void)write(STDERR_FILENO, text, (size_t)n < sizeof(text) ? (size_t)n : sizeof(text) - 1);
+    if (n > 0) {
+        /* The result is consumed rather than cast away: write() is warn_unused_result, and this
+         * library is built with -Werror in CI. A short write only costs a truncated trace line. */
+        ssize_t written = write(STDERR_FILENO, text, (size_t)n < sizeof(text) ? (size_t)n : sizeof(text) - 1);
+        if (written < 0)
+            (void)written;
+    }
     errno = saved;
 }
 
