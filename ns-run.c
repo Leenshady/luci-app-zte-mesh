@@ -40,6 +40,38 @@ static void fail(const char *operation)
     _exit(80);
 }
 
+/* The factory rootfs keeps the usual absolute links: /var/tmp, /var/run and
+ * /var/log all point at /tmp. mount(2) resolves the final component, so a tmpfs
+ * "on <root>/var/tmp" would land on the HOST /tmp instead of inside the sandbox.
+ * On a procd system /run lives there as well (/run -> /var/run -> /tmp/run), and
+ * hiding it makes the exchange directory disappear. Inside the chroot that same
+ * link already resolves to the tmpfs mounted at /tmp, so the link is left alone;
+ * any other symlink is refused rather than followed onto a host path.
+ */
+static void private_tmpfs(const char *root, const char *relative, const char *options, const char *label)
+{
+    char path[4096], target[4096];
+    struct stat info;
+    ssize_t length;
+    if ((size_t)snprintf(path, sizeof(path), "%s%s", root, relative) >= sizeof(path)) {
+        errno = ENAMETOOLONG;
+        fail(label);
+    }
+    if (lstat(path, &info))
+        fail(label);
+    if (S_ISLNK(info.st_mode)) {
+        if ((length = readlink(path, target, sizeof(target) - 1)) < 0)
+            fail(label);
+        target[length] = '\0';
+        if (!strcmp(target, "/tmp"))
+            return;
+        errno = ELOOP;
+        fail(label);
+    }
+    if (mount("tmpfs", path, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, options))
+        fail(label);
+}
+
 static void isolate(const char *root, char **command)
 {
     struct stat old_ipc, old_net, old_mnt, ipc, net, mnt;
@@ -78,26 +110,11 @@ static void isolate(const char *root, char **command)
         fail("private-mount-propagation");
     if (mount(root, root, NULL, MS_BIND, NULL) || mount(NULL, root, NULL, MS_BIND | MS_REMOUNT | MS_RDONLY | MS_NOSUID | MS_NODEV, NULL))
         fail("read-only-root");
-    if (snprintf(path, sizeof(path), "%s/tmp", root) >= (int)sizeof(path)) {
-        errno = ENAMETOOLONG;
-        fail("root-path-length");
-    }
-    if (mount("tmpfs", path, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "size=8m,mode=1777"))
-        fail("private-tmp");
+    private_tmpfs(root, "/tmp", "size=8m,mode=1777", "private-tmp");
     /* The daemon's OSS sockets live in /var/tmp on the factory device (unix_bind /var/tmp/multiapd.base_asy), so the
      * private root needs that directory writable too - the same size-capped tmpfs, still inside the namespace. */
-    if (snprintf(path, sizeof(path), "%s/var/tmp", root) >= (int)sizeof(path)) {
-        errno = ENAMETOOLONG;
-        fail("root-path-length");
-    }
-    if (mount("tmpfs", path, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "size=8m,mode=1777"))
-        fail("private-var-tmp");
-    if (snprintf(path, sizeof(path), "%s/dev/shm", root) >= (int)sizeof(path)) {
-        errno = ENAMETOOLONG;
-        fail("root-path-length");
-    }
-    if (mount("tmpfs", path, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "size=1m,mode=1777"))
-        fail("private-dev-shm");
+    private_tmpfs(root, "/var/tmp", "size=8m,mode=1777", "private-var-tmp");
+    private_tmpfs(root, "/dev/shm", "size=1m,mode=1777", "private-dev-shm");
     if (service || agent) {
         struct stat source = {0}, target = {0};
         int stage = 0;
