@@ -1740,7 +1740,7 @@ int controller_service(void)
     if (slave)
         printf("ZTE_MESH_SERVICE role=slave controller_features=off epoch=%ld\n", (long)time(NULL));
     action_reconcile(0); /* a request from before this start is stale: a reboot must not be replayed */
-    int renew_sent = 0;
+    int renew_sent = 0, election_attempts = 0;
     struct radio_push radio_push[2] = {{0, 0, 0}, {0, 0, 0}};
     struct radio_agent radio_agent = {{0}, 0};
     struct mlo_push mlo_push[MLO_NODES];
@@ -1766,6 +1766,19 @@ int controller_service(void)
                 printf("ZTE_MESH_SERVICE startup_renew=skipped role=slave epoch=%ld\n", (long)time(NULL));
             else
                 printf("ZTE_MESH_SERVICE startup_renew=%d epoch=%ld\n", controller_renew_agents(), (long)time(NULL));
+            fflush(NULL);
+        }
+        /* The agent's Search is what starts EasyMesh: cspd's cooperator sets g_TriggerSelectFlag once the interface
+         * has an address and calls CfIeee1905RoleElect, and multiapd only reaches that entry through its acd task.
+         * There is no cspd here, so the same probe event zte-meshctl sends for the renew is poked at it directly
+         * (0x909b, multiapd.acd.acd, docs/research/AGENT_PROBE.md section 5.3). The payload is a four-byte zero
+         * probe: if the trigger does not exist the status is non-zero and nothing is lost. Retried a few times
+         * because the acd task is not necessarily up when the daemon reports itself started. */
+        if (slave && election_attempts < 3 && now.tv_sec - state.started >= 8 + election_attempts * 12) {
+            int status = controller_election_trigger();
+            election_attempts++;
+            printf("ZTE_MESH_SERVICE agent_election attempt=%d status=%d epoch=%ld\n", election_attempts, status,
+                   (long)time(NULL));
             fflush(NULL);
         }
         apply_new_config(&config, &stamp, &state);
