@@ -61,10 +61,21 @@ jobs:
           # Same rule again, this time for the router's own architecture: an
           # ImmortalWrt aarch64 image has no compiler either, and its kernel has
           # no CONFIG_COMPAT, so the AArch64 launcher needs the emulator switch.
-          aarch64-linux-gnu-gcc -O2 -std=c11 -static -Wall -Wextra -Werror \
-            -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
-            ns-run.c controller-net.c -o prebuilt/ns-run-aarch64 >>"$LOG" 2>&1
-          rc=$?
+          {
+            echo "compiler: $(command -v aarch64-linux-gnu-gcc)"
+            echo "sysroot: $(aarch64-linux-gnu-gcc -print-sysroot)"
+            ls /usr/aarch64-linux-gnu/include 2>/dev/null | head -5
+          } >>"$LOG" 2>&1
+          rc=1
+          # Debian/Ubuntu cross gcc sometimes searches the host /usr/include first
+          # (mixed 32/64-bit glibc headers, "bits/wordsize.h not found"), so try
+          # the explicit sysroots before giving up on the default search path.
+          for opt in "--sysroot=/" "--sysroot=/usr/aarch64-linux-gnu" ""; do
+            echo "=== aarch64-linux-gnu-gcc $opt ===" >>"$LOG"
+            aarch64-linux-gnu-gcc $opt -O2 -std=c11 -static -Wall -Wextra -Werror \
+              -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
+              ns-run.c controller-net.c -o prebuilt/ns-run-aarch64 >>"$LOG" 2>&1 && { rc=0; break; }
+          done
           echo "rc=$rc" >>"$LOG"
           if [ $rc -eq 0 ]; then
             file prebuilt/ns-run-aarch64 >>"$LOG" 2>&1
