@@ -4,8 +4,13 @@ name: Build APK
 # auto-generated luci-i18n-zte-mesh-zh-cn) as OpenWrt .apk files inside a
 # GitHub runner. The packages are compiled against the `zte/zx279133` target
 # from the cnjn/immortalwrt fork (branch `sr1010-zx279133`), which is the only
-# tree that carries that target. No kernel tree is needed: compiling a package
-# only needs the buildroot, not the kernel sources.
+# tree that carries that target.
+#
+# The ZTE target pins KERNEL_PATCHVER to 6.18 and consumes an EXTERNAL kernel
+# tree (Linux 6.18.38 from cnjn/linux-mainline-zte-zxslc-sr1010) instead of an
+# upstream tarball. The kernel tree is cloned and passed via
+# CONFIG_EXTERNAL_KERNEL_TREE so toolchain/kernel-headers can install UAPI
+# headers without trying to download a linux-6.18.38 tarball that does not exist.
 #
 # Trigger: manual (workflow_dispatch), on pushes to main, or on pull requests.
 
@@ -41,6 +46,18 @@ jobs:
           git clone --depth 1 --branch sr1010-zx279133 \
             https://github.com/cnjn/immortalwrt.git openwrt
 
+      - name: Check out external ZX279133 kernel tree
+        run: |
+          # The ZTE target uses an EXTERNAL kernel tree (Linux 6.18.38): there is
+          # no upstream 6.18 tarball to download, so toolchain/kernel-headers has
+          # no source/hash. Cloning the prepared tree lets kernel-headers install
+          # its UAPI headers from it instead of trying to fetch linux-6.18.38.tar.xz.
+          # The layout must be <dir>/linux-mainline-zte-zxslc-sr1010/linux-6.18.38
+          # next to <dir>/immortalwrt, and the kernel is a git submodule.
+          git clone --depth 1 --branch build --recurse-submodules \
+            https://github.com/cnjn/linux-mainline-zte-zxslc-sr1010.git \
+            linux-mainline-zte-zxslc-sr1010
+
       - name: Install feeds
         working-directory: openwrt
         run: |
@@ -54,10 +71,15 @@ jobs:
       - name: Configure target
         working-directory: openwrt
         run: |
-          # Select the target and mark the three packages to be built.
+          # Select the target and mark the three packages to be built. Point
+          # CONFIG_EXTERNAL_KERNEL_TREE at the cloned kernel so kernel-headers
+          # (pulled in by toolchain/install) installs UAPI headers from it rather
+          # than trying to download a non-existent linux-6.18.38 tarball.
+          KERNEL_TREE="$(pwd)/../linux-mainline-zte-zxslc-sr1010/linux-6.18.38"
           cat >> .config <<EOF
           CONFIG_TARGET_zte=y
           CONFIG_TARGET_zte_zx279133=y
+          CONFIG_EXTERNAL_KERNEL_TREE="$KERNEL_TREE"
           CONFIG_PACKAGE_zte-mesh=m
           CONFIG_PACKAGE_luci-app-zte-mesh=m
           CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=m
