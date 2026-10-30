@@ -1,17 +1,23 @@
 name: Build lab tools
 
-# The sandbox launcher (`ns-run`) is host-architecture: the package ships the
-# AArch64 build for the router, but the lab VM is x86_64, so it needs its own.
-# This job proves the launcher still compiles for a foreign architecture (it is
-# plain POSIX + rtnetlink) and publishes the binary to this branch so the VM can
-# fetch it over plain https:
+# Host-architecture pieces the lab VM needs that a router package cannot carry:
+#
+#  * ns-run  - the sandbox launcher. The package ships the AArch64 build; the
+#              lab VM is x86_64, so it needs its own. Also proves the launcher
+#              still compiles for a foreign architecture (plain POSIX+rtnetlink).
+#  * libzte_mesh_shim.so - the LD_PRELOAD shim for the vendor daemon. It has to
+#              be built against the *factory* glibc (2.26) that sits in the
+#              runtime tarball, so it is linked with -nostdlib against that
+#              rootfs instead of the toolchain's own libc.
+#
+# Both are published to this branch so the VM can fetch them over plain https:
 #
 #   wget -O /usr/libexec/zte-mesh/ns-run \
 #     https://raw.githubusercontent.com/<owner>/<repo>/lab-tools/prebuilt/ns-run-x86_64
 #
-# Nothing here is part of a router image; it only exists for the x86_64 lab.
+# Nothing here is part of a router image.
 #
-# The build log is published even when the build fails (that is the only way to
+# The build log is published even when a build fails (that is the only way to
 # read a failure log without a token in this setup), so the commit always lands
 # and the job conclusion still reports the truth.
 
@@ -21,6 +27,8 @@ on:
     paths:
       - ns-run.c
       - controller-net.c
+      - shim.c
+      - openwrt/zte-mesh/zte-mesh-runtime.tar.gz
       - .github/workflows/build-lab-tools.yml
   workflow_dispatch:
 
@@ -32,7 +40,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ns-run-amd64:
+  lab-tools:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -40,10 +48,11 @@ jobs:
       - name: Install toolchains
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends musl-tools file
+          sudo apt-get install -y --no-install-recommends \
+            musl-tools gcc-arm-linux-gnueabi libc6-dev-armel-cross file
 
       - name: Build ns-run (x86_64)
-        id: build
+        id: nsrun
         run: |
           set +e
           mkdir -p prebuilt
@@ -55,20 +64,47 @@ jobs:
           FLAGS="-O2 -std=c11 -static -Wall -Wextra -Werror -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
           rc=1
           for cc in "musl-gcc" "gcc"; do
-            echo "=== $cc ===" >>"$LOG"
+            echo "=== ns-run with $cc ===" >>"$LOG"
             $cc $FLAGS ns-run.c controller-net.c -o prebuilt/ns-run-x86_64 >>"$LOG" 2>&1 \
               && { echo "built with $cc" >>"$LOG"; rc=0; break; }
-            echo "failed with $cc (rc=$?)" >>"$LOG"
+            echo "failed with $cc" >>"$LOG"
           done
-          echo "rc=$rc" >>"$LOG"
           if [ $rc -eq 0 ]; then
             file prebuilt/ns-run-x86_64 >>"$LOG" 2>&1
-            ls -l prebuilt/ns-run-x86_64 >>"$LOG"
             sha256sum prebuilt/ns-run-x86_64 > prebuilt/ns-run-x86_64.sha256
-            cat prebuilt/ns-run-x86_64.sha256 >>"$LOG"
           fi
           cat "$LOG"
-          [ -n "${GITHUB_STEP_SUMMARY:-}" ] && { echo '```'; tail -40 "$LOG"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Build libzte_mesh_shim.so (ARM32, vendor glibc)
+        id: shim
+        run: |
+          set +e
+          LOG=prebuilt/shim-build.log
+          : > "$LOG"
+          mkdir -p build/runtime
+          tar -xzf openwrt/zte-mesh/zte-mesh-runtime.tar.gz -C build/runtime >>"$LOG" 2>&1
+          L=build/runtime/root/lib
+          # The Makefile's libzte_mesh_shim.so rule, with $(LIBDIR) pointing at
+          # the factory libraries from the runtime tarball: -nostdlib keeps the
+          # host toolchain's newer libc out of the picture, so the shim needs
+          # nothing newer than the gLibc 2.26 the daemon actually links against.
+          arm-linux-gnueabi-gcc -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden \
+            -fno-unwind-tables -fno-asynchronous-unwind-tables \
+            -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
+            -Wl,-z,defs -Wl,-soname,libzte_mesh_shim.so \
+            -L"$L" -Wl,-rpath-link,"$L" shim.c \
+            -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc \
+            -o prebuilt/libzte_mesh_shim.so >>"$LOG" 2>&1
+          rc=$?
+          echo "rc=$rc" >>"$LOG"
+          if [ $rc -eq 0 ]; then
+            file prebuilt/libzte_mesh_shim.so >>"$LOG" 2>&1
+            ls -l prebuilt/libzte_mesh_shim.so >>"$LOG"
+            sha256sum prebuilt/libzte_mesh_shim.so > prebuilt/libzte_mesh_shim.so.sha256
+          fi
+          cat "$LOG"
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -77,19 +113,19 @@ jobs:
           git config user.name "lab-tools"
           git config user.email "lab-tools@users.noreply.github.com"
           git add -f prebuilt/
-          git commit -m "lab: ns-run x86_64 build (rc=${{ steps.build.outputs.rc }}) $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
+          git commit -m "lab: ns-run rc=${{ steps.nsrun.outputs.rc }} shim rc=${{ steps.shim.outputs.rc }} $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
-      - name: Upload as an artifact too
-        if: steps.build.outputs.rc == '0'
+      - name: Upload as artifacts too
+        if: steps.nsrun.outputs.rc == '0' && steps.shim.outputs.rc == '0'
         uses: actions/upload-artifact@v4
         with:
-          name: ns-run-x86_64
-          path: prebuilt/ns-run-x86_64*
+          name: lab-tools
+          path: prebuilt/*
           if-no-files-found: error
 
-      - name: Fail if the compiler did not produce a binary
-        if: steps.build.outputs.rc != '0'
+      - name: Fail if a build did not produce a binary
+        if: steps.nsrun.outputs.rc != '0' || steps.shim.outputs.rc != '0'
         run: |
-          echo "see prebuilt/build.log on this branch" >&2
+          echo "see prebuilt/*.log on this branch" >&2
           exit 1
