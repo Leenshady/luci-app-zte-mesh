@@ -365,9 +365,9 @@ return view.extend({
 				o.description = _('8 to 63 characters. Empty: the 2.4 GHz password.');
 			} else {
 				o.rmempty = false;
-				o.default = '00000000';
+				o.default = 'Ztemesh2631!';
 				o.placeholder = _('8 to 63 characters');
-				o.description = _('8 to 63 characters, default 00000000. Required: the controller does not start without one.');
+				o.description = _('8 to 63 characters, default Ztemesh2631!. Required: the controller does not start without one.');
 			}
 
 			if (five) {

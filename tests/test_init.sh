@@ -103,14 +103,14 @@ radio1.key=password-5g"
 [ "$(cat "$RUNDIR/version_mode.host")" = 128 ] || { echo "FAIL legacy: version_mode.host"; fail=$((fail + 1)); }
 [ "$(cat "$RUNDIR/restart.sig")" = "128 " ] || { echo "FAIL legacy: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 
-# 1b. the shipped template as it is (default name ImmortalWrt, default password 00000000): bands synchronised (the
+# 1b. the shipped template as it is (default name ImmortalWrt, default password Ztemesh2631!): bands synchronised (the
 # factory baseline), so the 5 GHz band takes the 2.4 GHz name, key and security and the child's 5 GHz network is not renamed
 TEMPLATE=$(dirname "$INIT")/zte-mesh.config
 UCI_TEXT=$(cat "$TEMPLATE")
 run template 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=ImmortalWrt
-radio0.key=00000000
+radio0.key=Ztemesh2631!
 radio0.hidden=0
 radio0.beacon_type=12
 radio0.beacon_interval=100
@@ -138,7 +138,7 @@ UCI_TEXT=$(printf '%s\n' "$UCI_TEXT" | grep -v wifi_dual_band_sync)
 run template-no-sync 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=ImmortalWrt
-radio0.key=00000000
+radio0.key=Ztemesh2631!
 radio0.hidden=0
 radio0.beacon_type=12
 radio0.beacon_interval=100
