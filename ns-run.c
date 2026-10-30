@@ -47,8 +47,8 @@ static void isolate(const char *root, char **command)
     struct __user_cap_data_struct caps[2] = {{0}};
     struct rlimit core = {0, 0}, memory = {128UL * 1024 * 1024, 128UL * 1024 * 1024};
     struct rlimit cpu = {5, 5};
-    char path[4096];
-    int cap, host_net = -1;
+    char path[4096], emulator[4096];
+    int cap, host_net = -1, have_emulator = 0;
     int service = command[4] && !strcmp(command[4], "--controller-service");
     int agent = command[4] && !strcmp(command[4], "--agent-startup");
     int startup = service || agent || (command[4] && !strcmp(command[4], "--controller-startup"));
@@ -163,7 +163,17 @@ static void isolate(const char *root, char **command)
         const char *manufacturer = service ? getenv("ZTE_MESH_REAL_MANUFACTURER") : NULL;
         const char *model_name = service ? getenv("ZTE_MESH_REAL_MODEL") : NULL;
         const char *market_sign = service ? getenv("ZTE_MESH_REAL_MARKET_SIGN") : NULL;
+        /* A kernel without CONFIG_BINFMT_MISC cannot exec the 32-bit guest at all
+         * (ENOEXEC), so on such a lab host the emulator is started explicitly. The
+         * path is inside the private root, which is why it survives the chroot.
+         * Opt-in through the same lab switch that lifts the address-space limit,
+         * and captured here because clearenv() below wipes it. */
+        const char *qemu = emulated_lab ? getenv("ZTE_MESH_QEMU") : NULL;
         char manufacturer_buf[64], model_buf[64], market_buf[64];
+        if (qemu && strlen(qemu) < sizeof(emulator)) {
+            strcpy(emulator, qemu);
+            have_emulator = 1;
+        }
         if (manufacturer && model_name && strlen(manufacturer) < sizeof(manufacturer_buf) &&
             strlen(model_name) < sizeof(model_buf)) {
             strcpy(manufacturer_buf, manufacturer);
@@ -193,6 +203,19 @@ static void isolate(const char *root, char **command)
     fprintf(stderr, "ZTE_DB_SANDBOX private_ipc=1 private_net=1 readonly_root=1 caps=%s\n",
             service ? "IPC_OWNER,NET_RAW service_exchange=1 bridge_port=lab-peer" :
             startup ? "IPC_OWNER,NET_RAW private_lab_bridges=2 private_veth=1" : "IPC_OWNER");
+    if (have_emulator) {
+        /* argv[0] is the emulator, the guest loader and its arguments follow
+         * unchanged: qemu-user then runs /lib/ld-linux.so.3 inside this root. */
+        char *emulated[16];
+        int i;
+        emulated[0] = emulator;
+        for (i = 0; i < 14 && command[i]; ++i)
+            emulated[i + 1] = command[i];
+        emulated[i + 1] = NULL;
+        fprintf(stderr, "ZTE_DB_SANDBOX emulator=%s\n", emulator);
+        execv(emulator, emulated);
+        fail("execv-emulator");
+    }
     execv(command[0], command);
     fail("execv");
 }
