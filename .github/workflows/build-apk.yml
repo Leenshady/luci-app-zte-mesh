@@ -6,17 +6,23 @@ name: Build APK
 # from the cnjn/immortalwrt fork (branch `sr1010-zx279133`), which is the only
 # tree that carries that target.
 #
-# The ZTE target pins KERNEL_PATCHVER to 6.18 with LINUX_VERSION 6.18.38, but
-# upstream kernel.org has no 6.18 tarball and the fork ships
-# `LINUX_KERNEL_HASH-6.18.38 = x`. toolchain/kernel-headers therefore fails in
-# `scripts/download.pl` with "Cannot find appropriate hash command".
+# Two properties of that target drive the layout below:
 #
-# Fix: build the tarball ourselves from the prepared ZX279133 kernel tree
-# (cnjn/linux-mainline-zte-zxslc-sr1010), drop it into dl/ as
-# linux-6.18.38.tar.xz and record its real SHA256 in
-# target/linux/generic/kernel-6.18. The dl-file rule has no prerequisites, so
-# make then skips the download; the integrity check is satisfied by the hash we
-# write. Nothing is fetched from kernel.org.
+#  * It uses an EXTERNAL kernel tree (Linux 6.18.38), and
+#    target/linux/zte/Makefile hard-errors without
+#    CONFIG_EXTERNAL_KERNEL_TREE. That symbol must be appended AFTER
+#    `make defconfig`: kconfig rewrites .config and resets it to the default "".
+#    Without it, building the kmod dependencies aborts with "The ZTE target
+#    requires CONFIG_EXTERNAL_KERNEL_TREE" and the toplevel only reports Error 2.
+#  * target/linux/zte/zx279133/config-6.18 sets
+#    CONFIG_EXTRA_FIRMWARE_DIR="../../immortalwrt/target/linux/zte/zx279133/
+#    firmware", relative to the kernel tree. So the layout has to be
+#    <dir>/immortalwrt + <dir>/linux-mainline-zte-zxslc-sr1010/linux-6.18.38.
+#
+# `make package/<pkg>/compile` also walks the dependency graph in
+# tmp/.packagedeps, so building zte-mesh pulls in ip-full (and libmnl) plus the
+# kmod-veth / kmod-sched-core kernel modules - which is what needs the kernel
+# tree in the first place.
 #
 # Trigger: manual (workflow_dispatch), on pushes to main, or on pull requests.
 
@@ -49,63 +55,56 @@ jobs:
       - name: Check out ImmortalWrt tree
         run: |
           # The zte/zx279133 target only exists on this fork's branch.
+          mkdir -p sr1010
           git clone --depth 1 --branch sr1010-zx279133 \
-            https://github.com/cnjn/immortalwrt.git openwrt
+            https://github.com/cnjn/immortalwrt.git sr1010/immortalwrt
 
-      - name: Seed dl/ with the ZX279133 kernel tarball
+      - name: Check out the ZX279133 kernel tree
         run: |
-          # 1) Fetch the prepared kernel sources. They live on the
-          #    `codex/sr1010-mainline` branch of this repo (the superproject's
-          #    `build` branch only pins it as a submodule of the same URL), so a
-          #    shallow clone of the branch is enough and gives us the
-          #    `linux-6.18.38/` directory the build expects.
+          # Cloned two levels deep on purpose: config-6.18 resolves its
+          # CONFIG_EXTRA_FIRMWARE_DIR relative to this tree as
+          # ../../immortalwrt/target/linux/zte/zx279133/firmware.
+          # `codex/sr1010-mainline` is the branch the superproject pins as a
+          # submodule; a shallow clone of it is the whole kernel source.
           git clone --depth 1 --branch codex/sr1010-mainline \
             https://github.com/cnjn/linux-mainline-zte-zxslc-sr1010.git \
-            linux-6.18.38
+            sr1010/linux-mainline-zte-zxslc-sr1010/linux-6.18.38
 
-          test -f linux-6.18.38/Makefile || {
-            echo "kernel clone incomplete: no linux-6.18.38/Makefile" >&2
+          KERNEL_TREE="sr1010/linux-mainline-zte-zxslc-sr1010/linux-6.18.38"
+          test -f "$KERNEL_TREE/Makefile" || {
+            echo "kernel clone incomplete: no $KERNEL_TREE/Makefile" >&2
             exit 1
           }
-          grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' linux-6.18.38/Makefile
+          grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' "$KERNEL_TREE/Makefile"
 
-          # 2) Pack it as dl/linux-6.18.38.tar.xz with a top-level
-          #    `linux-6.18.38/` directory, which is what Kernel/Prepare/Default
-          #    expects when it untars into KERNEL_BUILD_DIR. .git is excluded to
-          #    keep the archive small.
-          mkdir -p openwrt/dl
-          tar -C . --exclude=.git -cf - linux-6.18.38 \
-            | xz -T0 -3 > openwrt/dl/linux-6.18.38.tar.xz
-
-          # 3) Record the real SHA256 so the integrity check passes and the
-          #    dl rule (which has no prerequisites) is skipped entirely.
-          SHA256=$(sha256sum openwrt/dl/linux-6.18.38.tar.xz | cut -d' ' -f1)
+          # Fallback: also seed dl/ with a matching tarball. On the normal path
+          # (EXTERNAL_KERNEL_TREE honoured) kernel-headers symlinks the tree and
+          # never looks at this file, but if the symbol is ever dropped the dl
+          # rule then finds a real archive with a real SHA256 instead of failing
+          # on the fork's placeholder `LINUX_KERNEL_HASH-6.18.38 = x`
+          # ("Cannot find appropriate hash command").
+          mkdir -p sr1010/immortalwrt/dl
+          tar -C "$(dirname "$KERNEL_TREE")" --exclude=.git -cf - linux-6.18.38 \
+            | xz -T0 -3 > sr1010/immortalwrt/dl/linux-6.18.38.tar.xz
+          SHA256=$(sha256sum sr1010/immortalwrt/dl/linux-6.18.38.tar.xz | cut -d' ' -f1)
           sed -i "s|^LINUX_KERNEL_HASH-6.18.38 = .*|LINUX_KERNEL_HASH-6.18.38 = $SHA256|" \
-            openwrt/target/linux/generic/kernel-6.18
-
-          echo "tarball: $(du -h openwrt/dl/linux-6.18.38.tar.xz | cut -f1), sha256=$SHA256"
-          cat openwrt/target/linux/generic/kernel-6.18
-
-          # 4) The sources are no longer needed: the build untars the archive.
-          #    Free the space (a kernel checkout is well over 1 GB).
-          rm -rf linux-6.18.38
+            sr1010/immortalwrt/target/linux/generic/kernel-6.18
+          echo "kernel tarball: $(du -h sr1010/immortalwrt/dl/linux-6.18.38.tar.xz | cut -f1)"
+          df -h /
 
       - name: Install feeds
-        working-directory: openwrt
+        working-directory: sr1010/immortalwrt
         run: |
           # Point the local feed at the checkout and pull the official feeds
           # (luci is required by luci-app-zte-mesh via $(TOPDIR)/feeds/luci/luci.mk).
-          echo "src-link zte_mesh $(pwd)/../zte-mesh/openwrt" > feeds.conf
+          echo "src-link zte_mesh $(pwd)/../../zte-mesh/openwrt" > feeds.conf
           ./scripts/feeds update -a
           ./scripts/feeds install -a -p zte_mesh
           ./scripts/feeds install -a
 
       - name: Configure target
-        working-directory: openwrt
+        working-directory: sr1010/immortalwrt
         run: |
-          # Select the target and mark the three packages to be built. The
-          # kernel source is already in dl/ (see the previous step), so nothing
-          # here needs to fetch a kernel.
           cat >> .config <<EOF
           CONFIG_TARGET_zte=y
           CONFIG_TARGET_zte_zx279133=y
@@ -115,28 +114,58 @@ jobs:
           EOF
           make defconfig
 
+          # Must come after defconfig: kconfig regenerates .config from Config.in
+          # and resets EXTERNAL_KERNEL_TREE to its default empty string, which
+          # makes target/linux/zte/Makefile abort with
+          # "The ZTE target requires CONFIG_EXTERNAL_KERNEL_TREE".
+          KERNEL_TREE="$(cd ../linux-mainline-zte-zxslc-sr1010/linux-6.18.38 && pwd)"
+          test -f "$KERNEL_TREE/arch/arm64/boot/dts/zte/zx279133-sr1010.dts" || {
+            echo "not a prepared ZX279133 kernel tree: $KERNEL_TREE" >&2
+            exit 1
+          }
+          sed -i '/^CONFIG_EXTERNAL_KERNEL_TREE=/d' .config
+          printf 'CONFIG_EXTERNAL_KERNEL_TREE="%s"\n' "$KERNEL_TREE" >> .config
+
+          grep -n -E 'CONFIG_(TARGET_zte|EXTERNAL_KERNEL_TREE|PACKAGE_zte-mesh|PACKAGE_luci-app-zte-mesh)' .config
+
       - name: Install host tools and target toolchain
-        working-directory: openwrt
+        working-directory: sr1010/immortalwrt
         run: |
           # `tools/install` stages host tools (meson/ninja for the apk packager);
-          # `toolchain/install` stages the aarch64_cortex-a53 gcc, which the
-          # nonshared zte-mesh package pulls in via the toolchain/libgcc runtime
-          # packages. Without it the build dies on a missing libgcc_s.so.
-          # kernel-headers (part of the toolchain chain) now unpacks our seeded
-          # dl/linux-6.18.38.tar.xz instead of hitting kernel.org.
-          df -h /
-          make -j$(nproc) V=s tools/install
-          make -j$(nproc) V=s toolchain/install
+          # `toolchain/install` stages the aarch64_cortex-a53 gcc plus the libc /
+          # libgcc runtime packages the nonshared zte-mesh depends on.
+          # kernel-headers is part of that chain and now links the external
+          # kernel tree instead of downloading a tarball kernel.org never had.
+          make -j"$(nproc)" V=s tools/install
+          make -j"$(nproc)" V=s toolchain/install
 
       - name: Build packages
-        working-directory: openwrt
+        working-directory: sr1010/immortalwrt
         run: |
-          # The two packages are built in one invocation so their shared host
-          # deps (lua) resolve. A failing subpackage still prints its own
-          # "ERROR: <pkg> failed to build" line, so parallel is safe here.
-          make -j$(nproc) V=s \
-            package/feeds/zte_mesh/zte-mesh/compile \
-            package/feeds/zte_mesh/luci-app-zte-mesh/compile
+          # Each target is built separately so a failure is attributable, and the
+          # full output goes to build.log (uploaded even on failure) so the real
+          # error is never lost between the failing sub-make and the toplevel
+          # "Error 2" summary.
+          LOG="$GITHUB_WORKSPACE/build.log"
+          : > "$LOG"
+
+          build() {
+            echo "=== make $1 ===" | tee -a "$LOG"
+            if ! make -j"$(nproc)" V=s "$1" >>"$LOG" 2>&1; then
+              echo "### FAILED: $1"
+              echo "----- error digest -----"
+              grep -nE 'ERROR:|Error [0-9]+|error:|\*\*\*|requires CONFIG' "$LOG" | tail -40
+              echo "----- last 80 lines -----"
+              tail -80 "$LOG"
+              exit 1
+            fi
+          }
+
+          # luci-base first: luci.mk needs the host po2lmo (and the luci libs)
+          # before it can build luci-app-zte-mesh and its zh-cn translations.
+          build package/feeds/luci/luci-base/compile
+          build package/feeds/zte_mesh/zte-mesh/compile
+          build package/feeds/zte_mesh/luci-app-zte-mesh/compile
 
       - name: Locate artifacts
         id: collect
@@ -145,8 +174,8 @@ jobs:
           # lands under the target packages dir; the LuCI packages are arch:all
           # and land under the feed packages dir.
           mkdir -p dist
-          find openwrt/bin -name 'zte-mesh*.apk' -exec cp -v {} dist/ \;
-          find openwrt/bin -name 'luci-*zte-mesh*.apk' -exec cp -v {} dist/ \;
+          find sr1010/immortalwrt/bin -name 'zte-mesh*.apk' -exec cp -v {} dist/ \;
+          find sr1010/immortalwrt/bin -name 'luci-*zte-mesh*.apk' -exec cp -v {} dist/ \;
           ls -la dist
 
       - name: Upload packages
@@ -155,3 +184,11 @@ jobs:
           name: zte-mesh-apk
           path: dist/
           if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
