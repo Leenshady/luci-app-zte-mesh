@@ -1,4 +1,4 @@
-=== musl-gcc ===
+=== ns-run with musl-gcc ===
 ns-run.c:5:10: fatal error: linux/capability.h: No such file or directory
     5 | #include <linux/capability.h>
       |          ^~~~~~~~~~~~~~~~~~~~
@@ -7,10 +7,7 @@ controller-net.c:6:10: fatal error: linux/if_link.h: No such file or directory
     6 | #include <linux/if_link.h>
       |          ^~~~~~~~~~~~~~~~~
 compilation terminated.
-failed with musl-gcc (rc=1)
-=== gcc ===
+failed with musl-gcc
+=== ns-run with gcc ===
 built with gcc
-rc=0
 prebuilt/ns-run-x86_64: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=d210463a5ec3ed7883abee7dfa76125d9e04dc52, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 826984 Oct 30 16:15 prebuilt/ns-run-x86_64
-ae004cde504f50a0bf9c4161ebaead568ed54dcb40c8655015b3c41f5d3f58d6  prebuilt/ns-run-x86_64

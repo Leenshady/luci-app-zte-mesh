@@ -1,0 +1,3 @@
+rc=0
+prebuilt/libzte_mesh_shim.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=5811349e4c8d6d64f010245eff546f891f8c649f, not stripped
+-rwxr-xr-x 1 runner runner 6628 Oct 30 16:18 prebuilt/libzte_mesh_shim.so
