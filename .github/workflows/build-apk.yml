@@ -61,6 +61,23 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Runtime dependencies are decided per target instead of by one blind sed: a
+# target that compiles its own kernel modules keeps +kmod-veth +kmod-sched-core,
+# so the packaged apk carries a real dependency and the board ends up with a
+# working veth pair; a target built against an external kernel tree that this
+# workflow never compiles cannot produce those kmods at all, and merely naming
+# them drags package/kernel/linux (and a kernel build) into the graph.
+env:
+  # zte/zx279133 points at an external kernel tree (see the header), which this
+  # workflow never compiles -> kmod-* deps could only ever be empty stubs.
+  # A target with an in-tree kernel (qualcommax/ipq807x) sets this to 'true';
+  # the firmware workflow in build-firmware.yml builds that target.
+  TARGET_BUILDS_KERNEL_MODULES: 'false'
+  # ip-full: iproute2 is fetched from kernel.org and build-depends on iptables
+  # (netfilter.org); both answer 403 to automated fetches often enough to waste
+  # whole runs. It is a runtime-only dep, so it stays out of the build graph.
+  TRIM_IP_FULL: 'true'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -71,6 +88,24 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: zte-mesh
+
+      - name: Lint the LuCI view
+        run: |
+          # Guards against the failure that shipped in the first apk: the page
+          # died with "TypeError: cfg.get is not a function" because
+          # uci.load() resolves to the list of package names it loaded, not to a
+          # cursor. Config data must be read back through uci.get(package,
+          # section, option); keeping this check here means a regression fails
+          # the run instead of the router's browser console.
+          JS=zte-mesh/openwrt/luci-app-zte-mesh/htdocs/luci-static/resources/view/network/zte-mesh.js
+          node --check "$JS"
+          if grep -nE '\bcfg\.get[[:space:]]*\(' "$JS"; then
+            echo "cfg.get() used on a uci.load() result: read through uci.get()" >&2
+            exit 1
+          fi
+          grep -q "uci.get('zte_mesh', 'main', 'mesh_role')" "$JS" || {
+            echo "the role lookup no longer reads through uci.get()" >&2; exit 1; }
+          echo "view ok: $(wc -c < "$JS") bytes"
 
       - name: Install host dependencies
         run: |
@@ -209,34 +244,57 @@ jobs:
             echo "luci feed missing: package/feeds/luci/luci-base" >&2; exit 1; }
           echo "feeds ok: $(ls package/feeds)"
 
-      - name: Trim runtime deps for this build
+      - name: Decide runtime deps for this target
         working-directory: sr1010/immortalwrt
         run: |
-          # `+kmod-veth +kmod-sched-core`: config-6.18 has no CONFIG_VETH and no
-          # CONFIG_NET_SCH_INGRESS/CONFIG_NET_CLS_ACT, so these could only ever be
-          # empty stub packages on this target - but naming them is enough to put
-          # package/kernel/linux (and a kernel build) in the dependency graph.
+          # Per-target decision, not a blanket sed. The switch lives in the
+          # workflow env block at the top so the rule is visible without reading
+          # this body:
           #
-          # `+ip-full`: iproute2 is fetched from kernel.org and build-depends on
-          # iptables from netfilter.org; both are 403-prone for automated fetches.
-          # None of the three is needed to package this feed: zte-mesh has no
-          # compile step at all (it unpacks a prebuilt runtime tarball), so the
-          # only thing the deps buy here is build time and flakiness.
+          #  TARGET_BUILDS_KERNEL_MODULES=false (this target)
+          #    config-6.18 has no CONFIG_VETH and no CONFIG_NET_SCH_INGRESS/
+          #    CONFIG_NET_CLS_ACT, and the kernel is an external tree we never
+          #    compile, so +kmod-veth/+kmod-sched-core could only ever be empty
+          #    stubs - yet naming them puts package/kernel/linux (and a kernel
+          #    build) in the graph.
+          #  TARGET_BUILDS_KERNEL_MODULES=true (e.g. qualcommax/ipq807x)
+          #    the in-tree kernel really builds those modules, so the deps stay
+          #    and the resulting apk carries them: without veth the launcher
+          #    stops at "error=private-service-network errno=2".
           #
-          # Trimmed for THIS build only; the source keeps the full DEPENDS. The
-          # resulting apk therefore declares @TARGET_zte only - which is exactly
-          # what the target firmware already provides (it ships ip-full and both
-          # stubs itself).
+          # Trimming happens in this build tree only; the source keeps the full
+          # DEPENDS so a packaged target still gets what it declares.
           #
           # Must run before `make defconfig`: defconfig resolves the dependencies
           # and would pin CONFIG_PACKAGE_kmod-veth=m, dragging the kernel package
           # back in even though DEPENDS no longer mentions it.
           MK=../../zte-mesh/openwrt/zte-mesh/Makefile
+          echo "target builds kernel modules: $TARGET_BUILDS_KERNEL_MODULES"
+          echo "trim ip-full:                  $TRIM_IP_FULL"
           echo "before: $(grep -n 'DEPENDS' "$MK")"
-          sed -i -E 's/[[:space:]]*\+(kmod-veth|kmod-sched-core|ip-full)//g' "$MK"
+
+          if [ "$TRIM_IP_FULL" = 'true' ]; then
+            sed -i -E 's/[[:space:]]*\+ip-full//g' "$MK"
+            echo "trimmed +ip-full (download-only dep, 403-prone)"
+          else
+            echo "kept +ip-full"
+          fi
+
+          if [ "$TARGET_BUILDS_KERNEL_MODULES" = 'true' ]; then
+            grep -qE '\+kmod-veth' "$MK" || {
+              echo "TARGET_BUILDS_KERNEL_MODULES=true but $MK lost +kmod-veth" >&2; exit 1; }
+            echo "kept +kmod-veth +kmod-sched-core: this target can build them"
+          else
+            sed -i -E 's/[[:space:]]*\+(kmod-veth|kmod-sched-core)//g' "$MK"
+            echo "trimmed +kmod-veth +kmod-sched-core: no in-tree kernel here"
+          fi
           echo "after:  $(grep -n 'DEPENDS' "$MK")"
-          grep -qE '\+(kmod-|ip-full)' "$MK" && {
-            echo "runtime deps were not trimmed in $MK" >&2; exit 1; }
+
+          if [ "$TRIM_IP_FULL" = 'true' ] && [ "$TARGET_BUILDS_KERNEL_MODULES" = 'false' ] &&
+             grep -qE '\+(kmod-veth|kmod-sched-core|ip-full)' "$MK"; then
+            echo "runtime deps were not trimmed properly in $MK" >&2
+            exit 1
+          fi
           true
 
       - name: Configure target
@@ -263,10 +321,19 @@ jobs:
           sed -i '/^CONFIG_EXTERNAL_KERNEL_TREE=/d' .config
           printf 'CONFIG_EXTERNAL_KERNEL_TREE="%s"\n' "$KERNEL_TREE" >> .config
 
-          # Belt and braces: if anything re-selects a kmod, package/kernel/linux
-          # is back in the graph and the build dies on modules.builtin. Better
-          # to stop here with a readable message than 20 minutes later.
-          if grep -qE '^CONFIG_PACKAGE_kmod-(veth|sched-core)=' .config; then
+          # Belt and braces, in both directions. Without an in-tree kernel any
+          # re-selected kmod puts package/kernel/linux back in the graph and the
+          # build dies on modules.builtin, so stop here with a readable message
+          # instead of 20 minutes later. With an in-tree kernel the opposite must
+          # hold: the deps we deliberately kept have to survive defconfig, or the
+          # apk ships without the veth it needs at runtime.
+          if [ "$TARGET_BUILDS_KERNEL_MODULES" = 'true' ]; then
+            for kmod in kmod-veth kmod-sched-core; do
+              grep -qE "^CONFIG_PACKAGE_${kmod}=" .config || {
+                echo "kept +${kmod} in DEPENDS but defconfig dropped it" >&2; exit 1; }
+            done
+            grep -E '^CONFIG_PACKAGE_kmod-(veth|sched-core)=' .config
+          elif grep -qE '^CONFIG_PACKAGE_kmod-(veth|sched-core)=' .config; then
             echo "kmod deps were re-selected by defconfig:" >&2
             grep -E '^CONFIG_PACKAGE_kmod-' .config >&2
             exit 1
