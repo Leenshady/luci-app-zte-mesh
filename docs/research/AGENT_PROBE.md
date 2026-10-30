@@ -603,3 +603,117 @@ cooperator 推一把，而沙箱里没有 cspd。
 > 复现：`tools/lab/spark.c` 编出两个静态二进制，放到设备 `/tmp/spark`，
 > `spark <iface> listen|discovery [秒]`。注意网桥端口的 ingress 帧对绑定在该端口的套接字不可见，
 > 要抓"从线上进来的帧"请用 `tcpdump -i eth0`，要抓"daemon 发了什么"请用 `br-lan`。
+
+## 13. 2026-10-31 第二轮：枚举跑通了，M2 落到子路由的库
+
+第 12.5 节判定的"M1 生成但没发出"是**测量假象**，它后面还藏着三个真 bug。这一节按发现顺序记。
+
+### 13.1 先修测量：协议套接字看不到网桥端口的 ingress 单播
+
+`bind(AF_PACKET, ..., htons(0x893a))` 的套接字挂在协议链表上，投递点在 bridge 的 `rx_handler` **之后**；
+`ETH_P_ALL`（`tcpdump` 用的那个）在 `rx_handler` 之**前**分发。所以绑在网桥端口或 `br-lan` 上、按
+ethertype 绑定的套接字，看不见从线上进来、被网桥接走的单播帧——`tcpdump` 看得见，自编的工具看不见。
+
+"一帧 `0x0009` 都抓不到"就是这么来的。`tools/lab/enroller.c` 现在用 `ETH_P_ALL` 收帧、自己按 ethertype
+过滤，`bind()` 与 `sendto()` 的 `sll_protocol` 也都是 `ETH_P_ALL`。改完第一次跑，M1 就在那儿：
+
+```
+tx1905 cmdu=9 bytes=771 sent=771 errno=0     # 2.4G
+tx1905 cmdu=9 bytes=801 sent=801 errno=0     # 5G
+```
+
+> 方法论：在网桥上探 1905，"收不到"这个结论只有用 `ETH_P_ALL` 复核过才成立。
+
+### 13.2 M1 是被动的：Search 第二段计时器或 `0x0008` 才能触发它
+
+`tools/lab/elfx.py`（自带 ELF32 解析 + capstone；multiapd 没 strip，符号表就够）静态确认：
+
+| 入口 | 事件号 | 行为 |
+|---|---|---|
+| `_acdcSearchHandler` | 2（Search 第二段计时器到期） | 调 `_acdcSendApAutoConfigWSCM1` |
+| `_acdcConfigHandler` | 8（收到 `0x0008` AP-Autoconfiguration Response） | 调 `_acdcSendApAutoConfigWSCM1` |
+
+而控制器自己发 Search 是**被门控**的：`acdsTimerMsg` 里 `[acdGetBasicInfo() + 0x114 + radio*12]` 为 0
+就直接跳过，这个标志只有 cspd 在配置完 AP 之后才置位（沙箱里没有 cspd）。于是两头都在等对方：
+agent 等 Search/Response，控制器等 cspd，`0x0007` 在控制器出现之后一条都不发。
+
+### 13.3 补上控制器缺的那一步：`tools/lab/enroller.c`
+
+一个静态二进制，监听子节点的 `0x0007`，用 `0x0008` 回它；`--al-mac` 可以冒充控制器的 AL MAC，让 M1
+单播回沙箱控制器，由它跑真正的 M2。帧形状与 `controller-packet.c:controller_autoconfig_response()`
+逐字节一致（35 B：`0x0f` searched role=registrar、`0x10` frequency band、`0x80` service=controller）。
+
+线上时序（`tools/lab/enroller.c` + `libzte_controller_trace.so` 双端）：
+
+```
+agent   → 01:80:c2:00:00:13   0x0007  Search        240 B   TLV 0x0e band / 0x80 0x81 service / 0xb3 profile
+enroller→ agent               0x0008  Response       35 B
+agent   → enroller            0x0009  WSC M1        771 B（2.4G）/ 801 B（5G）
+controller → agent            0x0009  WSC M2        911 B   TLV 0x11 len=656，内含 0x1022=5；另 0x82 "MAP24G"、0xe0、0x0b
+agent   → controller          0x0009  WSC           218 B
+```
+
+### 13.4 第二个 bug：运行包从来没打包 `libzte_agent_mm.so`
+
+M2 到了，`acdcConfigM2EncryptedSettings()` 却每次都在第一行就 `-3` 中断：
+
+```
+0x75e18  cmn r0,#9          ; 返回非 0 且非 -9 一律当致命错误
+         beq  ...
+```
+
+第 11.1 节做的替身一直在 `zte-mesh.init` 的 `LD_PRELOAD` 里，但 `zte-mesh-runtime.tar.gz` 里没有这个库
+（`tar -tzf` 对照 Makefile：`libzte_controller_profile/route/trace` + `libzte_mesh_shim` 都在，就缺它）。
+所以"库里写了、包里没有"——任何人装一遍包，enroll 都会回到第 8 节之前的样子。
+
+修：CI 加 `libzte_agent_mm.so` 的构建（原厂 glibc、`-nostdlib` 链接，`nm -D --defined-only` 记录导出符号，
+只有 `CmWLANSetAPConfig` / `CmWLANSetPsk` / `zte_agent_mm_layout`），再用 `openwrt/repack-runtime.py`
+重打运行包：逐成员逐字节不变，只替换/新增一个库并重写 `SHA256SUMS`。
+
+```
+old members 48  new members 49
+changed bytes: ['root/lib/libzte_mesh_shim.so', 'SHA256SUMS']
+added: ['root/lib/libzte_agent_mm.so']   removed: []   mode diffs: []
+sha256 mismatches: []  entries: 38
+```
+
+装上之后（不再需要任何 flag 文件）：
+
+```
+ZTE_AGENT_MM setter=CmWLANSetAPConfig instid=DEV.WIFI.AP1 status=-3 row_applied=1 report=0 errno=9
+ZTE_AGENT_MM setter=CmWLANSetAPConfig instid=DEV.WIFI.AP5 status=-3 row_applied=1 report=0 errno=9
+```
+
+`row_applied=1` 是"库里已经是调用方要的值"。可见证据：子节点 `/run/zte-mesh/wlan-plan` 里
+`0.ssid` / `1.ssid` 从 `ImmortalWrt` 变成控制器上改的 `ZTEMESHCTRL`。`CmWLANSetPsk` 返回 `-9`
+（`row_applied=0`）是 `acdcConfigM2EncryptedSettings` 的"已配置，跳过"语义，属预期，不是失败。
+
+### 13.5 第三个 bug：`wlan-sync` 的 `stamp()` 在没 `stat` 的镜像上恒为 `missing`
+
+`stamp()` 原来用 `stat -c '%Y:%s'` 做变更检测，而该镜像没有 `stat`（`which stat` 空），`|| echo missing`
+把 stamp 变成常量：主循环 `if [ "$current" != "$last" ]` 只成立一次，于是**启动那一遍之后再也不会应用
+plan**。对一个被 M2 现场配置的子路由来说这正好是反的：plan 是入网之后才出现的，而没人去应用它。
+
+改成 content 摘要（`md5sum` 优先，`stat` 次之，`ls -ln` 兜底）。之后日志出现
+`applied; wireless committed and reloaded`，`uci show wireless` 里 `ssid='ZTEMESHCTRL'` 落地。
+
+### 13.6 第四个 bug：band 是名字，不是 section
+
+`radio_section_of 5g` 原来取"第一个 band 为 5g 的 wifi-device"。实验室这台 ax3600 有**两个**：
+`radio0`（PCIe 5G 卡，ath10k，`disabled=1`）与 `radio1`（SoC 的 5G，ath11k）。于是控制器下发的 5G 行
+写进了那张空卡的 `default_radio0`，真正在空中的 `default_radio1` 一直是 `ImmortalWrt`——看起来就像
+"5G 行没被应用"。
+
+现在按顺序判定：`zte_mesh.main.wifi_2g` / `wifi_5g` 明确指定 > 该 band 只有一个设备 > 该 band 只有一个
+设备没被关掉（老镜像常把备用 radio 关着）。两个都活着且没有显式指定时**不猜**：该 band 一个字段都不写，
+日志里点名 `zte_mesh.main.wifi_5g`。写错设备比不写更难查——空卡被写上控制器的 SSID，而空中什么都没有。
+
+### 13.7 现在的事实
+
+| 项 | 值 |
+|---|---|
+| 控制器（VM 192.168.1.20） | `running=1`，`nodes` 含 `02:00:00:00:19:e3`（`zte=true online=true`） |
+| 子路由（192.168.1.1） | `running=1`，`cur_hop=2 max_hop=2`（此前 `-2`） |
+| M1 次数 | 一个服务生命周期 1 次（此前 3 次） |
+| 下发的 Wi-Fi | `/run/zte-mesh/wlan-plan` 与 `/etc/config/wireless` 都是控制器的 `ZTEMESHCTRL` |
+| 未落地 | 本机三个 `wifi-device` 都是 `disabled=1`（镜像/自配状态），所以 BSS 谁都没起来；`wlan-sync` 只写 `wifi-iface`，不动 radio 的开关 |

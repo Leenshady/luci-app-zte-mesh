@@ -6,6 +6,7 @@ const viewFile = process.argv[2] || path.join(__dirname, '../openwrt/luci-app-zt
 const initTest = process.argv[3] || path.join(__dirname, 'test_init.sh');
 String.prototype.format = function() { let i = 0, a = arguments; return this.replace(/%[sd]/g, () => a[i++]); };
 const registered = {}; // section type -> {option: {datatype, depends, ...}}
+let uciRole = 'master'; // what uci.get('zte_mesh', 'main', 'mesh_role') answers
 class Opt { constructor(n, c) { this.name = n; this.cls = c; this.deps = []; this.values = []; }
 	depends(k, v) { this.deps.push([k, v]); } value(v) { this.values.push(v); } }
 class Sec { constructor(type) { this.type = type; registered[type] = registered[type] || {}; }
@@ -22,12 +23,13 @@ let viewDef;
 const mocks = {
 	view: { extend: d => (viewDef = d) },
 	dom: { content() {} }, poll: { add() {} }, ui: { createHandlerFn: (t, f) => f, addNotification() {} },
-	uci: { load: () => Promise.resolve(), get: () => null, sections: (c, t) => (t === 'zte_mesh_node' ? [{ mac: 'AA:BB:CC:DD:EE:01', name: 'Living room' }] : []) }, network: { getHostHints: () => Promise.resolve({}) },
+	uci: { load: () => Promise.resolve(), sections: (c, t) => (t === 'zte_mesh_node' ? [{ mac: 'AA:BB:CC:DD:EE:01', name: 'Living room' }] : []) }, network: { getHostHints: () => Promise.resolve({}) },
 	rpc: { declare: () => () => Promise.resolve({}) },
 	form: { Map, NamedSection, GridSection, Flag, Value, ListValue, MultiValue },
 };
 // GridSection options are keyed by the section TYPE argument of m.section(form.GridSection, TYPE, ...)
 const src = fs.readFileSync(viewFile, 'utf8').replace(/^'use strict';/, '').replace(/^'require [^']*';$/gm, '');
+mocks.uci.get = (pkg, sec, opt) => (pkg === 'zte_mesh' && sec === 'main' && opt === 'mesh_role' ? uciRole : null);
 const names = Object.keys(mocks);
 const fn = new Function(...names, '_', 'E', src);
 const E = (t, a, c) => ({ t, a, c, kids: [], appendChild(x) { this.kids.push(x); return x; } });
@@ -76,7 +78,8 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		bss: Object.keys(registered.zte_mesh_bss || {}).length,
 		acl: Object.keys(registered.zte_mesh_acl || {}).length, child: '' };
 	for (const k of Object.keys(registered)) delete registered[k];
-	await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}, { get: () => 'slave' }]);
+	uciRole = 'slave';
+	await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
 	{
 		const m = registered.zte_mesh || {};
 		const forbidden = Object.keys(m).filter(n => n !== 'enabled' && n !== 'bridge' && n !== 'mesh_role' && n !== 'backhaul');

@@ -62,19 +62,45 @@ encryption_of() {
 	esac
 }
 
-# radio_section BAND -> the UCI section of the radio device for that band (2g / 5g)
+# radio_section_of BAND -> the wifi-device that serves that band (2g / 5g)
+#
+# The band is a name, not a section, and a board may carry two devices on one band: the xiaomi,ax3600 in the lab
+# does, an unused PCIe 5 GHz card (radio0, ath10k) next to the SoC's 5 GHz radio (radio1, ath11k), and both say
+# band '5g'. Returning the first match wrote the controller's name into the spare device while the radio on the
+# air kept its old SSID, which on the child looks exactly like "the 5 GHz row is not applied at all".
+#
+# So, in order: an explicit pin wins (zte_mesh.main.wifi_2g / wifi_5g, the wifi-device section name); a band with
+# a single device needs no guess; with several, the only device that is not switched off (older images leave a
+# spare radio disabled). Two live candidates and no pin is ambiguous, and guessing there is worse than leaving
+# the band alone: the caller reports it, and the user pins it -- the name of the option is in the message.
 radio_section_of() {
-	local want="$1" section band hwmode
+	local want="$1" pin section band hwmode candidates="" live=""
+	pin=$(uci -q get "zte_mesh.main.wifi_$want" 2>/dev/null)
 	for section in $(uci -q show wireless | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
-		band=$(uci -q get "wireless.$section.band")
-		hwmode=$(uci -q get "wireless.$section.hwmode")
+		band=$(uci -q get "wireless.$section.band" 2>/dev/null)
+		hwmode=$(uci -q get "wireless.$section.hwmode" 2>/dev/null)
 		case "$band:$hwmode" in
-		2g:*) [ "$want" = 2g ] && { echo "$section"; return 0; } ;;
-		5g:*) [ "$want" = 5g ] && { echo "$section"; return 0; } ;;
-		*:11g) [ "$want" = 2g ] && { echo "$section"; return 0; } ;;
-		*:11a) [ "$want" = 5g ] && { echo "$section"; return 0; } ;;
+		2g:*) [ "$want" = 2g ] || continue ;;
+		5g:*) [ "$want" = 5g ] || continue ;;
+		*:11g) [ "$want" = 2g ] || continue ;;
+		*:11a) [ "$want" = 5g ] || continue ;;
+		*) continue ;;
 		esac
+		candidates="$candidates $section"
+		[ "$(uci -q get "wireless.$section.disabled" 2>/dev/null)" = 1 ] || live="$live $section"
 	done
+	[ -n "$candidates" ] || return 1
+	if [ -n "$pin" ]; then
+		case " $candidates " in
+		*" $pin "*) echo "$pin"; return 0 ;;
+		esac
+		log "zte_mesh.main.wifi_$want names '$pin', which is not a $want device on this router (${candidates# }); ignored"
+	fi
+	set -- $candidates
+	[ $# -eq 1 ] && { echo "$1"; return 0; }
+	set -- $live
+	[ $# -eq 1 ] && { echo "$1"; return 0; }
+	log "several $want radios (${candidates# }) and no way to tell which one carries the mesh; set zte_mesh.main.wifi_$want to one of them, this band is left alone until then"
 	return 1
 }
 
@@ -132,7 +158,7 @@ apply_key() {
 apply_backhaul() {
 	local band="$1" ssid="$2" key="$3" enabled="$4" hidden="$5" beacon="$6"
 	local device iface main main_network enc
-	device=$(radio_section_of "$band") || { log "no radio device for $band; backhaul left alone"; return 1; }
+	device=$(radio_section_of "$band") || { log "no usable $band radio; backhaul left alone"; return 1; }
 	enc=$(encryption_of "${beacon:-3}") || { log "backhaul on $band: unknown security mode ${beacon:-?}; left alone"; return 1; }
 	iface=zte_backhaul_$band
 	if [ "$(uci -q get "wireless.$iface" 2>/dev/null)" != wifi-iface ]; then
@@ -224,7 +250,7 @@ apply_plan() {
 		fi
 		[ -n "$ssid" ] || { log "radio $radio has no name in the plan; left alone"; continue; }
 		enc=$(encryption_of "${beacon:-3}") || { log "radio $radio: unknown security mode ${beacon:-?}; left alone"; continue; }
-		device=$(radio_section_of "$band") || { log "no radio device for $band; left alone"; continue; }
+		device=$(radio_section_of "$band") || { log "no usable $band radio; left alone"; continue; }
 		iface=$(ap_iface_of "$device") || { log "no AP interface on $device ($band); left alone"; continue; }
 		set_opt "$iface" disabled "$([ "$enabled" = 1 ] && echo 0 || echo 1)"
 		set_opt "$iface" ssid "$ssid"
@@ -241,8 +267,23 @@ apply_plan() {
 	return 0
 }
 
-# BusyBox-aware change detector: mtime and size of the plan.
-stamp() { stat -c '%Y:%s' "$1" 2>/dev/null || echo missing; }
+# Change detector for the plan. The first version asked stat(1) for mtime:size, and this `stat` is not in
+# every OpenWrt image (it is missing from the xiaomi,ax3600 one), so the stamp degraded to the constant
+# "missing" -- equal on every pass, which means the loop applied the plan once at start and then never
+# again. On a child that is configured by an M2 that is exactly backwards: the plan appears after the
+# enrolment and nobody applies it. Content is what the loop reacts to anyway, and the file is small.
+stamp() {
+	local value
+	[ -r "$1" ] || { echo missing; return 0; }
+	if command -v md5sum >/dev/null 2>&1; then
+		value=$(md5sum "$1" 2>/dev/null | awk '{print $1; exit}')
+	elif command -v stat >/dev/null 2>&1; then
+		value=$(stat -c '%Y:%s' "$1" 2>/dev/null)
+	else
+		value=$(ls -ln "$1" 2>/dev/null)
+	fi
+	echo "${value:-unreadable}"
+}
 
 # One line per run, next to the plan: when it last ran, what it did, and which bands it touched. Without it the only
 # trace of a failed apply is a log line the page cannot read. Fields are plain text on purpose (no quoting game).

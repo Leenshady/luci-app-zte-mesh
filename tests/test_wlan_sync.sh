@@ -130,6 +130,9 @@ check() { # NAME EXPECTED ACTUAL
 	fi
 }
 val() { cat "$DB/$1" 2>/dev/null; }
+# The band lookup runs once per plan row and once more from clear_backhaul, so a message about a band can appear
+# more than once in a run: these cases ask whether it was said, not how many times.
+has() { [ "$(grep -c "$1" "$LOG" 2>/dev/null)" -ge 1 ] && echo yes || echo no; }
 
 PLAN=$T/plan
 cat > "$PLAN" <<'PLAN'
@@ -203,6 +206,63 @@ check "unknown mode logged" 1 "$(grep -c 'unknown security mode 7' "$LOG")"
 seed_db
 sh "$WLAN_SYNC" "$T/none" --once >"$T/out" 2>&1
 check "missing plan touches nothing" 0 "$(grep -c '^set ' "$LOG")"
+
+# --- two devices on one band ------------------------------------------------------------------------------
+# The band is a name, not a section. The xiaomi,ax3600 carries an unused PCIe 5 GHz card (radio0) next to the
+# SoC's 5 GHz radio (radio1) and both declare band '5g'; matching the first device of the band wrote the
+# controller's network onto the card, so the radio on the air kept its old SSID. Reproduced here, then pinned.
+seed_db_two_5g() {
+	rm -f "$DB"/* "$LOG"
+	printf 'wifi-device' > "$DB/type.radio0"; printf '5g' > "$DB/radio0.band"; printf '1' > "$DB/radio0.disabled"
+	printf 'wifi-iface' > "$DB/type.default_radio0"
+	printf 'radio0' > "$DB/default_radio0.device"; printf 'ap' > "$DB/default_radio0.mode"
+	printf 'old-card-5g' > "$DB/default_radio0.ssid"; printf 'old-key-card' > "$DB/default_radio0.key"
+	printf 'psk2' > "$DB/default_radio0.encryption"; printf '0' > "$DB/default_radio0.disabled"
+	printf 'wifi-device' > "$DB/type.radio1"; printf '5g' > "$DB/radio1.band"; printf '1' > "$DB/radio1.disabled"
+	printf 'wifi-iface' > "$DB/type.default_radio1"
+	printf 'radio1' > "$DB/default_radio1.device"; printf 'ap' > "$DB/default_radio1.mode"
+	printf 'old-soc-5g' > "$DB/default_radio1.ssid"; printf 'old-key-soc' > "$DB/default_radio1.key"
+	printf 'psk2' > "$DB/default_radio1.encryption"; printf '0' > "$DB/default_radio1.disabled"
+	printf 'wifi-device' > "$DB/type.radio2"; printf '2g' > "$DB/radio2.band"
+	printf 'wifi-iface' > "$DB/type.default_radio2"
+	printf 'radio2' > "$DB/default_radio2.device"; printf 'ap' > "$DB/default_radio2.mode"
+	printf 'old-2g' > "$DB/default_radio2.ssid"; printf 'old-key-2g' > "$DB/default_radio2.key"
+	printf 'psk2' > "$DB/default_radio2.encryption"; printf '0' > "$DB/default_radio2.disabled"
+	: > "$LOG"
+}
+
+# Two live candidates: the band is left alone and the log names the option that settles it.
+seed_db_two_5g
+sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
+check "two 5g radios: 2.4G still applied" zte-agent-2g "$(val default_radio2.ssid)"
+check "two 5g radios: the card is not taken over" old-card-5g "$(val default_radio0.ssid)"
+check "two 5g radios: the radio is not guessed either" old-soc-5g "$(val default_radio1.ssid)"
+check "two 5g radios: ambiguity reported" yes "$(has 'several 5g radios')"
+check "two 5g radios: the log names the option" yes "$(has 'zte_mesh.main.wifi_5g')"
+
+# The pin settles it, and only the pinned device is written.
+seed_db_two_5g
+printf 'radio1' > "$DB/zte_mesh.main.wifi_5g"
+sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
+check "pin: 5G applied to the pinned radio" zte-agent-5g "$(val default_radio1.ssid)"
+check "pin: the 5G key follows" m2-public-5g-key "$(val default_radio1.key)"
+check "pin: the other 5G device untouched" old-card-5g "$(val default_radio0.ssid)"
+check "pin: 2.4G applied as well" zte-agent-2g "$(val default_radio2.ssid)"
+
+# A pin that names a device of the other band is reported and not obeyed.
+seed_db_two_5g
+printf 'radio2' > "$DB/zte_mesh.main.wifi_5g"
+sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
+check "bad pin: named in the log" yes "$(has "names 'radio2', which is not a 5g device")"
+check "bad pin: 5G not written by mistake" old-soc-5g "$(val default_radio1.ssid)"
+check "bad pin: the 2.4G radio kept its own name" zte-agent-2g "$(val default_radio2.ssid)"
+
+# One of the two switched off is not ambiguous: that is the usual desk layout, and it needs no pin.
+seed_db_two_5g
+rm -f "$DB/radio1.disabled"
+sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
+check "one live 5g radio: applied there" zte-agent-5g "$(val default_radio1.ssid)"
+check "one live 5g radio: no warning" 0 "$(grep -c 'several 5g radios' "$LOG")"
 
 # --- backhaul (multi_ap) ---------------------------------------------------------------------------------
 # A plan as the controller actually fills it: slot 0 is the fronthaul BSS (MapAccessAttr 32) and slot 3 of
