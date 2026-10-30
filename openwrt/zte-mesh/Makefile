@@ -48,6 +48,7 @@ define Package/zte-mesh/install
 	$(CP) $(PKG_BUILD_DIR)/root $(1)/usr/lib/zte-mesh/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ns-run $(1)/usr/libexec/zte-mesh/ns-run
 	$(INSTALL_BIN) ./files/attach $(1)/usr/libexec/zte-mesh/attach
+	$(INSTALL_BIN) ./files/wlan-sync $(1)/usr/libexec/zte-mesh/wlan-sync
 	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/config $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./files/zte-mesh.init $(1)/etc/init.d/zte-mesh
 	$(INSTALL_CONF) ./files/zte-mesh.config $(1)/etc/config/zte_mesh

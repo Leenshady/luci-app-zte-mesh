@@ -5,6 +5,9 @@
 # Every case writes a UCI file, runs write_config and compares the service config it produced (or the refusal).
 INIT=${1:-$(dirname "$0")/../openwrt/zte-mesh/files/zte-mesh.init}
 T=$(mktemp -d) || exit 1
+# Git Bash's mktemp hands back a Windows drive prefix (C:\...), which the delete helpers on that host
+# refuse; going through pwd gives the POSIX form there and changes nothing on Linux.
+T=$(cd "$T" && pwd)
 trap 'rm -rf "$T"' EXIT
 RUNDIR=$T/run; export ZTE_MESH_RUNDIR=$RUNDIR
 LOGF=$T/log
@@ -40,6 +43,18 @@ config_foreach() {
 	local s t
 	for s in $SECS; do eval "t=\$T_$s"; [ "$t" = "$2" ] && "$1" "$s"; done
 }
+# uci stub for the child-role cases: WIRELESS_DB holds `wireless.<section>[.<option>]=<value>` lines, the same shape
+# `uci show wireless` prints, so write_config can borrow the network this router already broadcasts.
+WIRELESS_DB=''
+uci() {
+	[ "${1:-}" = -q ] && shift
+	case "${1:-}" in
+	show) [ -n "$WIRELESS_DB" ] && sort "$WIRELESS_DB" ;;
+	get) [ -n "$WIRELESS_DB" ] || return 1
+		sed -n "s/^$2=//p" "$WIRELESS_DB" | head -n 1 ;;
+	*) return 1 ;;
+	esac
+}
 . "$INIT"
 
 # uci TEXT ... ; case NAME EXPECT-RC [expected output file text | -]
@@ -63,6 +78,7 @@ run() {
 		case "$(cat "$LOGF")" in *"$expect"*) ;; *) echo "FAIL $name: log lacks '$expect': $(tail -1 "$LOGF")"; fail=$((fail + 1)); return ;; esac
 	fi
 	[ "$want_rc" != 0 ] || [ -z "$DUMP_DIR" ] || cp "$RUNDIR/config" "$DUMP_DIR/$(printf %02d $((pass + 1)))-$name.conf"
+	WIRELESS_DB=''
 	pass=$((pass + 1))
 }
 
@@ -317,9 +333,56 @@ band_steer.rssi5=-110
 roam.rssi24=-60
 roam.rssi5=-70"
 
+# 8c. mesh_role slave: the child side of the same switch, emitted verbatim (the service reads it)
+UCI_TEXT="$BASE
+	option wifi_5g_ssid 'b'
+	option wifi_5g_key 'password-5g'
+	option mesh_role 'slave'"
+run role-slave 0 "version_mode=128
+radio0.enabled=1
+radio0.ssid=home
+radio0.key=password-24
+radio1.enabled=1
+radio1.ssid=b
+radio1.key=password-5g
+mesh.role=slave"
+grep -q '^mesh.role=slave$' "$RUNDIR/config" || { echo "FAIL role-slave: mesh.role not written"; fail=$((fail + 1)); }
+grep -q 'mesh.role' "$RUNDIR/restart.sig" || { echo "FAIL role-slave: restart.sig lacks mesh.role"; fail=$((fail + 1)); }
+
+# 8d. child role with nothing configured: the profile it starts from is the network this router already broadcasts,
+# so setting up a child is one option (mesh_role=slave) and not a form to fill in
+WIRELESS_DB=$T/wireless
+printf '%s\n' 'wireless.default_radio0=wifi-iface' 'wireless.default_radio0.ssid=ChildAP' \
+	'wireless.default_radio0.key=childpass' > "$WIRELESS_DB"
+UCI_TEXT="config zte_mesh 'main'
+	option wifi_24g_enabled '1'
+	option wifi_5g_enabled '1'
+	option mesh_role 'slave'"
+run role-slave-borrow 0 "version_mode=128
+radio0.enabled=1
+radio0.ssid=ChildAP
+radio0.key=childpass
+radio1.enabled=1
+mesh.role=slave"
+grep -q 'starting from the network this router broadcasts' "$LOGF" ||
+	{ echo "FAIL role-slave-borrow: the borrowed profile is not logged"; fail=$((fail + 1)); }
+
+# 8e. child role, no profile and nothing to borrow: refuses, and the message says what a child actually needs
+UCI_TEXT="config zte_mesh 'main'
+	option wifi_24g_enabled '1'
+	option wifi_5g_enabled '1'
+	option mesh_role 'slave'"
+run role-slave-no-profile 1 "child role: no Wi-Fi profile and none to borrow"
+
+# 8f. the master role keeps the old refusal: a controller with no network to hand out is a mistake, not a default
+UCI_TEXT="config zte_mesh 'main'
+	option wifi_24g_enabled '1'
+	option wifi_5g_enabled '1'"
+run master-no-profile 1 "Wi-Fi profile incomplete"
+
 # 9. bad optional values name the option
 for bad in "wifi_24g_hidden 2" "wifi_24g_security wep" "wifi_24g_beacon_interval 19" "wifi_24g_beacon_interval 1001" "wifi_24g_channel 14" \
-	"wifi_5g_channel 37" "wifi_24g_tx_power 31" "wifi_24g_tx_power -1" "wifi_24g_acl_policy deny" "mesh_v2 2" "mesh_role slave" \
+	"wifi_5g_channel 37" "wifi_24g_tx_power 31" "wifi_24g_tx_power -1" "wifi_24g_acl_policy deny" "mesh_v2 2" "mesh_role child" \
 	"mlo_enable x" "band_steer maybe" "roam_force 5" "wifi_dual_band_sync 2" "band_steer_rssi_24g -29" "roam_rssi_5g -111"; do
 	set -- $bad
 	UCI_TEXT="$BASE

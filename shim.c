@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/shm.h>
 #include <unistd.h>
 
 #if !defined(__arm__) && !defined(ZTE_MESH_HOST_TEST)
@@ -18,6 +19,7 @@
 #define BINDING_FAILURE 79
 
 static int trace_mode;
+static int emulated_lab;
 static unsigned int records;
 static __thread int logging;
 
@@ -59,6 +61,8 @@ __attribute__((constructor)) static void shim_loaded(void)
 {
     const char *mode = getenv("ZTE_MESH_SHIM_MODE");
     const char *allow = getenv("ZTE_MESH_SHIM_ALLOW_TRACE");
+    const char *emulated = getenv("ZTE_MESH_EMULATED_LAB");
+    emulated_lab = emulated && !strcmp(emulated, "1");
     if (!mode || !strcmp(mode, "probe")) {
         log_record("ZTE_MESH_SHIM loaded mode=probe\n");
         return;
@@ -82,6 +86,27 @@ static void *next_symbol(const char *name)
     }
     errno = saved_errno;
     return function;
+}
+
+/* qemu-user cannot honour a fixed-address shmat(): the attach is emulated as an
+ * mmap() over the reservation that holds the guest address space, and that mmap
+ * fails with EINVAL unless SHM_REMAP lets it replace the placeholder mapping
+ * (measured on qemu 6.2 with tools/lab/shm-fixed.c: every fixed address fails,
+ * the same address with SHM_REMAP succeeds). The factory database engine attaches
+ * its segment at a fixed address and dereferences the result, so an emulated lab
+ * run needs the flag. A device run must keep the exact semantics the daemon
+ * expects, which is why this is gated on the lab marker and not unconditional.
+ */
+EXPORT void *shmat(int shmid, const void *shmaddr, int shmflg)
+{
+    void *(*real_attach)(int, const void *, int) = (void *(*)(int, const void *, int))next_symbol("shmat");
+    void *result = real_attach(shmid, shmaddr, shmflg);
+    if (result == (void *)-1 && shmaddr && emulated_lab && errno == EINVAL) {
+        result = real_attach(shmid, shmaddr, shmflg | SHM_REMAP);
+        if (result != (void *)-1)
+            log_record("ZTE_MESH_SHIM emulated=shmat-fixed-address-retry\n");
+    }
+    return result;
 }
 
 EXPORT int DBShmCliInit(void)

@@ -11,6 +11,7 @@ STOP=09
 ROOT=${ZTE_MESH_ROOT:-/usr/lib/zte-mesh/root}
 NSRUN=${ZTE_MESH_NSRUN:-/usr/libexec/zte-mesh/ns-run}
 ATTACH=${ZTE_MESH_ATTACH:-/usr/libexec/zte-mesh/attach}
+WLAN_SYNC=${ZTE_MESH_WLAN_SYNC:-/usr/libexec/zte-mesh/wlan-sync}
 RUNDIR=${ZTE_MESH_RUNDIR:-/run/zte-mesh}
 
 log() { logger -t zte-mesh -p daemon.warn "$*"; }
@@ -267,10 +268,32 @@ timer_section() {
 	emit "timer.$n.scope" "$scope"
 }
 
+# borrow_profile -> 0 when this router has a wireless network to borrow a name and key from
+#
+# A child does not need a Wi-Fi profile of its own: the controller sends one in the M2 and wlan-sync writes it into
+# /etc/config/wireless. Until that happens the child keeps broadcasting whatever it already broadcasts, so the profile
+# it starts with is that network and not something the user has to make up. Sets BORROWED_SSID / BORROWED_KEY.
+BORROWED_SSID=""
+BORROWED_KEY=""
+borrow_profile() {
+	local section ssid key
+	BORROWED_SSID="" BORROWED_KEY=""
+	command -v uci >/dev/null 2>&1 || return 1
+	for section in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-iface$/\1/p"); do
+		ssid=$(uci -q get "wireless.$section.ssid" 2>/dev/null)
+		key=$(uci -q get "wireless.$section.key" 2>/dev/null)
+		[ -n "$ssid" ] && [ -n "$key" ] || continue
+		BORROWED_SSID=$ssid BORROWED_KEY=$key
+		return 0
+	done
+	return 1
+}
+
 # Writes $RUNDIR/config atomically (0600). Returns non-zero when incomplete or invalid.
 write_config() {
-	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b
+	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b role
 	config_load zte_mesh
+	config_get role main mesh_role ""
 	config_get e0 main wifi_24g_enabled 1
 	config_get s0 main wifi_24g_ssid ""
 	config_get k0 main wifi_24g_key ""
@@ -283,12 +306,27 @@ write_config() {
 	e0=$(bool01 "$e0") && e1=$(bool01 "$e1") || { bad "wifi_24g_enabled / wifi_5g_enabled must be 0 or 1"; return 1; }
 	sync=$(bool01 "$sync") || { bad "wifi_dual_band_sync must be 0 or 1"; return 1; }
 
+	# A child takes its profile from the controller (M2 -> WLANCfg/WLANPSK -> wlan-sync). Requiring the user to type a
+	# name and key that are about to be overwritten is what made "child router" a form to fill in instead of one option,
+	# so a child with nothing configured borrows the network this router already broadcasts.
+	if [ "$role" = slave ] && { [ -z "$s0" ] || [ -z "$k0" ]; }; then
+		if borrow_profile; then
+			[ -n "$s0" ] || s0=$BORROWED_SSID
+			[ -n "$k0" ] || k0=$BORROWED_KEY
+			log "child role: no Wi-Fi profile configured, starting from the network this router broadcasts until the controller sends one"
+		fi
+	fi
+
 	# 2.4 GHz name and key are always needed. The 5 GHz ones are needed only when the bands are not synchronised AND
 	# the 5 GHz name is not derived: with wifi_dual_band_sync 0, an empty wifi_5g_ssid becomes the 2.4 GHz name plus
 	# wifi_5g_suffix (default -5G, the factory rule) and an empty wifi_5g_key is the 2.4 GHz key. With sync on, the
 	# 5 GHz name and key are the 2.4 GHz ones and any wifi_5g_ssid / wifi_5g_key is ignored.
 	[ "${#s0}" -ge 1 ] && [ "${#s0}" -le 31 ] && [ "${#k0}" -ge 8 ] && [ "${#k0}" -le 63 ] && plain "$s0" && plain "$k0" || {
-		log "Wi-Fi profile incomplete (2.4 GHz SSID of 1-31 and a key of 8-63 printable characters); not starting"
+		if [ "$role" = slave ]; then
+			log "child role: no Wi-Fi profile and none to borrow (this router broadcasts no wireless network); set wifi_24g_ssid and wifi_24g_key"
+		else
+			log "Wi-Fi profile incomplete (2.4 GHz SSID of 1-31 and a key of 8-63 printable characters); not starting"
+		fi
 		return 1
 	}
 	if [ "$sync" = 0 ]; then
@@ -332,9 +370,11 @@ write_config() {
 		v=$(bool01 "$v") || { bad "mesh_v2 must be 0 or 1"; rm -f "$CFG_TMP"; return 1; }
 		emit mesh.v2 "$v"
 	fi
-	config_get v main mesh_role ""
-	if [ -n "$v" ]; then
-		case "$v" in master|auto) emit mesh.role "$v" ;; *) bad "mesh_role must be master or auto"; rm -f "$CFG_TMP"; return 1 ;; esac
+	if [ -n "$role" ]; then
+		case "$role" in
+		master|auto|slave) emit mesh.role "$role" ;;
+		*) bad "mesh_role must be master, auto or slave"; rm -f "$CFG_TMP"; return 1 ;;
+		esac
 	fi
 	config_get v main mlo_enable ""
 	if [ -n "$v" ]; then
@@ -390,7 +430,7 @@ write_config() {
 }
 
 start_service() {
-	local enabled bridge
+	local enabled bridge role
 	config_load zte_mesh
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
@@ -398,6 +438,7 @@ start_service() {
 	[ -d "/sys/class/net/$bridge/bridge" ] || { log "bridge $bridge does not exist"; return 1; }
 	[ -x "$NSRUN" ] && [ -d "$ROOT" ] || { log "runtime is not installed"; return 1; }
 	write_config || return 1
+	config_get role main mesh_role ""
 
 	# A previous sandbox's wire can only be left behind by a crash.
 	ip link del zmesh0 >/dev/null 2>&1
@@ -419,6 +460,17 @@ start_service() {
 	procd_set_param command "$ATTACH" "$bridge"
 	procd_set_param respawn 3600 5 0
 	procd_close_instance
+
+	# A child takes its Wi-Fi profile from the controller's M2, not from this router's own configuration. The
+	# service writes what the daemon applied to $RUNDIR/wlan-plan (agent-sync.c); wlan-sync is the half that
+	# runs outside the sandbox and puts those values into /etc/config/wireless.
+	if [ "$role" = slave ] && [ -x "$WLAN_SYNC" ]; then
+		procd_open_instance wlan-sync
+		procd_set_param command "$WLAN_SYNC" "$RUNDIR/wlan-plan"
+		procd_set_param respawn
+		procd_set_param stderr 1
+		procd_close_instance
+	fi
 }
 
 reload_service() {
@@ -438,5 +490,6 @@ reload_service() {
 stop_service() {
 	ip link del zmesh0 >/dev/null 2>&1
 	ip link del lab-peer >/dev/null 2>&1
-	rm -f "$RUNDIR/state.json" "$RUNDIR/config" "$RUNDIR/restart.sig"
+	# The plan describes a state the next start publishes again; keeping it could re-apply a stale profile.
+	rm -f "$RUNDIR/state.json" "$RUNDIR/config" "$RUNDIR/restart.sig" "$RUNDIR/wlan-plan"
 }

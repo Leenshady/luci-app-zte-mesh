@@ -22,6 +22,7 @@
 
 #include "controller-service.h"
 #include "controller-packet.h"
+#include "agent-sync.h"
 #include "wlan-profiles.h"
 #include "mesh-policies.h"
 
@@ -29,6 +30,8 @@
 #define CONFIG_PATH SERVICE_DIR "/config"
 #define STATE_PATH SERVICE_DIR "/state.json"
 #define STATE_TEMP SERVICE_DIR "/.state.json.tmp"
+/* The plan the host-side wlan-sync applies to UCI (openwrt/zte-mesh/files/wlan-sync). */
+#define WLAN_PLAN_PATH SERVICE_DIR "/wlan-plan"
 #define MAX_NODES 32U
 #define MAX_CONFIG 8192U /* 16 ACL rules, 6 extra slots, 8 timer rules and the policy keys fit with room to spare */
 
@@ -64,7 +67,7 @@ struct service_config {
     int tx_power[2];                       /* -1 not set, else EIRP dBm 0..30 */
     int steer_set, steer_enabled;          /* optional master band steering switch */
     int steer_rssi_set, steer_rssi24, steer_rssi5; /* optional band-steering RSSI limits, dBm */
-    int role_set, role_auto;               /* optional mesh.role=master|auto: MultiAPCfg.SetRoleEnable (slave is not supported) */
+    int role_set, role;                     /* optional mesh.role=master|auto|slave: the MultiAPCfg role triple (CONTROLLER_ROLE_*) */
     int force_set, force_on;               /* optional roam.force: weak-signal forced roam (Domain EnLegacyStaRoam, Master EnBtmKickoff/EnRoamKick) */
     /* What the user configured (profiles[].enabled and bss_enabled above are the EFFECTIVE values: the schedule and the
      * guest access time can switch a configured-on network off). */
@@ -249,11 +252,14 @@ static int parse_config(struct service_config *config, struct config_stamp *stam
             continue;
         }
         if (!strcmp(line, "mesh.role")) {
-            /* "slave" (and the bridge-mode decision that picks it) needs the daemon to run as an agent: not supported */
-            if (role_seen || (strcmp(equals, "master") && strcmp(equals, "auto")))
+            /* "slave" is the agent side: the daemon then runs multi_ap_slave_main instead of the controller, which is
+             * what the agent observation (controller_agent_startup) exercises. The router-facing UCI/UI does not offer
+             * it yet, see docs/research/AGENT_PROBE.md. */
+            if (role_seen || (strcmp(equals, "master") && strcmp(equals, "auto") && strcmp(equals, "slave")))
                 goto done;
             config->role_set = 1;
-            config->role_auto = equals[0] == 'a';
+            config->role = !strcmp(equals, "auto") ? CONTROLLER_ROLE_AUTO
+                          : !strcmp(equals, "slave") ? CONTROLLER_ROLE_SLAVE : CONTROLLER_ROLE_MASTER;
             role_seen = 1;
             continue;
         }
@@ -1186,6 +1192,16 @@ int controller_renew_agents(void)
     return status;
 }
 
+/* cspd's cooperator (_MapCooperatorACDUpProc / _V4AddrProc) sets g_TriggerSelectFlag and then calls
+ * CfIeee1905RoleElect, which is how a factory agent starts its Search. multiapd only reaches that entry through its
+ * acd task, so the lab path pokes it with the same kind of probe event zte-meshctl already sends for the renew
+ * (0x909b, destination multiapd.acd.acd). The payload is not observable from the binary, so it is a zeroed four-byte
+ * probe and the status is reported as-is - a non-zero status simply means this trigger does not exist. */
+int controller_election_trigger(void)
+{
+    return run_helper("acd-election", NULL);
+}
+
 /* Which off windows are open at this wall-clock second. Bit 0 of the result: all Wi-Fi off; bit 1: guest slot 1 off. */
 static unsigned int sched_windows(const struct service_config *c, time_t wall)
 {
@@ -1282,6 +1298,11 @@ static void sched_tick(const struct service_config *c, struct service_state *s, 
         }
 }
 
+static const char *role_name(int role)
+{
+    return role == CONTROLLER_ROLE_SLAVE ? "slave" : role == CONTROLLER_ROLE_AUTO ? "auto" : "master";
+}
+
 static void apply_new_config(struct service_config *current, struct config_stamp *stamp, struct service_state *state)
 {
     struct service_config next;
@@ -1370,15 +1391,28 @@ static void apply_new_config(struct service_config *current, struct config_stamp
         /* the key appearing or disappearing has no value to go back to */
         state->restart_required = 1;
         printf("ZTE_MESH_SERVICE role_key_changed restart_required=1\n");
-    } else if (next.role_set && next.role_auto != current->role_auto) {
+    } else if (next.role_set && next.role != current->role) {
         /* The factory device-role page (FEATURE_MAP section 10): "adaptive" writes SetRoleEnable 1 and Mode 0 (the
          * election state; the Mode change makes cspd restart the daemon). The new daemon then lets cspd's cooperator
          * decide: router mode -> master, `_autoSetRole` writes Mode 2 and asks cspd for a second restart about 3 s
          * later. Neither cspd's cooperator nor that request exist here and the daemon does not finish the election by
          * itself (replay lab run: Mode stays 0), so the supervisor stands in for them: see role_settle_at. Back to
-         * "master" only clears SetRoleEnable, nothing restarts (10.1). */
+         * "master" only clears SetRoleEnable, nothing restarts (10.1).
+         *
+         * The agent side ("slave") is a different kind of change: multi_ap_slave_main reads EnMasterOnly/Mode once, so
+         * the whole triple is written and the daemon is replaced. No election stand-in is involved in either direction. */
         int status;
-        if (next.role_auto) {
+        if (next.role == CONTROLLER_ROLE_SLAVE || current->role == CONTROLLER_ROLE_SLAVE) {
+            status = next.role == CONTROLLER_ROLE_SLAVE
+                ? (controller_write_cfg("Mode", 1) || controller_write_cfg("SetRoleEnable", 0) ||
+                   controller_write_cfg("EnMasterOnly", 0) || controller_write_cfg("CurHop", -2))
+                : (controller_write_cfg("Mode", 2) ||
+                   controller_write_cfg("SetRoleEnable", next.role == CONTROLLER_ROLE_AUTO ? 1 : 0) ||
+                   controller_write_cfg("EnMasterOnly", 1) || controller_write_cfg("CurHop", 2));
+            state->role_settle_at = 0;
+            if (!status)
+                state->respawn_pending = 1;
+        } else if (next.role == CONTROLLER_ROLE_AUTO) {
             status = controller_write_cfg("SetRoleEnable", 1) || controller_write_cfg("Mode", 0);
             if (!status) {
                 struct timespec at;
@@ -1395,13 +1429,13 @@ static void apply_new_config(struct service_config *current, struct config_stamp
                 state->respawn_pending = 1;
             }
         }
-        printf("ZTE_MESH_SERVICE role_update role=%s status=%d epoch=%ld\n", next.role_auto ? "auto" : "master", status,
+        printf("ZTE_MESH_SERVICE role_update role=%s status=%d epoch=%ld\n", role_name(next.role), status,
                (long)time(NULL));
         if (status) {
             state->restart_required = 1;
             snprintf(state->config_error, sizeof(state->config_error), "mesh.role update failed, restart required");
         } else {
-            current->role_auto = next.role_auto;
+            current->role = next.role;
         }
     }
     if (next.mlo_enable != current->mlo_enable) {
@@ -1651,7 +1685,7 @@ int controller_service(void)
     controller_set_main_style(config.main_hidden, config.main_beacon);
     controller_set_acl(config.acl, config.acl_count, config.acl_policy);
     controller_set_v2(config.v2_enable);
-    controller_set_role(config.role_set ? config.role_auto : -1);
+    controller_set_role(config.role_set ? config.role : CONTROLLER_ROLE_UNSET);
     controller_set_wlan_setting(config.dual_band_sync, config.mlo_enable, config.essid_suffix);
     {
         struct mesh_startup_policy policy = { .essid = (const char *)config.profiles[0].ssid,
@@ -1691,6 +1725,11 @@ int controller_service(void)
             closedir(dir);
     }
     (void)mkdir(ACTION_DIR, 0700);
+    /* A daemon in the agent role is not a controller: the node actions, renews, policy pushes and radio/MLO pushes below
+     * all address *its* agents, which do not exist (docs/research/AGENT_PROBE.md). */
+    int slave = config.role_set && config.role == CONTROLLER_ROLE_SLAVE;
+    if (slave)
+        printf("ZTE_MESH_SERVICE role=slave controller_features=off epoch=%ld\n", (long)time(NULL));
     action_reconcile(0); /* a request from before this start is stale: a reboot must not be replayed */
     int renew_sent = 0;
     struct radio_push radio_push[2] = {{0, 0, 0}, {0, 0, 0}};
@@ -1711,9 +1750,13 @@ int controller_service(void)
             /* Once the daemon's acd task is up, broadcast an AP-autoconfiguration
              * Renew so an agent that had onboarded against a previous controller
              * instance re-runs autoconfiguration against this one instead of
-             * staying put. Standard Multi-AP behaviour; harmless if no agent. */
+             * staying put. Standard Multi-AP behaviour; harmless if no agent.
+             * A daemon that runs as the agent has no agents of its own: skip it. */
             renew_sent = 1;
-            printf("ZTE_MESH_SERVICE startup_renew=%d epoch=%ld\n", controller_renew_agents(), (long)time(NULL));
+            if (slave)
+                printf("ZTE_MESH_SERVICE startup_renew=skipped role=slave epoch=%ld\n", (long)time(NULL));
+            else
+                printf("ZTE_MESH_SERVICE startup_renew=%d epoch=%ld\n", controller_renew_agents(), (long)time(NULL));
             fflush(NULL);
         }
         apply_new_config(&config, &stamp, &state);
@@ -1762,11 +1805,20 @@ int controller_service(void)
         if (now.tv_sec != last_state.tv_sec) {
             sched_tick(&config, &state, time(NULL), now.tv_sec);
             cfg_watch();
-            radio_reconcile(&config, &state, radio_push, &radio_agent, now.tv_sec);
-            mlo_reconcile(&config, mlo_push, now.tv_sec);
-            if (!state.respawn_pending)
-                action_reconcile(1);
-            policy_notify_reconcile(&state, now.tv_sec);
+            if (!slave) {
+                radio_reconcile(&config, &state, radio_push, &radio_agent, now.tv_sec);
+                mlo_reconcile(&config, mlo_push, now.tv_sec);
+                if (!state.respawn_pending)
+                    action_reconcile(1);
+                policy_notify_reconcile(&state, now.tv_sec);
+            } else {
+                /* A child's Wi-Fi profile comes from the M2 the controller sends, which the daemon writes into
+                 * WLANCfg/WLANPSK and announces with CmMultiAPWlanRenewNotify. Its subscribers in the factory
+                 * image are cspd and the driver layer, neither of which exists here, so the rows the notify is
+                 * about are polled and turned into the host-side plan (agent-sync.c, docs/research/AGENT_PROBE.md
+                 * section 11). This is idempotent: it writes only when the rows changed. */
+                (void)agent_sync_poll(WLAN_PLAN_PATH);
+            }
             last_state = now;
             state.sequence++;
             if (write_state(&state))

@@ -141,8 +141,26 @@ msgstr "主路由"
 msgid "Adaptive"
 msgstr "自适应"
 
-msgid "The factory \"main router / adaptive\" switch. Only the controller role is supported. Changing from main router to adaptive restarts the mesh daemon twice and the child routers drop out of the topology for a short while; adding or removing this option restarts the service."
-msgstr "原厂的\"主路由 / 自适应\"开关。只支持主控角色。从主路由改为自适应会让组网守护进程重启两次,子路由器会短暂掉出拓扑;添加或删除此选项会重启服务。"
+msgid "Child router"
+msgstr "子路由"
+
+msgid "Backhaul to the controller"
+msgstr "回控制器的方式"
+
+msgid "Off (main SSIDs only)"
+msgstr "关闭(只应用主 SSID)"
+
+msgid "Multi-AP (4-address)"
+msgstr "Multi-AP(4 地址)"
+
+msgid "How the child role reaches the controller over the radio. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network the controller sends becomes its own BSS marked as a Multi-AP backhaul, and the main SSIDs are marked as fronthaul, so the mesh control traffic crosses the radio as 4-address Ethernet. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the controller has sent a backhaul network."
+msgstr "子路由通过无线回连控制器的方式。关闭:只应用主 SSID,与之前一致。Multi-AP:控制器下发的隐藏回程网络会成为独立的 BSS 并标记为 Multi-AP 回程,主 SSID 标记为前传,组网控制报文因此能以 4 地址以太网帧穿过无线。需要编译了 Multi-AP 支持的 hostapd(完整 wpad,不是 wpad-basic);控制器没有下发回程网络之前不会创建任何东西。"
+
+msgid "The factory \"main router / adaptive\" switch, plus the child side of it. Main router and adaptive keep this router the controller; child router makes it a mesh agent that receives its Wi-Fi name, key and security from the controller and applies them to its own radios. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. Changing from main router to adaptive restarts the mesh daemon twice and the child routers drop out of the topology for a short while; a different role restarts the service and reloads this page."
+msgstr "原厂的\"主路由 / 自适应\"开关,外加它的子路由一侧。主路由与自适应让本机继续做主控;子路由把本机变成 mesh 代理,由主控下发 Wi-Fi 名称、密码与加密方式并应用到本机射频。子路由启动时先用本机正在广播的无线网络,直到主控下发自己的配置,所以这里不需要填任何东西:选中子路由后,Wi-Fi 配置、漫游与额外网络设置都会隐藏。从主路由改为自适应会让组网守护进程重启两次,子路由器会短暂掉出拓扑;改成别的角色会重启服务并重新加载本页。"
+
+msgid "This router is a mesh child: the controller manages it and gives it the Wi-Fi name, password and security."
+msgstr "本机是 mesh 子路由:由主控管理,Wi-Fi 名称、密码与加密方式都由主控下发。"
 
 msgid "Self-organizing network"
 msgstr "自组网"
@@ -509,3 +527,18 @@ msgstr "填设备当前使用的地址：手机常对每个网络使用不同的
 
 msgid "Up to 20 characters: letters, digits and _ . -. Empty: acl1, acl2 and so on."
 msgstr "最多 20 个字符：字母、数字和 _ . -。留空则为 acl1、acl2 等。"
+
+msgid "Child router, managed by the controller"
+msgstr "子路由,由主控管理"
+
+msgid "Wi-Fi synchronisation"
+msgstr "Wi-Fi 同步"
+
+msgid "Applied"
+msgstr "已应用"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "%d s ago"
+msgstr "%d 秒前"

@@ -1,8 +1,13 @@
 # sr1010-mesh：SR1010 上用原厂 multiapd 当 mesh 主控（AC）
 
 SR1010 刷 OpenWrt/ImmortalWrt（有线网关，没有 Wi-Fi）以后，继续管理保留原厂固件的中兴子路由（测试机 ZXHN Z506）。做法是把原厂 ARM32
-`multiapd` 当控制器跑在私有沙箱里，周围用数据库行、两个 CM 函数的替身和一个服务配置文件指挥它，**不重写 mesh 协议**。范围只做主控
-（master-only）：子节点继续用原厂固件当 agent，SR1010 不做 Slave。
+`multiapd` 当控制器跑在私有沙箱里，周围用数据库行、两个 CM 函数的替身和一个服务配置文件指挥它，**不重写 mesh 协议**。
+
+主控是主线。**子路由（agent）角色**自 2026-10-29 起也实现了，但属于实验路径：`mesh_role=slave` 让本机作为子节点入网，
+接收主控下发的 M2 并把 Wi-Fi 名称/密码/加密写到本机 `/etc/config/wireless`；`backhaul=multi_ap` 再把主控下发的
+隐藏回程网络落成一个 Multi-AP 回程 BSS（4 地址），这是 1905 报文跨无线的那条数据面。它需要完整的 `wpad`，
+4 地址是否真在驱动里生效还没有真机数据，细节与缺口见
+[docs/research/AGENT_PROBE.md](docs/research/AGENT_PROBE.md) 第 11 节。
 
 ## 当前状态（2026-10-18）
 
@@ -57,11 +62,14 @@ OpenWrt 包的构建、真子节点测试的规矩和命令见 [docs/DEVELOPMENT
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 原理、运行时结构、各源文件职责、固件来源与哈希、ABI 与沙箱约束、为什么选这条路线 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 机器与连接、构建、打包、跑控制器、测试、真机守则、踩过的坑 |
+| [docs/LAB.md](docs/LAB.md) | 在 x86_64 Ubuntu 虚拟机里搭环境：交叉编译、qemu 模拟、跑服务、测试现状，以及与真机构建的差异 |
 | [docs/SERVICE.md](docs/SERVICE.md) | 服务模式：配置文件、热更新、守护进程重启、节点动作、UCI/LuCI 映射 |
 | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) | 真子路由联调：入网门槛、**服务配置语法**、各功能验证记录、风险 |
 | [docs/FINDINGS.md](docs/FINDINGS.md) | 逆向与真机发现：角色选举、自组网 V2、`VersionMode`、`CurHop`、ACL 等 |
 | [docs/CONTROLLER_CAPABILITIES.md](docs/CONTROLLER_CAPABILITIES.md) | 原厂控制器能下发什么、Z506 实际支持什么、本项目覆盖了什么 |
-| [docs/research/](docs/research/) | 原厂对照研究：`FEATURE_MAP`（每个网页设置 → 表字段 → 线上帧）、`GAP_ANALYSIS`（工作清单）、`REPLAY_RESULTS`（每轮实验记录）、`REPLAY_PLAN`、冷入网时序 |
+| [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) | **功能总账**：每项功能的状态与证据、做不到的项、按难度排的推进顺序 |
+| [docs/research/E2633_FIRMWARE.md](docs/research/E2633_FIRMWARE.md) | ZXHN E2633 官方固件解包：容器布局、内核 `.config` 的关键宏、rootfs 为何解不开、对复现 mesh 的价值边界 |
+| [docs/research/](docs/research/) | 原厂对照研究：`FEATURE_MAP`（每个网页设置 → 表字段 → 线上帧）、`GAP_ANALYSIS`（工作清单）、`REPLAY_RESULTS`（每轮实验记录）、`REPLAY_PLAN`、`AGENT_PROBE`（子路由角色：静态判定、运行时实验与实现）、冷入网时序 |
 | [docs/milestones/](docs/milestones/) | 早期里程碑 B.1 到 B.3.3 的验收记录（历史） |
 | [tools/README.md](tools/README.md) | 各个脚本 |
 

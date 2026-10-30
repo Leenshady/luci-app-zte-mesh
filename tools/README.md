@@ -34,6 +34,28 @@ passed as files that stay outside the repository. Unless noted, run them on the 
 | `child-log-follow.sh` | Follows the child log for 160 s. |
 | `pcap1905.py` | Tiny IEEE 1905 pcap dumper. |
 
+## probe/ (static analysis of the vendor binaries, no run needed)
+
+| Script | What it does |
+|---|---|
+| `agent-surface.py` | Answers what a Slave role would actually need: where `slave_init` is gated, which way an M2 is applied (database setters or a `wlan_mgr` event), and whether the setter writes the database before notifying `cspd`. Reads `out/vendor/root/bin/multiapd` and `out/vendor/root/lib/libcmapi.so`; `--trace` prints every direct call, `--elf` takes another build. Results and open questions: docs/research/AGENT_PROBE.md. |
+
+## lab/ (x86_64 Ubuntu VM: build and run without the mac or the router)
+
+| Script | What it does |
+|---|---|
+| `rsh.py` | Runs a command on the lab VM over SSH (`LAB_HOST`/`LAB_USER`/`LAB_PASS`, or `LAB_KEY`); `--stdin` forwards standard input, which is how `sudo -S` gets its password without putting it in the command line. |
+| `push.py` | Packs the working tree (minus `out`, `evidence`, `.git`, `.workbuddy`), uploads it and unpacks over `~/zte-mesh`. Normalises CRLF to LF: a Windows checkout has CRLF in the working tree and the shell tests fail on the target otherwise. |
+| `bootstrap-out.py` | Rebuilds `out/runtime` + `out/manifest.json` from `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` (hash-checked against its `SHA256SUMS` and `prepare.MULTIAPD_SHA256`), for a machine that has no factory JFFS2. The manifest is marked `source=runtime-bundle`, so `prepare.py` still refuses it and packaging cannot silently use it. |
+| `build.sh` | `make` wrapper for Ubuntu: adds `-U_FORTIFY_SOURCE` (Ubuntu's gcc defines it by default, Debian's does not) so `-Werror` builds match the audited build. Defaults `ROUTERCC=aarch64-linux-gnu-gcc`; pass `ROUTERCC=cc` for router-side tools that must run on the VM. |
+| `mkroot.sh` | Assembles the tmpfs lab root `/tmp/zte-mesh-svc/root` from a built `out/` (same layout as `make-runtime.py`, which refuses a synthetic `out/`). |
+| `run-service.sh` | Starts the controller service in the sandbox via `ns-run-svctest`; `--seconds N`, `--config FILE`. Needs root. |
+| `emulate.sh` | The same sandbox built by hand with `qemu-arm-static`, so emulator flags (`-strace`) can be passed — `ns-run` goes through binfmt and cannot. |
+| `syms.py` | Which object exports/imports a symbol (`python3 tools/lab/syms.py out/runtime/lib/libdb.so --imports --prefix shm`). |
+| `shm-fixed.c` | Probe for fixed-address `shmat()` under qemu-user: `NULL` and `|SHM_REMAP` work, a plain fixed address returns `EINVAL`. This is why `shim.c` retries that call on an emulated run. |
+
+Setup steps, the failure modes behind each script and the current test status: [docs/LAB.md](../docs/LAB.md).
+
 ## drivers/
 
 `example-*.py`: test drivers from an early session (channel/power, ACL, ACL ban of a real client), kept as examples. They still point at

@@ -100,7 +100,9 @@
 再 `ASEND(0xa93d)` 要求第二次重启（约 3 秒后）。细节见 FEATURE_MAP 第 10 节的补充和 REPLAY_RESULTS 第 13 节。
 
 服务里：
-- 可选键 `mesh.role=master|auto`（`slave` 不支持，被拒绝）。启动：写 `Mode 2` 和 `SetRoleEnable`（`master` 0、`auto` 1），在 profile 之后。键的出现/消失需重启服务。
+- 可选键 `mesh.role=master|auto|slave`。启动：`master`/`auto` 写 `Mode 2` 和 `SetRoleEnable`（0/1）；`slave` 写
+  `Mode 1 / SetRoleEnable 0 / EnMasterOnly 0 / CurHop -2`（子路由），并在运行时把主控下发的 Wi-Fi 配置发布成
+  `/run/zte-mesh/wlan-plan`（`agent-sync.c`），由沙箱外的 `wlan-sync` 落到 `/etc/config/wireless`。键的出现/消失需重启服务。
 - 热更新 `master→auto`：写 `SetRoleEnable 1`、`Mode 0`，重启守护进程；约 3 秒后写 `Mode 2`，再重启一次。**第二步是监督进程替 cspd 的 `cooperator_mgr` 做的模拟**（守护进程自己不会把 Mode 写回 2：实验室里 `Mode 0` 停了 12 秒以上）。
   `auto→master`：只清 `SetRoleEnable`，不重启。日志 `role_update`、`role_settle`、`cfg mode=… set_role_enable=… en_master_only=… cur_hop=… max_hop=…`（变化时打印）。
 - `CurHop` 恒为 2：`EnMasterOnly=1` 让原厂会把它重置成 -2 的 `slave_init` 跳过；线上 `HigherLayerResponse` 子 TLV `0x43` 与原厂一致（原厂的 -2 是库里几秒的瞬态，采样的线上帧里没看到）。
@@ -124,7 +126,7 @@
 | `wifi_24g_hidden` / `wifi_5g_hidden` | `radioN.hidden` | |
 | `wifi_24g_security` / `wifi_5g_security` | `radioN.beacon_type` | `none`=0、`psk2`=3、`psk-mixed`=6、`sae`=10、`sae-mixed`=12；`none` 会让真实网络变成开放网络 |
 | `wifi_*_beacon_interval`、`_channel`、`_tx_power`、`_acl_policy` | `radioN.beacon_interval/channel/tx_power/acl_policy` | 范围同 REAL_CHILD.md 第 3 节（信道按频段白名单，0 = 自动） |
-| `mesh_v2`、`mesh_role`（`master`/`auto`）、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 是 LuCI 的"自组网"开关，即原厂的 MESH 开关（`P1905ComCfg.Enable`）：开 = 中兴增强模式，只接受市场码相同的中兴子路由；关 = 中兴兼容模式，接受任何子路由（默认） |
+| `mesh_v2`、`mesh_role`（`master`/`auto`/`slave`）、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 是 LuCI 的"自组网"开关，即原厂的 MESH 开关（`P1905ComCfg.Enable`）：开 = 中兴增强模式，只接受市场码相同的中兴子路由；关 = 中兴兼容模式，接受任何子路由（默认） |
 | `band_steer`、`band_steer_rssi_24g/_5g`、`roam_rssi_24g/_5g`、`roam_force` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
 
 包里的默认配置（2026-10-19 起）把能取出厂值的选项都写上，LuCI 也显示同样的默认值，并在每项下面写明范围：`mesh_v2=0`（自组网关）、

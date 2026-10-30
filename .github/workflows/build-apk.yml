@@ -1,0 +1,96 @@
+name: Build APK
+
+# Builds the three zte-mesh packages (zte-mesh, luci-app-zte-mesh, and the
+# auto-generated luci-i18n-zte-mesh-zh-cn) as OpenWrt .apk files inside a
+# GitHub runner. The packages are compiled against the `zte/zx279133` target
+# from the cnjn/immortalwrt fork (branch `sr1010-zx279133`), which is the only
+# tree that carries that target. No kernel tree is needed: compiling a package
+# only needs the buildroot, not the kernel sources.
+#
+# Trigger: manual (workflow_dispatch), on pushes to main, or on pull requests.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out this feed
+        uses: actions/checkout@v4
+        with:
+          path: zte-mesh
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gawk unzip file wget python3 python3-distutils \
+            rsync subversion git zstd libncurses-dev \
+            swig libssl-dev python3-dev
+
+      - name: Check out ImmortalWrt tree
+        run: |
+          # The zte/zx279133 target only exists on this fork's branch.
+          git clone --depth 1 --branch sr1010-zx279133 \
+            https://github.com/cnjn/immortalwrt.git openwrt
+
+      - name: Install feeds
+        working-directory: openwrt
+        run: |
+          # Point the local feed at the checkout and pull the official feeds
+          # (luci is required by luci-app-zte-mesh via $(TOPDIR)/feeds/luci/luci.mk).
+          echo "src-link zte_mesh $(pwd)/../zte-mesh/openwrt" > feeds.conf
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a -p zte_mesh
+          ./scripts/feeds install -a
+
+      - name: Configure target
+        working-directory: openwrt
+        run: |
+          # Select the target and mark the three packages to be built.
+          cat >> .config <<EOF
+          CONFIG_TARGET_zte=y
+          CONFIG_TARGET_zte_zx279133=y
+          CONFIG_PACKAGE_zte-mesh=m
+          CONFIG_PACKAGE_luci-app-zte-mesh=m
+          CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=m
+          EOF
+          make defconfig
+
+      - name: Download sources
+        working-directory: openwrt
+        run: |
+          # The runtime tarball is committed next to the package Makefile, so no
+          # dl/ fetch is needed for it, but pull the rest once to warm the cache.
+          make -j"$(nproc)" tools/tar/compile || true
+
+      - name: Build packages
+        working-directory: openwrt
+        run: |
+          make -j"$(nproc)" \
+            package/feeds/zte_mesh/zte-mesh/compile \
+            package/feeds/zte_mesh/luci-app-zte-mesh/compile
+
+      - name: Locate artifacts
+        id: collect
+        run: |
+          # zte-mesh is PKG_FLAGS:=nonshared + PKGARCH:=aarch64_cortex-a53, so it
+          # lands under the target packages dir; the LuCI packages are arch:all
+          # and land under the feed packages dir.
+          mkdir -p dist
+          find openwrt/bin -name 'zte-mesh*.apk' -exec cp -v {} dist/ \;
+          find openwrt/bin -name 'luci-*zte-mesh*.apk' -exec cp -v {} dist/ \;
+          ls -la dist
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: zte-mesh-apk
+          path: dist/
+          if-no-files-found: error
