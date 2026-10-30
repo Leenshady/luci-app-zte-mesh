@@ -10,3 +10,4 @@ __pycache__/
 # private lab evidence: pcaps, raw DB dumps, logs that may carry WSC/key material
 /evidence/
 *.pcap
+/dist/
