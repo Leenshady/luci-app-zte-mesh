@@ -39,6 +39,7 @@
 | A17 | 引导（BTM）/ 封锁 / 踢终端 | ⬜ | `0x8014` 等，接口已在 libcmapi | 3 |
 | A18 | 拓扑页：回程 RSSI、树状图、每 AP 终端列表、固件版本 | ⬜ | 现在只有节点清单与动作 | 3 |
 | A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性的错误定位 | ☑️ | init 69 项 | — |
+| A20 | **界面中英双语**：全部文案走 `_()`，`po/zh_Hans` 与源码逐条对齐，菜单标题也在目录里 | ☑️ | i18n 12 项；两台设备 `ucode` 直接查表为中文 | — |
 
 ## B. 子路由（Agent，本机是子节点）
 
@@ -68,6 +69,7 @@
 | C1 | 单个 apk（runtime + init + wlan-sync + rpcd + LuCI），4.1 MB | ✅ | 装在真路由器上，procd/rpcd 全通 | — |
 | C2 | 拆包：`zte-mesh-runtime` + `zte-mesh-controller` + `zte-mesh-agent` | ⬜ | 方案已定（见 AGENT_PROBE §11.7），未动手 | 2 |
 | C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ⬜ | 现在工作区 CRLF，测试要转 LF 才能跑 | 1 |
+| C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配了 `=m`、没编译，中文目录从不产出 | ☑️ | 本轮；CI 断言三个 apk 都在 | — |
 
 ## D. 没有通道的（换子路由固件才谈得上）
 

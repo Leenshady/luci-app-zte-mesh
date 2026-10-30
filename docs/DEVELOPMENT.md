@@ -113,7 +113,8 @@ cd ~/workspace/immortalwrt
 ./scripts/feeds update zte_mesh
 ./scripts/feeds install -a -p zte_mesh                  # -> package/feeds/zte_mesh/{zte-mesh,luci-app-zte-mesh}
 # .config 里加 CONFIG_PACKAGE_zte-mesh=m、CONFIG_PACKAGE_luci-app-zte-mesh=m、CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=m，再 make defconfig
-make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/luci-app-zte-mesh/compile
+make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/luci-app-zte-mesh/compile \
+     package/feeds/zte_mesh/luci-i18n-zte-mesh-zh-cn/compile   # 翻译是独立的包，不编译它就没有中文
 # 产物：bin/targets/zte/zx279133/packages/zte-mesh-*.apk（nonshared，按目标放），
 #       bin/packages/aarch64_cortex-a53/zte_mesh/luci-*zte-mesh*.apk（按 feed 名放）
 ```
@@ -125,3 +126,43 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/luci-app-zte
 
 **版本控制**：仓库在 GitHub `cnjn/zte-mesh`；mac 上的 `/Volumes/code/zte-mesh` 是主要工作副本，构建机的 `~/workspace/zte-mesh` 是 feed 用的克隆。
 `out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
+
+## 9. 界面文案与中文翻译
+
+界面上**所有**给用户看的文字都要走 `_()`，msgid 就是那句英文本身（LuCI 用 msgid 当键，没有别名字符串）。改文案时
+`.po` 里那条旧 msgid 就失效了——它不会报错，只会安静地变回英文，所以有一条测试盯着这件事。
+
+```sh
+python tests/test_i18n.py        # 12 项：覆盖率、格式符、菜单标题、编译成 lmo 后逐条能查到
+```
+
+测试做四件事：视图里每个 `_()` 的字符串都在 `.po` 里有译文；`.po` 里没有源码已不再用的条目；`%s` / `%d` 在译文里
+个数与顺序一致；把 `.po` 编成 lmo 后，每条 msgid 都能按哈希查到自己的译文。加一条新文案的流程就是：写
+`_('...')` → 把同一句英文抄进 `openwrt/luci-app-zte-mesh/po/zh_Hans/zte-mesh.po` 并翻译 → 跑上面的测试。
+
+**它怎么到设备上**：`luci.mk` 把 `po/<lang>/` 编成独立的包 `luci-i18n-<app>-<lang>`（中文是 `luci-i18n-zte-mesh-zh-cn`），
+文件落到 `/usr/lib/lua/luci/i18n/zte-mesh.zh-cn.lmo`。`zh_Hans` 这个名字经 `LUCI_LC_ALIAS` 映射成 `zh-cn`，与运行时要找的
+文件名一致。装应用包**不会**带上它——`build-apk.yml` 里因此单独编译它，并断言三个 apk 都在。
+
+页面怎么拿到译文：主题模板里有 `<script src="/cgi-bin/luci/admin/translations/<lang>">`，这个端点把所有
+`<lang>.lmo` 拼成一份 JS 注入页面，`cbi.js` 的 `_()` 查的就是它。所以「源码里有译文」和「设备上有 lmo」是两件事，
+缺一件页面就是英文。
+
+**手工装到运行中的设备**（实验室的路由器是拷文件而不是装包）：
+
+```sh
+python tools/lab/po2lmo.py openwrt/luci-app-zte-mesh/po/zh_Hans/zte-mesh.po /tmp/zte-mesh.zh-cn.lmo
+# 传到设备后
+cp /tmp/zte-mesh.zh-cn.lmo /usr/lib/lua/luci/i18n/
+# 不需要重启任何服务，刷新页面即可（Ctrl+Shift+R 绕过静态资源缓存）
+ucode -e 'import { load_catalog, change_catalog, translate } from "luci.core";
+          load_catalog("zh-cn", "/usr/lib/lua/luci/i18n"); change_catalog("zh-cn");
+          print(translate("Status"), "\n");'
+```
+
+`tools/lab/po2lmo.py` 不是另写一套格式：它按 `modules/luci-base/src/po2lmo.c` 与 `lib/lmo.c` 实现（字符串块 + 16 字节
+索引 + 结尾的块长度，键用 SuperFastHash 且以长度作种子），命令行工具只用来给没有构建机的设备补装。真正的包仍由
+构建树的 `po2lmo` 生成。
+
+语言怎么选：LuCI「系统 → 语言和界面」里选 简体中文（写进 `luci.main.lang`），或者保持 `auto` 让浏览器
+`Accept-Language` 决定。中文目录只翻这一页，LuCI 自己的页面由 `luci-i18n-base-zh-cn` 负责。
