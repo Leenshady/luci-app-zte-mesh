@@ -119,6 +119,29 @@ daemon 每个 radio 各发一次 M1，探针按 `0x85` 里的 radio 标识去重
 - `shim.c`：该变量存在时，`shmat` 失败且 `errno == EINVAL` 就带 `SHM_REMAP` 重试一次。
 - 两者都不改变原有权限模型；`ns-run` 本来就要 root 才能走到这里。
 
+### 4.1 装在设备上时这两个开关由 init 决定
+
+`ZTE_MESH_EMULATED_LAB` / `ZTE_MESH_QEMU` 不需要手工 export：`start_service()` 会先看
+`uname -m`，arm64 上再读 `/proc/config.gz` 里的 `CONFIG_COMPAT`；只有内核确实跑不了 ARM32、
+且私有根里存在 `qemu-arm-static` 时才把这两个变量传给 `ns-run`。`zte_mesh.main.emulator`
+可以指定路径，`=none` 强制走原生路径（打过 `build-firmware.yml` 那套 `CONFIG_COMPAT=y`
+固件之后就应该是这个状态）。
+
+同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节，默认取 LAN 网桥 MAC 的末字节
+（`02:00:00:00:19:XX`）。两台设备**必须**不同，否则 1905 栈会把对端当自己，见
+[research/AGENT_PROBE.md](research/AGENT_PROBE.md) 第 12 节。
+
+看"线上到底有没有帧"用 `tools/lab/spark.c`：
+
+```sh
+zig cc -target x86_64-linux-musl -static -Os -s -o spark-x86_64 tools/lab/spark.c
+zig cc -target aarch64-linux-musl -static -Os -s -o spark-aarch64 tools/lab/spark.c
+# 设备上：spark <iface> listen|discovery [秒]
+```
+
+注意网桥端口的 ingress 帧不会再投给绑定在该端口上的套接字：要抓"从线上进来的"用
+`tcpdump -i <物理口>`，要抓"daemon 发了什么"用 `br-lan`。
+
 ## 5. 从运行包重建 `out/`
 
 `prepare.py` 是 `out/` 的权威来源，但它要求原厂 `rootfs.jffs2`（带钉死的哈希）。没有镜像时用
