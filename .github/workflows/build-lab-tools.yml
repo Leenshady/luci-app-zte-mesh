@@ -50,7 +50,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             musl-tools gcc-arm-linux-gnueabi libc6-dev-armel-cross \
-            gcc-aarch64-linux-gnu file
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross libc6-arm64-cross file
+          # The cross libc headers are what the aarch64 compiler searches first;
+          # without them it falls through to the host /usr/include and dies on
+          # bits/wordsize.h (32-bit host vs 64-bit target).
+          ls -d /usr/aarch64-linux-gnu/include >/dev/null || {
+            echo "no aarch64 libc headers installed" >&2; exit 1; }
 
       - name: Build ns-run (aarch64, for the router-side lab)
         id: nsrunarm
