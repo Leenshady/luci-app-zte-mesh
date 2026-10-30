@@ -2,14 +2,18 @@ name: Build lab tools
 
 # The sandbox launcher (`ns-run`) is host-architecture: the package ships the
 # AArch64 build for the router, but the lab VM is x86_64, so it needs its own.
-# This job cross-checks that ns-run still compiles for a foreign architecture
-# (it is plain POSIX + rtnetlink) and publishes the binary to this branch so the
-# VM can fetch it over plain https:
+# This job proves the launcher still compiles for a foreign architecture (it is
+# plain POSIX + rtnetlink) and publishes the binary to this branch so the VM can
+# fetch it over plain https:
 #
 #   wget -O /usr/libexec/zte-mesh/ns-run \
 #     https://raw.githubusercontent.com/<owner>/<repo>/lab-tools/prebuilt/ns-run-x86_64
 #
 # Nothing here is part of a router image; it only exists for the x86_64 lab.
+#
+# The build log is published even when the build fails (that is the only way to
+# read a failure log without a token in this setup), so the commit always lands
+# and the job conclusion still reports the truth.
 
 on:
   push:
@@ -33,36 +37,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install a static libc toolchain
+      - name: Install toolchains
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends musl-tools file
 
-      - name: Build ns-run (x86_64, static musl)
+      - name: Build ns-run (x86_64)
+        id: build
         run: |
-          # The same sources and flags as the Makefile's ns-run rule; only
-          # $(ROUTERCC) changes. Ubuntu's gcc predefines _FORTIFY_SOURCE, which
-          # turns an ignored write() return in controller-net.c into -Werror.
+          set +e
           mkdir -p prebuilt
-          musl-gcc -O2 -std=c11 -static -Wall -Wextra -Werror \
-            -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
-            ns-run.c controller-net.c -o prebuilt/ns-run-x86_64
-          file prebuilt/ns-run-x86_64
-          ls -l prebuilt/ns-run-x86_64
-          sha256sum prebuilt/ns-run-x86_64 > prebuilt/ns-run-x86_64.sha256
-          cat prebuilt/ns-run-x86_64.sha256
+          LOG=prebuilt/build.log
+          : > "$LOG"
+          # Same sources and flags as the Makefile's ns-run rule; only
+          # $(ROUTERCC) changes. Ubuntu's gcc predefines _FORTIFY_SOURCE, which
+          # turns the ignored write() return in controller-net.c into -Werror.
+          FLAGS="-O2 -std=c11 -static -Wall -Wextra -Werror -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
+          rc=1
+          for cc in "musl-gcc" "gcc"; do
+            echo "=== $cc ===" >>"$LOG"
+            $cc $FLAGS ns-run.c controller-net.c -o prebuilt/ns-run-x86_64 >>"$LOG" 2>&1 \
+              && { echo "built with $cc" >>"$LOG"; rc=0; break; }
+            echo "failed with $cc (rc=$?)" >>"$LOG"
+          done
+          echo "rc=$rc" >>"$LOG"
+          if [ $rc -eq 0 ]; then
+            file prebuilt/ns-run-x86_64 >>"$LOG" 2>&1
+            ls -l prebuilt/ns-run-x86_64 >>"$LOG"
+            sha256sum prebuilt/ns-run-x86_64 > prebuilt/ns-run-x86_64.sha256
+            cat prebuilt/ns-run-x86_64.sha256 >>"$LOG"
+          fi
+          cat "$LOG"
+          [ -n "${GITHUB_STEP_SUMMARY:-}" ] && { echo '```'; tail -40 "$LOG"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Publish the binary to this branch
+      - name: Publish to this branch
         run: |
           git config user.name "lab-tools"
           git config user.email "lab-tools@users.noreply.github.com"
           git add -f prebuilt/
-          git commit -m "lab: ns-run for x86_64 ($(date -u +%Y-%m-%dT%H:%MZ))" || exit 0
+          git commit -m "lab: ns-run x86_64 build (rc=${{ steps.build.outputs.rc }}) $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Upload as an artifact too
+        if: steps.build.outputs.rc == '0'
         uses: actions/upload-artifact@v4
         with:
           name: ns-run-x86_64
           path: prebuilt/ns-run-x86_64*
           if-no-files-found: error
+
+      - name: Fail if the compiler did not produce a binary
+        if: steps.build.outputs.rc != '0'
+        run: |
+          echo "see prebuilt/build.log on this branch" >&2
+          exit 1
