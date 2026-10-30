@@ -10,4 +10,4 @@ compilation terminated.
 failed with musl-gcc
 === ns-run with gcc ===
 built with gcc
-prebuilt/ns-run-x86_64: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=d210463a5ec3ed7883abee7dfa76125d9e04dc52, for GNU/Linux 3.2.0, not stripped
+prebuilt/ns-run-x86_64: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=d1a166e5ff03fcd7533ec78f7dcc13c5a2122c3c, for GNU/Linux 3.2.0, not stripped

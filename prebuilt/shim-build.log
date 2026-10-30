@@ -1,3 +1,9 @@
-rc=0
-prebuilt/libzte_mesh_shim.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=5811349e4c8d6d64f010245eff546f891f8c649f, not stripped
--rwxr-xr-x 1 runner runner 6628 Oct 30 16:18 prebuilt/libzte_mesh_shim.so
+shim.c: In function ‘emulated_exec’:
+shim.c:134:16: error: returning ‘void *’ from a function with return type ‘int’ makes integer from pointer without a cast [-Werror=int-conversion]
+  134 |         return real_execv(emulator, qemu_argv);
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+shim.c:136:12: error: returning ‘void *’ from a function with return type ‘int’ makes integer from pointer without a cast [-Werror=int-conversion]
+  136 |     return real_execv(path, argv);
+      |            ^~~~~~~~~~~~~~~~~~~~~~
+cc1: all warnings being treated as errors
+rc=1
