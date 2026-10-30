@@ -223,6 +223,10 @@ static void isolate(const char *root, char **command)
          * shmat() that the emulator would otherwise reject. */
         if (emulated_lab && setenv("ZTE_MESH_EMULATED_LAB", "1", 1))
             fail("environment");
+        /* The guest's own spawn of the daemon has to go through the emulator too;
+         * the preload reads both variables. A device never sets either. */
+        if (have_emulator && setenv("ZTE_MESH_QEMU", emulator, 1))
+            fail("environment");
         if (manufacturer && (setenv("ZTE_MESH_REAL_MANUFACTURER", manufacturer_buf, 1) ||
                              setenv("ZTE_MESH_REAL_MODEL", model_buf, 1)))
             fail("environment");
