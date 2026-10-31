@@ -145,6 +145,21 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 **版本控制**：仓库在 GitHub `Leenshady/zte-mesh`，只有 `main` 一条分支。`out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz
 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
 
+**发布 release**：`Build APK` 是唯一出包的地方，但它的 artifact 不是分发渠道——下载要登录 GitHub、会过期、还是一包 zip。
+要发布就在 dispatch 表单里填 `release_tag`（`v` 开头，如 `v0.1.0`），workflow 会在**本次构建的那个提交**上建 tag，上传四个
+apk 加 `SHA256SUMS.txt`，并按上一个 tag 生成"本版提交"清单：
+
+```
+Actions → Build APK → Run workflow → release_tag: v0.1.0
+# 发布后：https://github.com/Leenshady/zte-mesh/releases/tag/v0.1.0
+```
+
+- 留空 = 只构建，产物仍只在 artifact 里（默认行为，与以前一样）。
+- 同一 tag 重跑会覆盖资产（`--clobber`），不会因"已存在"失败。
+- tag 已存在但指向别的提交时**直接失败**——避免发布出来的字节和 tag 上的代码不是一回事。
+- 需要 `contents: write`（workflow 顶部已声明），否则要等 20 多分钟构建完才在最后一步报 `Resource not accessible`。
+- 包**没有签名**，release 说明里已写 `apk add --allow-untrusted`。
+
 ## 9. 界面文案与中文翻译
 
 界面上**所有**给用户看的文字都要走 `_()`，msgid 就是那句英文本身（LuCI 用 msgid 当键，没有别名字符串）。改文案时
