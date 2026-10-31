@@ -104,6 +104,9 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节，默认取 LAN 网桥 MAC 的末字节（`02:00:00:00:19:XX`）。
 两台设备**必须**不同，否则 1905 栈会把对端当自己（[AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
+真撞上时不用猜：状态页顶部会出现"同 AL MAC"的告警（`state.json` 的 `al_mac_conflict.count > 0`）。
+要**主动造**这个状态来验这段逻辑：两台都 `uci set zte-mesh.main.al_last=<同一个字节>`、重启服务，
+等最多一个 Search 周期（300 s），页面出现告警后再改回去。
 
 看"线上到底有没有帧"用 `tools/lab/spark.c`：
 
