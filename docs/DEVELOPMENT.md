@@ -84,6 +84,8 @@
 - 子路由行缓冲超过约 1 KB 会截断：长内容按 500 字符分块 base64 发（`tools/capture/vt.sh` 的做法）。
 - `iwconfig` 在刚重启或已关闭的接口上读回的 SSID 不可靠；短时间连续重配 2.4G 会掉到隐藏默认 SSID。
 - 测试路由器没有授时，时钟可能差十几个小时：定时窗口按路由器 `date -u` 算。
+- **装包后服务起不来，先看是不是缺模拟器**：日志里 `execv errno=8` 几乎总是这个（`ENOEXEC`，内核拒绝执行 ARM32 ELF），
+  不是代码退化。确认顺序：`uname -m` → 私有根里有没有 `qemu-arm-static` → 见 [LAB.md](LAB.md) 第 4.2 节。
 
 ## 7. 改了控制器代码之后的检查
 
@@ -123,6 +125,10 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/luci-app-zte
 - 大小：`zte-mesh` 4.1 MB（装上后占 jffs2 约 4.9 MB，解压约 8 MB，大头是原厂库），LuCI 和中文包合计约 11 KB。
 - 包没签名：`apk add --allow-untrusted`。卸载：`apk del luci-i18n-zte-mesh-zh-cn luci-app-zte-mesh zte-mesh`。
 - 运行包含原厂二进制，随这个公开仓库一起发布（2026-10-19 决定）。`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享的软件源。
+- **包里没有 ARM32 模拟器**（2026-10-31 定）：原厂 `multiapd` 是 32 位 ARM 程序，x86_64 设备和没开 `CONFIG_COMPAT`
+  的 arm64 设备必须自己把 `qemu-arm-static` 放进私有根，否则 controller 实例每 5 秒以 `execv errno=8` 退出。
+  OpenWrt 不编 `qemu-user`，且它必须与设备架构匹配，所以不进包。判定逻辑、三种出路、报错含义见
+  [LAB.md](LAB.md) 第 4.2 节。
 
 **版本控制**：仓库在 GitHub `cnjn/zte-mesh`；mac 上的 `/Volumes/code/zte-mesh` 是主要工作副本，构建机的 `~/workspace/zte-mesh` 是 feed 用的克隆。
 `out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。

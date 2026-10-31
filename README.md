@@ -26,6 +26,10 @@ SR1010 刷 OpenWrt/ImmortalWrt（有线网关，没有 Wi-Fi）以后，继续�
 | P3 原厂没有的功能 | 未展开 |
 | OpenWrt 打包 | `zte-mesh`、`luci-app-zte-mesh`、`luci-i18n-zte-mesh-zh-cn` 三个 apk；装在测试路由器上（默认关闭），在真实 procd/rpcd 上用隔离网桥跑过 |
 
+包装上默认关闭，启用前先确认一件事：原厂 `multiapd` 是 **32 位 ARM** 程序，设备内核跑不了它就需要 `qemu-arm-static`，
+而这个模拟器**不在任何包里**（OpenWrt 不编它，且它必须与设备架构匹配），要手工放进私有根；arm64 设备刷
+`CONFIG_COMPAT=y` 的固件即可原生运行。判定逻辑、三种出路和报错含义见 [docs/LAB.md](docs/LAB.md) 第 4.2 节。
+
 还没做或没验证：用已安装的包接真实子节点；LuCI 页面在浏览器里的效果；长时间稳定性；多个子节点；关主 SSID 的路径
 （`radioN.enabled=0`、定时 `scope=all`）没在真子节点上试过，因为会断开用户自己的 Wi-Fi。
 
@@ -66,7 +70,7 @@ OpenWrt 包的构建、真子节点测试的规矩和命令见 [docs/DEVELOPMENT
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 原理、运行时结构、各源文件职责、固件来源与哈希、ABI 与沙箱约束、为什么选这条路线 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 机器与连接、构建、打包、跑控制器、测试、真机守则、踩过的坑 |
-| [docs/LAB.md](docs/LAB.md) | 在 x86_64 Ubuntu 虚拟机里搭环境：交叉编译、qemu 模拟、跑服务、测试现状，以及与真机构建的差异 |
+| [docs/LAB.md](docs/LAB.md) | 在 x86_64 Ubuntu 虚拟机里搭环境：交叉编译、qemu 模拟、跑服务、测试现状，与真机构建的差异，以及 ARM32 模拟器**不入包**的原因和手工放置方法（第 4.2 节） |
 | [docs/SERVICE.md](docs/SERVICE.md) | 服务模式：配置文件、热更新、守护进程重启、节点动作、UCI/LuCI 映射 |
 | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) | 真子路由联调：入网门槛、**服务配置语法**、各功能验证记录、风险 |
 | [docs/FINDINGS.md](docs/FINDINGS.md) | 逆向与真机发现：角色选举、自组网 V2、`VersionMode`、`CurHop`、ACL 等 |

@@ -142,6 +142,76 @@ zig cc -target aarch64-linux-musl -static -Os -s -o spark-aarch64 tools/lab/spar
 注意网桥端口的 ingress 帧不会再投给绑定在该端口上的套接字：要抓"从线上进来的"用
 `tcpdump -i <物理口>`，要抓"daemon 发了什么"用 `br-lan`。
 
+### 4.2 ARM32 模拟器（`qemu-arm-static`）**不入包**
+
+**结论（2026-10-31 定）**：`zte-mesh` 和 `zte-mesh-launcher` 都不装 `qemu-arm-static`，也不会自动下载、自动安装它。
+包里只有原厂 ARM32 运行环境和用 `$(TARGET_CC)` 编出来的宿主架构工具；服务能不能起来，取决于设备内核能不能
+直接跑 ARM32。这是有意的取舍，不是漏装。
+
+为什么不进包：
+
+| 理由 | 说明 |
+|---|---|
+| OpenWrt 不编它 | feed 里没有 `qemu-user`。要打进包就得在包里塞一个预编译的第三方静态二进制——那是二进制再分发，许可与安全维护要另行处理（README「约定」里明确过的红线） |
+| 必须与**宿主**架构匹配 | 模拟器本身是宿主架构的程序：aarch64 设备要 arm64 版，x86_64 设备要 amd64 版。一份 apk 覆盖不了两种设备，而仓库里 `zte-mesh` 是 `arch: all` |
+| 体积不划算 | 静态 qemu-arm 约 11 MB，比整个运行环境包还大；而目标设备（SR1010，以及刷了 `CONFIG_COMPAT=y` 固件的 arm64 板子）根本用不到它 |
+| 只有一处真的需要它 | 需要模拟的只有 chroot 里的 `db-engine-probe`（原厂 ARM32）。`ns-run`、`mesh-search` 由 `zte-mesh-launcher` 用目标编译器现编，本来就是宿主架构，不受影响 |
+
+init 怎么判定（`zte-mesh.init`，`emulator` 那一段）：
+
+| 情况 | 判定 | 结果 |
+|---|---|---|
+| `aarch64` / `arm64` | 先读 `/proc/config.gz`（退化为 `/proc/config`）里的 `CONFIG_COMPAT=y`；**读不到就直接 exec 一次 `$ROOT/lib/ld-linux.so.3`**，能打印自己的 usage（匹配 `*sage:*`）就认定支持 | 支持 → 原生跑，不需要模拟器 |
+| `x86_64` 及其他 | 一律不可能原生 | **必须**有模拟器，否则服务起不来 |
+| 任意 | `zte_mesh.main.emulator=<路径>` | 跳过探测，用指定路径（相对私有根） |
+| 任意 | `zte_mesh.main.emulator=none` | 跳过探测、强制原生路径。只用于诊断，不是解决办法 |
+
+"没有答案"不等于"不支持"：多数固件（ax3600 上的原版 ImmortalWrt 6.12.103 就是）不导出 `/proc/config.gz`，
+早期版本因此一律走上模拟器，而包里没有模拟器，服务就每 5 秒退一次。所以探测改成上面那样：宁可问内核，也不猜。
+
+私有根默认 `/usr/lib/zte-mesh/root`（`ZTE_MESH_ROOT` 可改）。模拟器是在 chroot **之后**被 exec 的，因此必须
+放在私有根内部；init 依次找这三处：
+
+```
+/usr/lib/zte-mesh/root/qemu-arm-static
+/usr/lib/zte-mesh/root/usr/bin/qemu-arm-static
+/usr/lib/zte-mesh/root/bin/qemu-arm-static
+```
+
+找不到时不会静默失败：日志里有一条完整说明（含宿主架构和上面三条出路），随后 `execv errno=8`（`ENOEXEC`，
+内核拒绝执行这个 ELF）。**看到 `errno=8` 先按这一节处理，不要当成代码 bug。**
+
+三条出路，按推荐顺序：
+
+1. **刷带 `CONFIG_COMPAT=y` 的固件**——真机唯一干净的解法，arm64 内核开了 COMPAT 就能原生跑 ARM32，
+   不需要模拟器，`ZTE_MESH_EMULATED_LAB` 也不会被设置（少了 RLIMIT_AS 放开和 `shmat` 重试这两条仿真专用路径）。
+   配置在 `.github/workflows/build-firmware.yml`。
+2. **手工放一个模拟器**——实验室和临时验证用。取**与设备同架构**的一份：
+
+   ```sh
+   # 在一台同架构的 Debian/Ubuntu 上（架构不同就去 packages.debian.org 下对应架构的 deb）
+   apt-get download qemu-user-static
+   dpkg-deb -x qemu-user-static_*.deb /tmp/q
+   scp /tmp/q/usr/bin/qemu-arm-static root@<设备>:/usr/lib/zte-mesh/root/qemu-arm-static
+   ssh root@<设备> chmod 755 /usr/lib/zte-mesh/root/qemu-arm-static
+   ```
+
+   lab 主机上 `tools/lab/emulate.sh` 做的事一样：`cp /usr/bin/qemu-arm-static "$ROOT/bin/"`。
+   这份文件不在任何 git 仓库里，也不随包分发。
+3. **`emulator=none`**——强制原生路径，用来确认"这块板子到底能不能原生跑"，不是解决办法。
+
+放好后怎么确认：
+
+```sh
+ls -l /usr/lib/zte-mesh/root/qemu-arm-static          # 存在且可执行
+service zte-mesh restart; sleep 5
+logread | grep -e qemu -e execv                       # 不该再出现 "no qemu-arm-static was found"
+```
+
+x86_64 上第 2 节装的 `qemu-user-static` + `binfmt-support` 只方便**在沙箱外**直接跑 ARM 程序；
+服务是 chroot 后 exec，即便 binfmt 带 `F` 标志能跨 chroot 生效，解释器文件仍须在根内可见，
+所以最终还是要把那一个文件放进私有根。
+
 ## 5. 从运行包重建 `out/`
 
 `prepare.py` 是 `out/` 的权威来源，但它要求原厂 `rootfs.jffs2`（带钉死的哈希）。没有镜像时用
