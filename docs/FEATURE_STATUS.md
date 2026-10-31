@@ -103,11 +103,11 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 |---|---|---|---|---|
 | D1 | 带宽 20/40/80/160 | 不写 `BandWidth`，也不关"自动信道" | 未找到新证据，不变 | — |
 | D2 | 访客限速 | 1905 里没有这个字段 | 协议外的东西，不变 | — |
-| D3 | 信道扫描 / CAC | 无接收代码 | 有 `SendCAC` / `ChannelScan` **发送**入口，接收侧没查（弱） | `MultiAPMaster.InChannelScanRptFlag`、`P1905ComCfg.EnReportCenterChannel` |
-| D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | 无 | `cspd` 有 `EnVbss` / `ToVbssMode` 配置位，但**没有任何 CM/CF 导出**（中） | **`MultiAPMaster.EnVbss` / `.ToVbssMode`**（与 `EnBtmKickoff` 同表） |
-| D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） | `IGD.P1905CFGn.{P1905InterfaceName,EnableP1905}`；端口侧 `WANPortVlanMode/Enable/ID/Pri` |
-| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） | `MultiAPStaCfg{devMac,bssMac,staMac}`、`P1905ComCfg.{STAMac,TargetBand,P1905StaBind}` |
-| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**）。内核侧 `br_ieee1905_local_in_handle` 放行本地投递（§5.5），帧能到 `multiapd`；而它自带 `pktdump`，线上取证不必再自带抓包程序 | **`MultiAPMaster.{EnBtmKickoff,EnRoamKick,En11rSteer,11rSsidSync}`**、`MultiAPDomain.{ToSlowLmt,RoamingLmt,StatusPreRoamTimer}`、`MultiAPCacheMac.tBtmCacheEn` |
+| D3 | 信道扫描 / CAC | 无接收代码 | 有 `SendCAC` / `ChannelScan` **发送**入口，接收侧没查（弱） | `MultiAPMaster.InChannelScanRptFlag`（**实测 0**，出厂关） |
+| D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | 无 | `cspd` 有 `EnVbss` / `ToVbssMode` 配置位，但**没有任何 CM/CF 导出**（中） | **`MultiAPMaster.EnVbss=0` / `.ToVbssMode=1`**（实测，与 `EnBtmKickoff` 同表） |
+| D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） | 编译期 `CONFIG_CSP_WLAN_VLAN` + `EBTABLES_{VLAN,FFE_T}`；库侧候选 `IGD.P1905CFGn`（**待 dump**） |
+| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） | `MultiAPStaCfg{devMac,bssMac,staMac}`（**待 dump**） |
+| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**）。内核侧 `br_ieee1905_local_in_handle` 放行本地投递（§5.5），帧能到 `multiapd`；而它自带 `pktdump`，线上取证不必再自带抓包程序 | **`MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1,EnActiveDeauth=1}`**（实测）+ `MultiAPDomain` 的 106 列状态机参数（实测）+ `MultiAPCacheMac.tBtmCacheEn`（待 dump） |
 
 这一节的判据原来只有 Z506（Wi-Fi 5 老固件）。2026-11-01 从一台市售 AX3000（E2631，2026-08 固件）
 拿出明文用户态之后，D5/D6/D7 从"没有通道"变成"厂商有入口"，其中 **D7 的接收侧处理路径是齐的**。
@@ -115,25 +115,35 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 
 **右列是 2026-11-01 新增的**：把整块 rootfs（[E2631_ROOTFS](research/E2631_ROOTFS.md)）解出来后，
 从 `cspd` 的 schema 字符串表 + web 模块 `.lua` 两条独立路径交叉得到 mesh 配置库的表名与列名，
-**D3–D7 各自"该改哪个字段"不再是猜测**。证据强度：表名与列名的存在是硬的；列归属是按 cspd
-字符串排列顺序切的，有 httpd 字段表与 lua 写入顺序印证，但**还没逐列 `sendcmd 1 DB p` 实测**。
+**D3–D7 各自"该改哪个字段"不再是猜测**。
+
+当晚又用三条只读 `sendcmd 1 DB p` 把推断核对了一遍（原文整理在
+[E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md)），结局是二对一错：
+
+- `MultiAPMaster`（55 列）与 `MultiAPDomain`（8 实例 × 106 列）**切对了**，实测还补上 12 个原先漏掉的列；
+- `P1905ComCfg` **切错了表**——它其实只有 8 列（`Enable/EnableIsSync/Policy/DropNum/MarketConfEn/MarketSign/DropRoam/A1Enable`），
+  `SetRoleEnable`/`En1905Msg`/`STAMac` 那些名字属于别的表，**上一版右列里引用过它们的写法已作废**。
+
+实测顺带纠了一个方向性判断：**出厂踢人走 `EnActiveDeauth=1`，BTM 那条（`EnBtmKickoff`）是关的**。
+所以 D7 与厂商线上行为比对时，该预期看到 deauth/disassoc，而不是 11v 的 BTM Request。
 
 另外两条编译期证据（`/etc/autouserconf`，612 个开关）：`CONFIG_CSP_WLAN_SUPPORT_80211KV`
-**只有 11k/11v、没有 11r**——与 D7"固件不支持 FT"是同一件事的两面；
+**只有 11k/11v、没有 11r**——与 D7"固件不支持 FT"是同一件事的两面，实测 `En11rSteer=0`、`SupportRrm=1` 与之吻合；
 `CONFIG_CSP_WLAN_VLAN` + `CONFIG_CSPCORE_EBTABLES_{VLAN,FFE_T}` 说明 WLAN 侧 VLAN 是编进去的。
 
-**七项都还没实测**，所以没有一项改成 ✅。
+**七项的"入口位置"现在是实测级，但"功能本身"一项都没实测**，所以仍然没有一项改成 ✅。
 
 ## 推进顺序（只做下一项，做完打勾再往下）
 
 | 顺序 | 项 | 难度 | 说明 |
 |---|---|---|---|
 | — | B8 / B9 / B10 / B12 / A20 / B5 / B7 / B17 / C4 / C5 / C6 / C7 | — | **已完成**（2026-10-31） |
+| — | `sendcmd 1 DB p` 三张 mesh 表实测（配置库 schema 取证） | — | **已完成**（2026-11-01）：`MultiAPMaster` 55 列、`MultiAPDomain` 8×106 列切对；`P1905ComCfg` 只有 8 列，切错已自纠。见 [E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md) |
 | 1 | r10 四包装机验收 | 0 | 产物已在手，两台换上即可 |
 | 2 | ax3600 刷 `CONFIG_COMPAT=y` 固件 | 1 | 彻底摆脱手工模拟器，`.github/workflows/build-firmware.yml` |
 | 3 | C3 统一行尾 | 1 | 影响整个仓库，**需要单独确认** |
-| 4 | `sendcmd 1 DB p MultiAPMaster` / `P1905ComCfg` / `MultiAPDomain` | 1 | **只读、不用停机**：把 D 段右列从"命名级"抬到"实测级" |
-| 5 | B16 `CurHop` 真机确认 | 2 | 需要真机 |
+| 4 | 补 dump 四张表：`IGD.P1905CFGn` / `MultiAPStaCfg` / `MultiAPCacheMac` / `MultiAPRoamCatonCfg` | 0 | **只读、不用停机**：把 D5/D6 的"候选入口"变成"确认入口"，也是角色开关（`SetRoleEnable`）最后的落点 |
+| 5 | B16 `CurHop` 真机确认 | 2 | 需要真机；注意 `CurHop` 不在 `P1905ComCfg`，别再按旧写法找 |
 | 6 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
 | 7 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
 | 8 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |

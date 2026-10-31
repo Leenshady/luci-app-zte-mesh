@@ -182,83 +182,83 @@ D7 的"固件不支持 FT"是同一件事的两面，现在有编译期证据，
 于是不用解 `db_default_auto_cfg.xml`、不用上机 `sendcmd`，离线就能读出整张表结构。
 区间 `0x22c580–0x22d7c0`，下面是按表名切开的整理。
 
-### 6.1 `P1905ComCfg` —— 角色、拓扑、1905 总开关
+> **2026-11-01 当晚已实测回填**（三条只读 `sendcmd 1 DB p`，原文整理在
+> [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md)）：`MultiAPMaster` 与 `MultiAPDomain` 的推断基本命中，
+> **`P1905ComCfg` 切错了表**——§6.1 已改写并注明错因。本节保留离线推断的过程，
+> **实测值一律以 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) 为准。**
 
-```
-SetRoleEnable  RoleElect  EnMasterOnly  MeshName  MaxHop  CurHop  WANForward
-TopoTimeOut  TopoDiscoverInterval  TopoSortTimer  P1905DevNum  EnReportCenterChannel
-En1905Msg  EnSendM1EachBand  En11kReportMerg  EnAcdDealAuth  En11kReportMerg
-AcdEnable  AcdPubKeyReset  AcdPubKeyAuth  MultiAPPTK  ACD.PTK  PubKey  PrivKey
-VersionMode  MarketSign  MarketConfEn  ProductID  SteeringPolicy  EnAgentSteer  EnAgentBs
-SyncBhBssEnable  SSIDSyncRadio  AcdsDelayInterval  AcdcDelayInterval  11kRssiCorrect
-LargeCapNetwork  EnP1905DevSave  ExtraAPEn  ExtraAPPref  OfflineDisplay  OfflineTimeOut
-RoamWebEnable  EnBsFilter  NoSteeringOUIs  TestMode  PluginLimit  STAStaBind/STAMac/TargetMac/TargetBand
-```
+### 6.1 `P1905ComCfg` —— **实测只有 8 列**（推断在这里切错了表）
 
-对我们直接有用的三条：
+实测（`RowCount=1`）：`Enable=1`、`EnableIsSync=1`、`Policy=1`、`DropNum=0`、`MarketConfEn=1`、
+`MarketSign=8000`、`DropRoam=0`、`A1Enable=0`。就这八个，是 1905 总开关、市场配置、丢弃策略。
 
-- **`SetRoleEnable` / `RoleElect` / `EnMasterOnly`** —— 这是"设备能不能被设成 controller/agent"的开关对
-  （`internet_mesh_common_lua.lua` 里 `Mode`/`Enable`/`SetRoleEnable` 走的就是这张表）。
-- **`En1905Msg`** —— 1905 报文开关。配合 multiapd 的 `pktdump`，这是第二条取证路径。
-- **`MaxHop` / `CurHop`** —— 拓扑深度，`TopoDiscoverInterval` 决定发现周期；做时序分析要用。
+**自纠**：本文初版把 `SetRoleEnable` / `RoleElect` / `EnMasterOnly` / `MeshName` / `MaxHop` / `CurHop` /
+`En1905Msg` / `EnSendM1EachBand` / `ACD.*` / `VersionMode` / `SteeringPolicy` / `EnAgentSteer` /
+`STAMac` / `TargetBand` 等四十多个列名都切给了这张表，**全部不在这张表里**。错因是字符串表里
+列名连续排列、表名夹在中间当分隔，而这八个名字后面紧跟的表名被漏切，于是把后面整段并了进来。
 
-### 6.2 `MultiAPMaster` —— 漫游/踢人/VBSS/BTM 全在这张表
+已经能落地归位的两列：`TopoSortTimer`、`EnBSFilter` 实测在 **`MultiAPMaster`**（§6.2）；
+`MarketSign` / `MarketConfEn` 确实在这里。
 
-```
-EnRoam  EnBandSteer  EnDevSteer  EnMultiDomain  Standalone  SupportBSMode  CurrentBSMode
-En11rSteer  11rSsidSync  EnDbusRoamReport  WiFi6StaStatusRptFlag  EnBhSteerCheck
-EnBtmKickoff  EnNoCandidateKick  NoCandidateKickRssi(-80)  EnSteerNo11k  EnRoamKick
-EnVbss  ToVbssMode  EnMeshSR  EnSteerCurBand  EnIPhoneRoamOpt  EnQuickRoam
-EnMloTopoSort  EnApOnOflineLog  EnRoamLog  HashCap  EnBSFilter
-StaRssiRptThr24G(-110)  ChanUtilRptThr24G/5G  ReTransIntval  ReTransCntLmt
-TransmitPowerLimit24G/5G/6G  Profile1bStaAssocDis  Profile2bStaAssocDis
-```
+还没定位的那些（角色/跳数/1905 报文开关/ACD 密钥族/绑定目标）**不在本轮 dump 的三张表内**，
+下一个候选是 `IGD.P1905CFGn`（D5 已在用的实例表）。验证命令：`sendcmd 1 DB p P1905CFGn`。
+**这条没跑之前，不要再引用"`P1905ComCfg.SetRoleEnable`"这种写法。**
 
-**这就关掉了挂了很久的那条待办**：`EnVbss` / `ToVbssMode` 不在"别处"，就在 `MultiAPMaster`，
-和 `EnBtmKickoff`、`EnRoamKick`、`En11rSteer` 是同一张表的兄弟列。也就是说
+### 6.2 `MultiAPMaster` —— 漫游/踢人/VBSS/BTM 全在这张表（实测 55 列）
+
+推断切对了表，也切对了绝大多数列；实测补上 12 个原先漏掉的（`EnMultiDomain`、`ApPeriodRptIntval`、
+`TrafficStatsRptFlag`、`LinkMetricsRptFlag`、`RssiHysteresisMargin`、`RssiCompensateThr`、
+**`EnActiveDeauth`**、`EnBhPhyRate`、`EnAgileSteer`、`UnSuccAssocRptFlag`、`UnSuccAssocRptRate`、
+`NoCandidateLmtEnKick`）。完整 55 列与出厂值见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §1。
+
+关掉了挂很久的那条待办：**`EnVbss` / `ToVbssMode` 就在这张表**，与 `EnBtmKickoff`、`EnRoamKick`、
+`En11rSteer` 是同一张表的兄弟列，实测值分别是 `EnVbss=0`、`ToVbssMode=1`。也就是说
 **D4（VBSS）与 D7（BTM 踢人）的入口是同一个表、同一个 web 页**
 （`internet_mesh_threshold_lua.lua` 一次写三张表：`OBJ_MAP_MASTER_ID` 的 `EnBandSteer`/`EnableBtmKickoff`、
 `OBJ_MULTIAP_MASTERCFG_ID` 的 `EnBtmKickoff`/`EnRoamKick`/`EnVbss`、`OBJ_MULTIAP_ROAM_ID` 的
 `RoamRssiLmt24G`/`RoamRssiLmt5G`/`EnLegacyStaRoam`）。
 
-### 6.3 `MultiAPDomain`（多实例，`MULTIAPDOMAIN%d`）—— 全部阈值
+实测还纠正了一个方向性判断：**出厂踢人走的是 `EnActiveDeauth=1`，不是 BTM**
+（`EnBtmKickoff=0`、`EnRoamKick=0`、`En11rSteer=0`）。做 D7 与抓包比对时，预期看到的是
+deauth/disassoc，而不是 11v 的 BTM Request。详见快照 §1.1。
 
-```
-RoamRssiLmt24G(-60)  RoamRssiLmt5G(-70)  RoamRssiLmt6G  RoamLoadLmt24G/5G/6G
-BsRssiLmt24G/5G/5GTo6G/6G  BsLoadLmt24G/5G/6G  ChanInterferLmt24G/5G
-BsVhtChk24G/5G  BsActiveStaChk24G/5G  BsStaIdleRateLmt24G/5G
-BsAcceptRssi24G/5G/6G  BsAcceptBwUtil24G/5G  BsTPLimit(9999999)
-24Gto5GRssiDelta(-20)  5Gto24GRssiDelta  To6GRssiDelta  CandCurApRssiDelta  LoadRssiLmtDelta
-ToPreRoamLmt  ToSlowLmt  ToFastLmt  InitLmt  RoamingLmt  OfflineLmt(36000)  PreRoamForbidLmt
-BSLazyForbidLmt  LegacyForbidLmt(43200)  UnknownApFailedLmt  LazyBtmFailedLmt  BsMeasureLmt
-EnStaRoam  EnMLOStaRoam  EnStaBandSteer  EnBackHaulStaRoam  EnLegacyStaRoam
-DisAssocImminent  DisAssocTimer  Abridged  AutoRvsAbrdgDisImnt  ReqTimeout
-SupportStrategies(251)  SupportRrm  EnRoamModes  EnOfflineRstRoam  EnUnknownApBlack
-```
+### 6.3 `MultiAPDomain`（8 实例，`MULTIAPDOMAIN%d`，每行 106 列）—— 全部阈值
+
+推断切对了，列名全部命中（唯一错处是我给 `OfflineLmt` 注的参考值：实测 `OfflineLmt=1800`、
+`ForbidLmt=36000`，我把 36000 记到了 `OfflineLmt` 头上）。完整 106 列与出厂值见
+[E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §3。
+
+实测带来两条推断时代没有的结论：
+
+- **domain 实例与 SSID 槽位 1:1**（`MULTIAPDOMAINn` ↔ 第 n 个 SSID）：`ESSID` 与 `DomainUsed`
+  都是 `isSave=0` 的运行时值，实测 8 个实例里生效 4 个（1/4/5/8），占位名直接是 `SSID3`/`SSID7`。
+- **组网专用 SSID 也占一个 domain**：`ZMESH-TRx3zR`（DOMAIN4）与 `ZMESH-TRx3zR_5G`（DOMAIN8）
+  是自动生成的两个槽。踢人阈值是 per-domain 的，回程那一路同样要配。
 
 这张表解释了为什么 BTM 在真机上"看起来不生效"：**踢人是策略函数的输出，阈值全在这里**，
-`EnBtmKickoff=1` 只打开开关，还要 `ToSlowLmt`/`RoamingLmt`/`StatusPreRoamTimer` 这些状态机参数配合。
-做 D7 之前先 `sendcmd 1 DB p MultiAPDomain` 看实际值，比改代码快。
+`EnBtmKickoff=1` 只打开开关，还要 `ToSlowLmt`/`RoamingLmt`/`StatusPreRoamTimer` 这一整套状态机
+参数配合（`InitLmt/PreRoamLmt/RoamingLmt/OfflineLmt/ForbidLmt` 配 `Status*Timer`）。
 
-### 6.4 其余四张
+### 6.4 其余四张（**未实测**）
 
 | 表 | 列 | 用途 |
 |---|---|---|
 | `MultiAPRoamCatonCfg` | `RoamFilter` | 漫游过滤（对应内部总线 `0xa971`/`0xa972`） |
 | `MultiAPCacheMac` | `OfflineRetrieveEn, TxDataAfterBaEn, TxBaDelayMs, ZeroDropCfgEn, tBtmCacheEn, tTxConDelayMs, tTxDropCnt` | 离线 STA 的帧缓存（**`tBtmCacheEn` 又一次指向 BTM**） |
-| `MultiAPStaCfg` | `devMac, bssMac, staMac` | 三地址映射 |
+| `MultiAPStaCfg` | `devMac, bssMac, staMac` | 三地址映射（D6 的落点） |
 | `MultiAPALLSta` / `MultiAPTopo` / `MultiAPDualBand` | `bSTA, localmac, uplinkDev, uplinkBSS` | 拓扑视图 |
 
 另有视图别名：`MESH`→`Netsphere`→`EASYMESH`（`dbMAPPersonBHBSSIndex` 一类的 person 层函数）。
 
 ### 6.5 方法说明与强度
 
-- 取证方式是**字符串表连续排列**：schema 列名在 cspd 里是连续的 ASCII 串，表名（`P1905ComCfg`、
-  `MULTIAPMASTER`、`MULTIAPDOMAIN%d`、`MultiAPRoamCatonCfg`…）夹在各段之间，切分点清楚。
-- 强度：**中—强**。列名与表名的**存在**是硬证据；"哪一列属于哪张表"是按排列顺序切的，有
-  `httpd`（`webd_adaptor_*.c` 的字段表）与 web lua 的写入顺序两处交叉印证，但**没有逐列
-  `sendcmd 1 DB p` 实测**。要变强只需上机一条命令（见 §9）。
-- 局限：cspd 已 strip，拿不到函数名；列名与代码的对应关系仍只能靠名字。
+- **两段法**：先离线切（字符串表连续排列 → 列名清单，`httpd` 字段表与 web lua 写入顺序交叉印证），
+  再上机 `sendcmd 1 DB p` 逐表核对。这一次证明**第一段会切错表边界**，所以第二段不能省。
+- 强度（实测后）：
+  - `MultiAPMaster`、`MultiAPDomain`、`P1905ComCfg` 三张表的**列名与列归属 = 强**（真机 dump）；
+  - 这些列的**含义**仍是弱—中：只有列名、出厂值和命名规律，没有反汇编或协议字段级的对应；
+  - `MultiAPCacheMac` / `MultiAPStaCfg` / `IGD.P1905CFGn` 等**没 dump 的表仍是中**。
+- 局限：`cspd` 已 strip，拿不到函数名；列名与代码的对应关系只能靠名字。
 
 ## 7. `/kmodule` 里有什么：squashfs 解开后的地图
 
@@ -313,7 +313,7 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 ```
 
 即**与 `config.bin` 同一族信封、type 3**（不是 type 1 的 boot、也不是 type 4 的 config）：
-60 字节头 + 单块 `{dec,enc,next}` + 数据。用 §10 那五个机型种子（`E263xKey0238002E` 等）
+60 字节头 + 单块 `{dec,enc,next}` + 数据。用 [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §10 那五个机型种子（`E263xKey0238002E` 等）
 按 AES-256-CBC/ECB 各试一遍，**全部解不出 XML**——这符合 `CONFIG_CSPCORE_DB_ENCRY_COMKEY`
 的存在：出厂默认值用的是**编译期公共密钥**，和"每机型一把"的 USB 备份密钥不是一套。
 
@@ -322,29 +322,45 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 
 ## 9. 对 mesh 项目的影响（可以直接执行的部分）
 
+编号与 [FEATURE_STATUS](../FEATURE_STATUS.md) D 段一致。**"实测"= 本条已在 2026-11-01 的真机 dump 里
+看到过这个列名**（见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md)），"待取证"= 还没看到。
+
 | 待办 | 之前 | 现在 |
 |---|---|---|
-| `EnVbss` / `ToVbssMode` 在哪个视图 | 未知，要上机翻 | **`MultiAPMaster`**，与 `EnBtmKickoff`/`EnRoamKick` 同表 |
-| D3（VLAN）入口 | 靠 `0xa94e` 反推 | `CONFIG_CSP_WLAN_VLAN` + `CONFIG_CSPCORE_EBTABLES_{VLAN,FFE_T}` + `OBJ_PORTVLAN_ID` |
-| D4（VBSS）入口 | 猜测 | `MultiAPMaster.EnVbss` / `ToVbssMode`（web 页已定位） |
-| D5（绑定）入口 | 猜测 | `MultiAPStaCfg{devMac,bssMac,staMac}` + `P1905ComCfg.STAMac/TargetBand/P1905StaBind` |
-| D6（agent 落配置） | 只有 `libzte_agent_mm.so` 三个导出 | 加 `P1905ComCfg.SetRoleEnable/RoleElect/EnMasterOnly` 三个开关 |
-| D7（BTM 踢人） | 只知字符串在 | `MultiAPMaster.EnBtmKickoff` + `MultiAPDomain.ToSlowLmt/RoamingLmt` 等阈值 + `MultiAPCacheMac.tBtmCacheEn` |
-| 11r/FT 支持 | "固件不支持"（推断） | **`CONFIG_CSP_WLAN_SUPPORT_80211KV`，无 11r**（编译期证据） |
-| 1905 报文取证 | 只有 multiapd 的 `pktdump` | 再加 `P1905ComCfg.En1905Msg` 一路 |
+| `EnVbss` / `ToVbssMode` 在哪个视图 | 未知，要上机翻 | **`MultiAPMaster`**，与 `EnBtmKickoff`/`EnRoamKick` 同表（实测，`0`/`1`） |
+| D3 信道扫描 / CAC | 只有 `SendCAC` 反汇编推断 | `MultiAPMaster.InChannelScanRptFlag`（实测 `0`）；`EnReportCenterChannel` **不在 `P1905ComCfg`**，未定位 |
+| D4 VBSS | 猜测 | `MultiAPMaster.EnVbss=0` / `ToVbssMode=1`（实测，出厂关） |
+| D5 VLAN / 流量分离 | 靠 `0xa94e` 反推 | `CONFIG_CSP_WLAN_VLAN` + `CONFIG_CSPCORE_EBTABLES_{VLAN,FFE_T}` + `OBJ_PORTVLAN_ID`；库侧候选 `IGD.P1905CFGn`（待取证） |
+| D6 STA 绑定 | 猜测 | `MultiAPStaCfg{devMac,bssMac,staMac}`（待取证）；**`P1905ComCfg.STAMac/TargetBand` 不存在**，此前的写法作废 |
+| D7 BTM 踢人 | 只知字符串在 | `MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1}`（实测）+ `MultiAPDomain` 五组状态机参数（实测）+ `MultiAPCacheMac.tBtmCacheEn`（待取证） |
+| 角色开关（不在 D 段） | 只有 `libzte_agent_mm.so` 三个导出 | `SetRoleEnable/RoleElect/EnMasterOnly` **不在这三张表里**，下一步查 `IGD.P1905CFGn` |
+| 11r/FT 支持 | "固件不支持"（推断） | **`CONFIG_CSP_WLAN_SUPPORT_80211KV`，无 11r**（编译期证据）+ `En11rSteer=0`、`SupportRrm=1` |
+| 1905 报文取证 | 只有 multiapd 的 `pktdump` | `En1905Msg` 不在 `P1905ComCfg`（8 列里没有），这条取证路径**暂时落空**，仍靠 `pktdump` |
 
-三条零成本上机命令（只读，不需要停机窗口）：
+**已执行的三条只读命令**（2026-11-01，结果见快照）：
 
 ```sh
-sendcmd 1 DB p MultiAPMaster        # 一次把 §6.2 的列全打出来，验证本文的切分
-sendcmd 1 DB p P1905ComCfg          # 看 SetRoleEnable / RoleElect / En1905Msg 实际值
-sendcmd 1 DB p MultiAPDomain        # 多个实例，看阈值
+sendcmd 1 DB p MultiAPMaster        # 55 列，EnVbss/EnBtmKickoff/En11rSteer 落地
+sendcmd 1 DB p P1905ComCfg          # 只有 8 列 —— 切错表的证据
+sendcmd 1 DB p MultiAPDomain        # 8 实例 × 106 列，DomainUsed 指认生效的 4 个
+```
+
+**还没跑的四条**（同样只读、不用停机）：
+
+```sh
+sendcmd 1 DB p P1905CFGn            # 角色/跳数/1905 报文开关的候选落点
+sendcmd 1 DB p MultiAPStaCfg        # D6 的三地址绑定实例
+sendcmd 1 DB p MultiAPCacheMac      # tBtmCacheEn 等七个帧缓存参数
+sendcmd 1 DB p MultiAPRoamCatonCfg  # RoamFilter
 ```
 
 ## 10. 局限
 
-- **没有逐列实测**：§6 的表/列归属是按 cspd 字符串的排列顺序切的，靠 httpd 字段表与 lua
-  写入顺序交叉印证，但没跑 `sendcmd 1 DB p`。上机一条命令即可把强度从中—强抬到强。
+- **实测只覆盖"存在与出厂值"**：表名、列名、列归属现在是硬的（真机 dump），但每一列的**语义**
+  仍只有命名和出厂值可依，没有协议字段级或反汇编级对应。特别是 `EnRoamModes=19`、
+  `SupportStrategies=251` 这两个位图，位的含义没解。
+- **四张表没 dump**（`IGD.P1905CFGn`、`MultiAPStaCfg`、`MultiAPCacheMac`、`MultiAPRoamCatonCfg`），
+  所以 D5/D6/D7 的库侧入口还有三分之一是"候选"而不是"确认"。
 - **`/etc/init.debug` 判定为废文件**，依据是它引用的驱动/脚本在本机全不存在；**没有实机验证**
   （也不建议验证，改 `loadtype` 有变砖风险）。
 - **未知 4 字节**（§1.2 的 0x40）含义未定。已排除：压缩块 CRC、解压后 CRC、CRC-32C、
