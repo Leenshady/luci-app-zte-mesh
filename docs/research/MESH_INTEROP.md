@@ -91,12 +91,143 @@
 
 1. **BOOTROM / cspboot**（`0x0`–`0x100000`，LZ 之后是 ARM32，这次没反汇编）；
 2. **NAND 控制器硬件透明解密** —— 编程器关 ECC 裸读拿到的是物理密文，设备通过控制器读同一页拿到明文。
-   这一条能同时解释三件事：OOB 全 `0xFF`、rootfs 高熵、以及同型号活机器的 rootfs 是明文 JFFS2；
+   这一条能同时解释三件事：OOB 全 `0xFF`、rootfs 高熵、以及同型号活机器的 rootfs 是明文 JFFS2
+   （最后这一条当时是从 `mount`/`df` 推的，实证判据与真机侧做法见 §4.2）；
 3. eFuse/OTP 里的设备唯一密钥，运行时喂给上面两者之一。
 
 **一条能证伪的判据**：在任意一台能 root 的 ZTE 上读 `dd if=/dev/mtdblock8 bs=2048 count=1 | hexdump -C`
 ——若看到 `hsqs`/`UBI#`/JFFS2 节点而编程器 dump 同页是密文，就是第 2 条（硬件透明解密），
 密钥根本不在可读的镜像空间里；若也是高熵，才回落到第 1/3 条。
+
+### 4.2 手上有 telnet root：能取，但"解密"这个动作不存在（2026-11-01）
+
+按目的拆开看，成本差三个数量级：
+
+| 你要的是 | 能不能 | 怎么做 | 成本 |
+|---|---|---|---|
+| rootfs 的**文件内容** | 能，而且不用解 | `cat` 单个文件，或 `tar` 挂载点 | 十分钟 |
+| rootfs 的**整块镜像** | 能 | `dd if=/dev/mtdblock8`（17 MiB） | 十分钟 + 一次 tftp |
+| 解别人编程器 dump 用的**密钥** | 大概率不能 | §4.2.4 | 半天，期望值低 |
+
+原因是一件事：**设备上这块 Flash 的可读视图就是明文**。JFFS2 在 mtdblock8 上挂载成功、
+`df` 报 17 MiB / 100% 占满，说明内核从 MTD 读出来的是合法节点（`85 19` + nodetype），不是密文。
+所以对 mtdblock8 做 `dd`，拿到的和 `cat` 出来的是同一份字节——**中间没有一层需要你去解**。
+
+#### 4.2.1 一处要纠正：这条判据至今没有真跑过
+
+[VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) §1 把根文件系统写成"JFFS2 明文"，那是从
+`/proc/mounts` + `df`（类型 jffs2、17 MiB、100% 占满）推的，**没有做过 hexdump 比对**。
+它和 §4.1 那条判据是同一件事的两端，而判据本身仍是待执行项。区别在于：
+
+- "挂载成功" 只证明**内核看到的字节**是合法 JFFS2；
+- "同一物理页在编程器 dump 里是密文、在 `/dev/mtd8` 里是明文" 才证明**变换发生在读路径**。
+
+前者成立，后者未验。下面第一条命令就是补这一步。
+
+#### 4.2.2 判据：一条 dd，把三种机制分开
+
+```sh
+# 只读。不写 flash、不动配置库
+cat /proc/mtd                                  # 确认 mtd8 的名字与大小
+cat /proc/mounts | grep mtdblock               # 确认根确实是 mtdblock8
+dd if=/dev/mtdblock8 bs=2048 count=1 2>/dev/null | hexdump -C | head -4
+```
+
+| 输出 | 机制 | 结论 |
+|---|---|---|
+| `85 19 03 20 …`（JFFS2 magic `0x1985` + nodetype） | 读路径给出明文；内核里 AES 零调用者（§4.1）⇒ 变换在**控制器硬件**或 **BootROM 一次性解密** | 没有"密钥文件"可偷，但也**不需要**——`dd` 就是解密器 |
+| 高熵、无 `85 19` | mtd8 不是挂载的根（换分区号重试），或读路径确实返回密文 | 回 §4.1 的第 1/3 条，走 §4.2.4 |
+| 全 `0xFF` / `Operation not permitted` | 不是 mtd 的问题，是节点权限或分区未映射 | 先 `ls -l /dev/mtd*` |
+
+`mtd8`（字符设备）与 `mtdblock8`（块设备）走同一个 `mtd_read`，字节应当一致；
+**若不一致，差异点本身就把解密层定位出来了**，那是意外收获，值得单独记。
+
+#### 4.2.3 取镜像与取文件：两条都不需要"解密"
+
+```sh
+free                                           # 先看 tmpfs 还有多少（/tmp 在 RAM 里）
+# A. 整块镜像（17 MiB，塞得下）
+dd if=/dev/mtdblock8 of=/tmp/rootfs.jffs2 bs=64k
+md5sum /tmp/rootfs.jffs2
+tftp -p -l /tmp/rootfs.jffs2 -r rootfs.jffs2 192.168.1.191   # 传到实验机 /srv/tftp
+rm /tmp/rootfs.jffs2
+
+# B. 只要文件（更省内存，且能立刻 grep）
+tar -czf /tmp/etc.tgz /etc /usr/sbin /usr/lib 2>/dev/null
+tftp -p -l /tmp/etc.tgz -r etc.tgz 192.168.1.191
+```
+
+`tftp -p`（put）是 busybox 自带，这条通道在实验机上已经验过（见 [LAB](../LAB.md)）。
+`/kmodule/bin` 里还有 `curl` 与 `wput`，要流式上传可用
+`tar czf - /etc | curl -T - http://192.168.1.191:8000/x`，不落盘。
+
+离线侧用 `jefferson`（pip）或 `mtd-utils` 解 JFFS2；`unsquashfs` 用不上，它不是 squashfs。
+
+#### 4.2.4 如果非要那把密钥：只有 RAM 一条路，期望值不高
+
+先说为什么"拿真机当解密机"没用：把 dump 的密文写回同地址 NAND 再读出来，确实得到明文，
+但那是**解密服务**不是密钥；AES 下已知明文-密文对推不出 key。而写 NAND 是这台机器上
+唯一可能变砖的操作。**不做。**
+
+剩下的只有"密钥是否在 CPU 可见的 RAM 里出现过"。两种可能：
+
+1. **控制器从 OTP/eFuse 直接取 key**（最可能）：CPU 一次都看不到，搜 RAM 必然空手；
+2. **驱动把 key 写进控制器寄存器**：它至少在内核栈/堆里存在过一瞬，那一刻的内存还在就有机会。
+
+判据很好构造，因为 E2633 的 dump 里有一个**已知明文的密文块**：JFFS2 未用区是 `0xFF` 填充，
+ECB 下 `AES_ECB(0xFF×16)` 恒定，实测重复 5906 次、值
+`9b58f878bbb341366b2b543daffb0185`（[E2633_FIRMWARE](E2633_FIRMWARE.md) §5.1）。于是任意候选
+key 只需一次块加密就能判：
+
+```
+AES_encrypt(key, FF×16) == 9b58f878 bbb34136 6b2b543d affb0185
+```
+
+范围也明确：`/proc/iomem` 里 `System RAM` 的 256 MiB，重点在 lowmem 映射的低 64–128 MiB。
+
+```sh
+cat /proc/iomem | head -20                  # 看 System RAM 与 carveout（secure/tee/reserved）
+/kmodule/bin/devmem2 0x80000000             # 一次读，判断 /dev/mem 是否被 STRICT_DEVMEM 挡住
+# 能读就分段 dump（每段 16 MiB，传完即删，别把 tmpfs 撑爆）
+dd if=/dev/mem of=/tmp/m0.bin bs=1M count=16 skip=2048
+```
+
+离线扫描的 C 骨架（**未实测**，跑通再考虑收进 `tools/`）：对 4 字节对齐的每个偏移取 32 字节
+当 AES-256 key（也试 16 字节当 AES-128），做一次 `AES_encrypt(key, FF×16)` 比对。256 MiB ÷ 4 × 2
+≈ 1.3 亿次单块加密，C 实现分钟级。
+
+两种结果都有信息量，别只看"命中"那一种：
+
+| 结果 | 含义 | 下一步 |
+|---|---|---|
+| 命中 | key 在 CPU 侧出现过，**且跨机型共用**（我们是用 E2633 的密文块验的） | 直接解 `e1630.raw` 的 rootfs，回头补 [E2633_FIRMWARE](E2633_FIRMWARE.md) §5 |
+| 全空 | key 不经 CPU（OTP 直连控制器），或**每台设备唯一** | 编程器 dump 这条线对 rootfs 永久关闭；只剩串口进 BootROM，收益不抵成本 |
+
+> 一个容易混的点：用 E2633 的密文块去验 E2631 的 RAM，前提是**同一密钥组**。这个前提有旁证
+> （config 的密钥组号 `0238002E` 被 E2631/E2633/E1630/E2637/E2638 五个机型共用），但没有实证。
+> 所以"全空"**不能**单独证明 OTP——它同样兼容"每台设备一把 key"。要分开这两者，得在**同一台
+> 设备**上同时拿到 RAM 和它的编程器 dump。
+
+#### 4.2.5 真正值钱的不是密钥，是脚本
+
+对"复现 mesh"这个目标，rootfs 的边际价值不在二进制（`multiapd`/`libcmapi` 已有，见
+[MULTIAPD](MULTIAPD.md)），在**胶水**：
+
+| 路径 | 为什么值钱 | 对应待办 |
+|---|---|---|
+| `/etc/init.d/*` | `cspd`/`multiapd` 的启动顺序与命令行参数（决定谁是 master） | D7 前置 |
+| `/etc/scripts/*`、`/usr/sbin/*.sh` | 区域/模式判断、`/defcfg/current_region` 的读写者 | [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §11.1 换区 |
+| Web 的 CGI（`/www`、`/usr/www`） | **写 DB 的字段名**——VLAN/ACL/漫游过滤/BTM 的入口命名 | D3–D6 |
+| 谁 `dlopen` 了 `libzte_agent_mm.so` | agent 侧落配置的真实调用点 | D6 |
+
+这四类全在明文里，`cat` 就能拿——不需要密钥，一次 telnet 就够。
+
+#### 4.2.6 风险
+
+- `dd if=/dev/mtdblock8` **只读**，不写 flash、不磨损、不改配置库，安全；
+- `/tmp` 是 tmpfs（吃 RAM），17 MiB 镜像没问题，但别同时开大 tar，先看 `free`；
+- **不要** `sendcmd 1 DB set/save`、**不要** `rreset`（按区域重建整库 = 恢复出厂）；
+- 不要往任何 mtd 写字节。本节命令没有一条是写操作。
 
 ## 5. 内核里的 1905：识别命中、丢转发、送本机，但不做协议
 
@@ -317,6 +448,8 @@ wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
 
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
+| 跑 §4.2.2 那条 `dd`（三秒，只读） | 把"rootfs 明文"从**推断**变成**实证**，顺手把 §4.1 的判据关掉；同时决定要不要走 §4.2.4 | 一次 telnet，无需停机 |
+| `tar` 一份 `/etc` + `/etc/init.d` + Web CGI | D3–D6 的入口命名全在这几处明文里（§4.2.5），比继续逆向二进制便宜 | 一次 telnet + tftp |
 | ~~用 Wireshark `ieee1905` 对照我们发出的帧~~ **已做**（2026-11-01） | 不用真机就能查编码错误，比"装上去看现象"快 | 结果与改法见 [WIRESHARK_1905](WIRESHARK_1905.md)：`0x0007` 缺 EOM 已修，`0x0008` 的 EOM/`0xb3` 留待真机复验 |
 | 拿 **AX3000（E2631）** 当子路由，验 Steering / BTM | D7 的接收路径（`handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`）在原厂 `cspd` 里是齐的，但线上没有证据 | 停机窗口 + 限时抓包，步骤见 [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 第 8 节 |
 | 找一台**非中兴**的标准 agent 做对照 | 证明我们不是"只会跟 ZTE 说话"；这是"兼容任意 OpenWrt"这句话的唯一证据 | 一台支持 Multi-AP 的 OpenWrt 设备（hostapd 带 multi_ap） |
