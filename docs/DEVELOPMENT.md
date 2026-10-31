@@ -148,7 +148,7 @@ python tests/test_i18n.py        # 12 项：覆盖率、格式符、菜单标题
 
 **它怎么到设备上**：`luci.mk` 把 `po/<lang>/` 编成独立的包 `luci-i18n-<app>-<lang>`（中文是 `luci-i18n-zte-mesh-zh-cn`），
 文件落到 `/usr/lib/lua/luci/i18n/zte-mesh.zh-cn.lmo`。`zh_Hans` 这个名字经 `LUCI_LC_ALIAS` 映射成 `zh-cn`，与运行时要找的
-文件名一致。装应用包**不会**带上它——`build-apk.yml` 里因此单独编译它，并断言三个 apk 都在。
+文件名一致。装应用包**不会**带上它——`build-apk.yml` 里因此单独编译它，并断言四个 apk 都在（`zte-mesh`、`zte-mesh-launcher`、`luci-app-zte-mesh`、`luci-i18n-zte-mesh-zh-cn`）。
 
 页面怎么拿到译文：主题模板里有 `<script src="/cgi-bin/luci/admin/translations/<lang>">`，这个端点把所有
 `<lang>.lmo` 拼成一份 JS 注入页面，`cbi.js` 的 `_()` 查的就是它。所以「源码里有译文」和「设备上有 lmo」是两件事，

@@ -84,7 +84,8 @@ def main():
 
     # Same hazard, other binary: root/bin/db-engine-probe is the ARM32 host side of the sandbox
     # (parse_config, the service loop). It is linked -nostdlib against the factory glibc, so it can
-    # only be rebuilt on the lab-tools branch -- it cannot be compiled here the way ns-run now is.
+    # only be rebuilt in the lab container (build-lab-tools.yml) -- it cannot be compiled here the
+    # way ns-run now is.
     # A copy frozen at some earlier pack date silently keeps the device on old behaviour while the
     # init script already feeds it new keys: on 2026-10-31 the packed copy predated the child role,
     # so its parse_config refused "mesh.role=slave", controller_service() returned -1 and the
@@ -95,8 +96,8 @@ def main():
     probe = blobs.get("root/bin/db-engine-probe", b"")
     for marker in (b"config-reject", b"wlan-plan"):
         check(f"db-engine-probe in the archive carries {marker.decode()}", marker in probe,
-              "the packed copy predates the current sources; rebuild prebuilt/db-engine-probe on the "
-              "lab-tools branch and repack with openwrt/repack-runtime.py --replace")
+              "the packed copy predates the current sources; rebuild prebuilt/db-engine-probe with "
+              "build-lab-tools.yml and repack with openwrt/repack-runtime.py --replace")
 
     # The compiled halves are machine code, so they cannot ride in an arch:all apk: on the
     # x86_64 lab box an aarch64 ns-run would not exec at all. zte-mesh is arch:all (scripts

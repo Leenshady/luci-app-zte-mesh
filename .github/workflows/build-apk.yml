@@ -47,13 +47,13 @@ name: Build APK
 # our own packages never invalidates it. First run after a key change is slow;
 # later runs reach the package build in a couple of minutes.
 #
-# Trigger: manual (workflow_dispatch), on pushes to main, or on pull requests.
+# Trigger: manual only (workflow_dispatch). Pushes and pull requests used to
+# build as well, but a documentation or memory commit then cost a full 20-30
+# minute toolchain run and produced the same packages as the previous one.
+# Start it explicitly when a change to the packages is worth verifying.
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
 
 # A superseded run is worthless: cancel the old one instead of paying for two
 # full toolchain builds in parallel (and fighting over the same cache key).

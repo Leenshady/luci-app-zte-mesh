@@ -18,7 +18,7 @@ name: Build lab tools
 # All of them are published to this branch so a device can fetch them over plain https:
 #
 #   wget -O /usr/libexec/zte-mesh/ns-run \
-#     https://raw.githubusercontent.com/<owner>/<repo>/lab-tools/prebuilt/ns-run-x86_64
+#     https://raw.githubusercontent.com/<owner>/<repo>/main/prebuilt/ns-run-x86_64
 #
 # Nothing here is part of a router image.
 #
@@ -26,30 +26,10 @@ name: Build lab tools
 # read a failure log without a token in this setup), so the commit always lands
 # and the job conclusion still reports the truth.
 
+# Manual only. This used to run on every push to the lab-tools branch and commit
+# its own output back; prebuilt/ now lives on main, and nothing here should fire
+# on its own any more (a commit landing on main would otherwise start Build APK).
 on:
-  push:
-    branches: [lab-tools]
-    paths:
-      - ns-run.c
-      - controller-net.c
-      - shim.c
-      - agent-mm.c
-      - controller-service.c
-      - controller-run.c
-      - controller-packet.c
-      - controller-wsc.c
-      - controller-wsc-crypto.c
-      - agent-sync.c
-      - multiap-cfg.c
-      - mesh-policies.c
-      - wlan-profiles.c
-      - mesh-bridge.c
-      - db-engine-probe.c
-      - '*.h'
-      - '*.def'
-      - Makefile
-      - openwrt/zte-mesh/zte-mesh-runtime.tar.gz
-      - .github/workflows/build-lab-tools.yml
   workflow_dispatch:
 
 permissions:
