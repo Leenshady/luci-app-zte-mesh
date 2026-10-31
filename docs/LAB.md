@@ -55,6 +55,36 @@ sudo sh tools/lab/run-service.sh --seconds 20
 远程执行不用装 sshpass：`printf '%s\n' "$LAB_PASS" | python3 tools/lab/rsh.py --stdin 'sudo -S -p "" sh tools/lab/build.sh all'`
 ——密码只出现在管道里，`ps` 看不到。
 
+### 3.0 重打 runtime 包（probe / ns-run / 随包源码有改动时）
+
+`make-runtime.py` 那边被 `verify_existing()` 卡着（本机 `out/` 是合成的），但**只换成员**的
+`openwrt/repack-runtime.py` 不需要 audited `out/`：它保留其余成员逐字节不动，只重算 `SHA256SUMS`。
+只有 `root/bin/db-engine-probe`、`ns-run` 这类成员需要交叉编译：
+
+```sh
+ARMCC="arm-linux-gnueabi-gcc -D_TIME_BITS=32" sh tools/lab/build.sh database   # probe 是 ARM32 软浮点
+ROUTERCC=aarch64-linux-gnu-gcc sh tools/lab/build.sh ns-run                   # ns-run 是路由器的 aarch64
+python3 openwrt/repack-runtime.py \
+  --replace root/bin/db-engine-probe=out/db-engine-probe ns-run=out/ns-run \
+            controller-net.c=controller-net.c enroller.c=tools/lab/enroller.c
+python3 tests/test_runtime.py                                                 # 九条守卫，含"成员与仓库文件逐字节相同"
+```
+
+两个坑：
+
+1. `--replace` 是 argparse 的 `store` 语义，**多个替换项必须跟在同一个 `--replace` 后面**。写成
+   `--replace a=b --replace c=d` 只有最后一个生效，包悄悄只换了一个成员。
+2. 重打的**基线**必须是仓库里已提交的那份 tarball。从别处（比如刚把打好的包传回工作区）再往回
+   传，会把基线换成"已经被换过的"那份，成员就退回旧版本了 —— `test_runtime.py` 的
+   "byte-for-byte" 守卫能抓到这件事。
+
+包里的 probe 只要一条性质：不能引用比原厂 glibc 2.26 更新的符号。CI 在 `debian:bookworm`
+里编，本机在 Ubuntu 22.04 里编也成立，编完这样自查：
+
+```sh
+arm-linux-gnueabi-nm -u out/db-engine-probe | grep -E '__time64|__clock_gettime64|__ioctl_time64|__isoc23_' || echo none
+```
+
 ### 3.1 agent 模式（M1/M2）
 
 ```sh
@@ -116,6 +146,10 @@ zig cc -target aarch64-linux-musl -static -Os -s -o spark-aarch64 tools/lab/spar
 
 注意网桥端口的 ingress 帧不会再投给绑定在该端口上的套接字：抓"从线上进来的"用 `tcpdump -i <物理口>`，
 抓"daemon 发了什么"用 `br-lan`。
+
+要看**逐字段**而不是"有没有帧"，用 `tshark` 的 `ieee1905` dissector；沙箱里抓帧的完整步骤（含
+`lab-peer` 在宿主命名空间且默认 DOWN、守护进程要有人发 `0x0007` 才会动这两个坑）见
+[research/WIRESHARK_1905.md](research/WIRESHARK_1905.md) 第 2 节。
 
 ### 4.2 ARM32 模拟器（`qemu-arm-static`）**不入包**
 

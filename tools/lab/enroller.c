@@ -210,6 +210,13 @@ static unsigned int search_frame(uint8_t *frame, const uint8_t controller[6], un
     frame[at++] = 0x80; frame[at++] = 0; frame[at++] = 2; frame[at++] = 1; frame[at++] = 1; /* supported: agent */
     frame[at++] = 0x81; frame[at++] = 0; frame[at++] = 2; frame[at++] = 1; frame[at++] = 0; /* searched: controller */
     frame[at++] = 0xb3; frame[at++] = 0; frame[at++] = 1; frame[at++] = 1;               /* Multi-AP profile 1 */
+    /* End of Message. Every frame the factory daemon sent on the wire in the lab capture
+     * of 2026-11-01 (0x0000/0x0001/0x0008/0x000a) ends with 00 00 00, and without it the
+     * Wireshark 3.6 ieee1905 dissector runs off the end of the TLV list and marks the whole
+     * frame malformed (docs/research/WIRESHARK_1905.md). The daemon itself is lenient -
+     * it answered the search either way - so this is for the dissector and for anything
+     * else that walks the list strictly. */
+    frame[at++] = 0; frame[at++] = 0; frame[at++] = 0;
     return at;
 }
 

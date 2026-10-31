@@ -27,7 +27,7 @@
 |---|---|---|---|
 | IEEE 1905.1 | CMDU 0/1/2/3（拓扑发现/通知/查询/响应）、5/6（链路度量） | 已实现 | FINDINGS 第 4 节，真机通过 |
 | 1905.1a | 13/14（邻居/非 1905 邻居相关） | 已观测到，未主动用 | REAL_CHILD 第 1 节 |
-| WFA Multi-AP R1 | `0x8001` AP Policy Config Request、`0x8003`/`0x8004` 能力与配置、`0x8007` 系列、WSC M1/M2 | 已实现，M2 在 Z506 上真机生效 | REAL_CHILD 第 1 节 |
+| WFA Multi-AP R1 | `0x0007`/`0x0008`/`0x000a`（AP 自动配置）、`0x8006`/`0x8007`（信道选择请求/响应）、`0x0009` 里的 WSC M1/M2、`0x8003` Multi-AP Policy Config Request、`0x8001`/`0x8002` 能力查询/报告 | 已实现，M2 在 Z506 上真机生效（编号已用 dissector 的表核过，见 [WIRESHARK_1905](WIRESHARK_1905.md)） | REAL_CHILD 第 1 节 |
 | ZTE 私有 TLV | 厂商 TLV（`0xdd`/`0xe0`），由 `MultiAPCfg.VersionMode` 决定发不发 | 已实现，`version_mode=128` 时发 | REAL_CHILD 第 2 节 |
 | ZTE 私有策略 | `SSEND(0x2401, 0x10205/0x10206)` 热更新域/漫游阈值 | 已实现 | FINDINGS 第 4 节 |
 
@@ -84,7 +84,7 @@
 
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
-| 用 Wireshark `ieee1905` 对照我们发出的帧 | 不用真机就能查编码错误，比"装上去看现象"快 | 抓一份 lab 的 `0x893a`（`tools/lab/spark.c` 已有） |
+| ~~用 Wireshark `ieee1905` 对照我们发出的帧~~ **已做**（2026-11-01） | 不用真机就能查编码错误，比"装上去看现象"快 | 结果与改法见 [WIRESHARK_1905](WIRESHARK_1905.md)：`0x0007` 缺 EOM 已修，`0x0008` 的 EOM/`0xb3` 留待真机复验 |
 | 找一台**非中兴**的标准 agent 做对照 | 证明我们不是"只会跟 ZTE 说话"；这是"兼容任意 OpenWrt"这句话的唯一证据 | 一台支持 Multi-AP 的 OpenWrt 设备（hostapd 带 multi_ap） |
 | `slave` 角色补 Topology Response 的 BSS/终端 TLV | 现在中兴主控看不到我们下面挂了哪些终端 | Z506 或任意主控做对照 |
 | 纯 OpenWrt 组网（无中兴设备）另开一档 | 想做就复用 prplMesh 当 agent，而不是自己再写一套控制面 | 明确的范围与独立验收 |

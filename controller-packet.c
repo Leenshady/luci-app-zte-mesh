@@ -402,7 +402,14 @@ int controller_read_frame(int fd, struct controller_frame *frame)
 }
 
 /* AP Autoconfiguration Response, built the way the factory controller builds it (the shape the
- * controller_autoconfig_response_matches() validator was recovered against). */
+ * controller_autoconfig_response_matches() validator was recovered against).
+ *
+ * Two known differences from what the factory daemon actually puts on the wire (dissected frame by
+ * frame, docs/research/WIRESHARK_1905.md): the factory response ends with an End of Message TLV and
+ * carries a Multi-AP Profile (0xb3) TLV, this one carries neither. Without the EOM the Wireshark
+ * ieee1905 dissector marks the frame malformed; the ZTE agent does not care, and this exact shape is
+ * what made it answer M1 on the bench, so it is left alone until a child is available to re-prove
+ * that adding the two TLVs does not change that. Do not "fix" it blind. */
 int controller_autoconfig_response(const uint8_t agent[6], unsigned int band, unsigned int mid)
 {
     struct sockaddr_ll target = { .sll_family = AF_PACKET, .sll_protocol = htons(0x893a), .sll_halen = 6 };

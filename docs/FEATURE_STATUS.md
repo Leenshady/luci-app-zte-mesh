@@ -80,7 +80,8 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | B18 | **cspd 替身**：控制器侧自己发 `0x0007` Search、并代答子路由的 Search（`0x0008`） | ✅ | `tools/lab/enroller.c` → `/usr/libexec/zte-mesh/mesh-search`，init 在非 `slave` 角色下多起一个 `search` 实例，带 `--al-mac 02:00:00:00:19:<al_last>`（子路由的 M1 发给控制器 AL MAC）。`--search` 每次启动只发**一帧**，所以周期就是"多久收一次新子节点"，已从 `86400` 改成 `300`（最坏等 5 分钟）；实测不抖：`plan applied nothing new`、`daemon_restarts=0`。装 r6 后真机自动入网，不再需要手工 enroller | — |
 
 | B19 | **控制器地址末字节可配**（UCI `al_last` / 页面"控制器地址末字节"）：两台设备 LAN MAC 相同时手工错开 | ✅ | init 83 条（含 `al_last` 空/大小写/非法值四个分支，VM 上 busybox ash 实测）；只暴露末字节，前五字节固定为子路由准入检查认的形状 | 1 |
-| B20 | 页面上本机型号取系统型号（`/tmp/sysinfo/model`）、名称取主机名，取不到都显示 `router` | ✅ | `controller_self_identity()`（`controller-run.c`），`state.json` 的 `self`；子路由行缺型号/名称时同样显示 `router` | 1 |
+| B20 | 页面上本机型号取系统型号（`/tmp/sysinfo/model`）、名称取主机名，取不到都显示 `router` | ✅ | `controller_self_identity()`（`controller-run.c`），`state.json` 的 `self`；子路由行缺型号/名称时同样显示 `router`。runtime 包里的 probe 已按这份源码重打（2026-11-01），设备上才会有 `self` | 1 |
+| B21 | `mesh-search` 的 `0x0007` 补 End of Message TLV；线上帧用 Wireshark `ieee1905` 逐字段核对过一遍 | ✅ | 沙箱 90 秒抓 34 帧五类消息：改前 12 个 `0x0007` 全被标 `[Malformed Packet]`，补三个 0 后 0 malformed 且对端照样回 `0x0008`；`0x8006` 的 TLV 编码与 dissector 解析一致（静态构造核对）；`0x0008` 少的 EOM/`0xb3` 故意不改（Z506 验过的形状）。见 [WIRESHARK_1905](research/WIRESHARK_1905.md) | 1 |
 
 ## C. 打包与分发
 
