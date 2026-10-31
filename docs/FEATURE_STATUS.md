@@ -1,44 +1,24 @@
 # 中兴 mesh 功能清单、完成度与推进顺序
 
-> **状态（2026-10-31）：** 主控侧在真子路由（ZXHN Z506，原厂固件）上验证；子路由侧在实验室（合成主控）验证。
-> 本表是唯一的功能总账：每完成一项就在“状态”列打勾并把证据补上，**不要**在别的文档里另起一份清单。
-> 协议与逆向细节见 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)、[REAL_CHILD.md](REAL_CHILD.md)、
-> [research/AGENT_PROBE.md](research/AGENT_PROBE.md)；部署与测试见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+> **状态（2026-10-31）：** 主控侧在真子路由（ZXHN Z506，原厂固件）上验证；子路由侧在实验室与两台实验机上验证。
+> 本表是唯一的功能总账：每完成一项就在"状态"列打勾并把证据补上，**不要**在别的文档里另起一份清单。
+> 协议与逆向细节见 [CONTROLLER_CAPABILITIES](CONTROLLER_CAPABILITIES.md)、[REAL_CHILD](REAL_CHILD.md)、
+> [research/AGENT_PROBE](research/AGENT_PROBE.md)；部署与测试见 [DEVELOPMENT](DEVELOPMENT.md)。
 
 ## 实验机
 
-证据列里写的“实验机”指下面两台。**当前轮次**是 `main` 上 `2dc9522` 的 run 41181993285（2026-10-31，成功）：
-产物 `zte-mesh-apk` 3.86 MB，里面是拆包后的四个包（`zte-mesh` arch:all、`zte-mesh-launcher` aarch64、
-`luci-app-zte-mesh`、`luci-i18n-zte-mesh-zh-cn`）。**这一轮的 apk 还没装上两台机器**——上一次真正的装机是
-拆包前那三个包（run 41151243794）加手工补齐的 `ns-run` / `db-engine-probe`，所以下表里“实验机”的证据是
-那一套文件跑出来的；r10 的装机验收待做。
-两台都在 `192.168.1.0/24`，同一 L2；root 密码 `root`，登录用 `ssh root@192.168.1.X`（公钥已装）。
+| 代号 | 机器 | 架构 / 系统 | 角色 |
+|---|---|---|---|
+| **VM** | `192.168.1.20`，VMware 里的 ImmortalWrt | x86_64，25.12.2 r38135，内核 6.12.103，**没有无线网卡** | `master`（测 `main` 时临时切） |
+| **ax3600** | `192.168.1.1`，小米 AX3600 刷 ImmortalWrt（非中兴硬件） | aarch64 cortex-a53，同上 | `slave`（`radio1`=5G、`radio2`=2.4G、`radio0` 空卡） |
 
-| 代号 | 机器 | 架构 / 系统 | 角色（本轮） | 说明 |
-|---|---|---|---|---|
-| **VM** | `192.168.1.20`，VMware 里的 ImmortalWrt | x86_64，25.12.2 r38135，内核 6.12.103 | `master`（测 `main` 时临时切过去，测完切回） | **没有一张无线网卡**，所以 `main` 角色下 `wlan-sync` 只会记“无射频可管” |
-| **ax3600** | `192.168.1.1`，小米 AX3600 刷 ImmortalWrt（**非中兴硬件**） | aarch64 cortex-a53，25.12.2 r38135，内核 6.12.103 | `slave` | 三张 radio：`radio1`=5G、`radio2`=2.4G、`radio0` 空卡（`phy0` 无设备） |
+两台都在 `192.168.1.0/24`，root 密码 `root`，公钥已装；都没有 `tcpdump`（`apk add tcpdump-mini` 可装），
+dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 
-两台的 `/tmp` 里放的 apk 与 CI 产物 sha256 逐字节一致（`zte-mesh` r5、`luci-app-zte-mesh` r6、
-`luci-i18n-zte-mesh-zh-cn` r6），所以“装上新包”等于“装上那次构建”。
-
-装法（2026-10-31，**拆包之前**的做法，保留作对照）：ax3600 上 `apk del` 三个包再 `apk add --allow-untrusted /tmp/*.apk`，
-`/etc/config/zte_mesh` 被保留（新配置落成 `zte_mesh.apk-new`，没有覆盖）。VM 装不了：包是
-`aarch64_cortex-a53`，VM 是 x86_64，所以改成把 ax3600 上新装出来的那批文件（`init.d`、
-`wlan-sync`、`attach`、`rpcd/luci.zte-mesh`、`root/{bin,lib}`、LuCI 视图与菜单、`lmo`）
-`tar` 过去解到 `/`，**故意不含 `ns-run`**，保住 VM 上 x86_64 的那一份。
-
-C2 拆包之后（r9 起）VM 不必再这么绕：`zte-mesh` 已是 `arch: all`，VM 上 `apk add --allow-untrusted zte-mesh`
-直接装得上，也不会覆盖它自己 gcc 编的 `ns-run` / `mesh-search`；`zte-mesh-launcher` 在 VM 上仍报
-`uninstallable`（架构不匹配，这是预期行为），launcher 只在 aarch64 的 ax3600 上装。
-
-三个当时踩到的点：
-
-- dropbear **没有 sftp**，`scp` 报 `Connection closed`；两台之间传文件用
-  `ssh A 'cat f' | ssh B 'cat > f'`，本机也没有 `timeout` / `nohup`
-- 包里 `usr/libexec/zte-mesh/ns-run` 曾是 aarch64 旧版，见 C5（已修）
-- 两台 root 密码都是 `root`；公钥已写进 `/etc/dropbear/authorized_keys`，以后 `ssh root@192.168.1.X` 直接进
-- 两台**都没有 `tcpdump`**，`apk add tcpdump-mini` 可以装（有源）
+**当前轮次的产物**：`main` 上 run 41181993285，`zte-mesh-apk` 3.86 MB，拆包后四个包。**这一轮还没装上两台机器**——
+下表"实验机"的证据来自上一次装机（拆包前三个包 + 手工补的 `ns-run`/`db-engine-probe`）；r10 装机验收待做。
+装法：ax3600 装 `zte-mesh` + `zte-mesh-launcher`；VM 是 x86_64，只能装 `arch: all` 的 `zte-mesh`
+（`launcher` 在它上面报 `uninstallable`，属预期）。都加 `--allow-untrusted`，`/etc/config/zte_mesh` 不会被覆盖。
 
 ## 图例
 
@@ -51,18 +31,18 @@ C2 拆包之后（r9 起）VM 不必再这么绕：`zte-mesh` 已是 `arch: all`
 
 难度：**1** 改几行、**2** 一天内可验证、**3** 需要新逻辑或新测试面、**4** 需要真机驱动侧配合、**5** 需要逆向或换硬件。
 
-## A. 主控（Controller，本机是主路由）
+## A. 主控（本机是主路由）
 
 | # | 功能 | 状态 | 证据 | 难度 |
 |---|---|---|---|---|
-| A1 | 原厂 `multiapd` 在私有命名空间里跑（IPC/net/mount、veth 到 `br-lan`） | ✅ | `ns-run` + `attach`，装包后真路由器、真 procd | — |
+| A1 | 原厂 `multiapd` 在私有命名空间里跑（IPC/net/mount、veth 到 `br-lan`） | ✅ | `ns-run` + `attach`，真路由器 + 真 procd | — |
 | A2 | 发现 / 拓扑 / 链路指标 / 高层数据（CMDU 0、1、2、3、5、6、7、13、14） | ✅ | REAL_CHILD §1 | — |
 | A3 | AP-Autoconfig + WSC M1/M2（真 DH、HMAC、Key Wrap） | ✅ | 子路由 `config M2[0]` | — |
-| A4 | 配置变更后 Renew（热更新，无需重启） | ✅ | 改配置约 4 秒生效 | — |
+| A4 | 配置变更后 Renew（热更新，不重启服务） | ✅ | 改配置约 4 秒生效 | — |
 | A5 | 主 SSID / 密码 / 加密 / 隐藏 | ✅ | 2.4G、5G 均读回 | — |
 | A6 | 多 BSS（访客、备用、隐藏回程，槽位 1–3）名称 / 密码 / 开关 | ✅ | REAL_CHILD §1 | — |
 | A7 | BeaconInterval（含热更新） | ✅ | 120 → 读回 120 | — |
-| A8 | ACL 名单 + 每 BSS 策略（关 / 拦 / 只放行） | ✅ | 一加被踢并拒绝重连；`allow` 与 5G 驱动读回未验证 | — |
+| A8 | ACL 名单 + 每 BSS 策略（关 / 拦 / 只放行） | ✅ | 一加手机被踢并拒绝重连；`allow` 与 5G 驱动读回未验证 | — |
 | A9 | 信道与发射功率（`0x8006`） | ✅ | 两个频段验证并还原 | — |
 | A10 | 重启子节点 / 指示灯开关 | ✅ | REPLAY_RESULTS 16.1 | — |
 | A11 | 访客限时、Wi-Fi 定时关闭 | ✅ | `scope=guest` 真机；`scope=all` 仅实验室 | — |
@@ -73,49 +53,49 @@ C2 拆包之后（r9 起）VM 不必再这么绕：`zte-mesh` 已是 `arch: all`
 | A16 | 漫游 / 频段引导阈值下发 | ☑️ | 能发；Z506 固件没有解析代码 | — |
 | A17 | 引导（BTM）/ 封锁 / 踢终端 | ⬜ | `0x8014` 等，接口已在 libcmapi | 3 |
 | A18 | 拓扑页：回程 RSSI、树状图、每 AP 终端列表、固件版本 | ⬜ | 现在只有节点清单与动作 | 3 |
-| A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性的错误定位 | ☑️ | init 69 项 | — |
-| A20 | **界面中英双语**：全部文案走 `_()`，`po/zh_Hans` 与源码逐条对齐，菜单标题也在目录里 | ✅ | i18n 12 项；**实验机**：两台都随包装出 `zte-mesh.zh-cn.lmo`（11632 B），`/cgi-bin/luci/admin/translations/zh-cn` 返回中文 `window.TR` | — |
+| A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性的错误定位 | ☑️ | init 79 项 | — |
+| A20 | **界面中英双语**：文案全走 `_()`，`po/zh_Hans` 与源码逐条对齐 | ✅ | i18n 12 项；两台随包装出 `zte-mesh.zh-cn.lmo`（11632 B），`/cgi-bin/luci/admin/translations/zh-cn` 返回中文 | — |
 
-## B. 子路由（Agent，本机是子节点）
+## B. 子路由（本机是子节点）
 
 | # | 功能 | 状态 | 证据 | 难度 |
 |---|---|---|---|---|
-| B1 | agent 模式启动（`Mode=1` / `SetRoleEnable=0` / `EnMasterOnly=0`） | ☑️ | 实验室：`role=slave mode=1 set_role_enable=0 en_master_only=0` | — |
+| B1 | agent 模式启动（`Mode=1` / `SetRoleEnable=0` / `EnMasterOnly=0`） | ☑️ | 实验室：三个值均读回 | — |
 | B2 | 发 M1、收 M2、凭据落 `WLANCfg` / `WLANPSK` | ☑️ | 两个频段各一份，`m2_match=1` | — |
 | B3 | setter 兜底（配置管理器返回 -3 时读回校验再报 0） | ☑️ | `libzte_agent_mm.so`，沙箱专用 | — |
 | B4 | 库 → 计划的发布（`agent-sync` → `/run/zte-mesh/wlan-plan`） | ☑️ | `published=1 rows=2` | — |
-| B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化；plan 启用某 band 时把关着的 radio 设备打开，只写 0） | ✅ | 86 项测试；**ax3600**：人为 `uci set wireless.radio2.disabled=1` 后重启服务，日志 `radio radio2 (2g) was switched off; switched on ...`、`applied; wireless committed and reloaded`，`disabled` 回到 0；空卡 `radio0` 全程 `disabled=1` 没被动 | — |
+| B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化；plan 启用某 band 时把关着的 radio 打开） | ✅ | 86 项测试；ax3600 人为 `disabled=1` 后重启服务，日志 `switched on ... applied`，空卡 `radio0` 未被碰 | — |
 | B6 | 回程 BSS：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 86 项测试含开关双向复原 | — |
-| B7 | UCI / init / LuCI 暴露 `mesh_role` + `backhaul` | ✅ | init 74、rpcd 18；**实验机**：两台 `uci` 写的角色都被 init 接受，`ubus call luci.zte-mesh status` 读到 `master` / `slave` / `main` 三个值 | — |
-| B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | 本轮；init `role-slave-borrow` | — |
-| B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | 本轮；`test_luci.js`（主控 31 项 / 子路由 4 项） | — |
-| B10 | rpcd `status` 返回角色 | ✅ | 本轮；rpcd 18 项；**实验机**：VM `"role":"master"`→`"main"`→`"master"`、ax3600 `"role":"slave"` | — |
+| B7 | UCI / init / LuCI 暴露 `mesh_role` + `backhaul` | ✅ | init 79、rpcd 18；两台 `uci` 写的三个角色都被 init 接受 | — |
+| B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | init `role-slave-borrow` | — |
+| B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | `test_luci.js`（主控 31 项 / 子路由 4 项） | — |
+| B10 | rpcd `status` 返回角色 | ✅ | rpcd 18 项；两台各自读到 `master`/`main`/`slave` | — |
 | B11 | 子路由侧应用额外槽位（slot 1–3 现在只记日志） | ⬜ | `wlan-sync` 明确跳过 | 3 |
-| B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | 本轮；wlan-sync 86 项、rpcd 18 项 | — |
-| B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ✅ | init 74（`role-main` / `role-main-sync` / `role-master` / `role-auto-legacy`）；LuCI 角色表 3 项断言；**VM**：`main` 时 init 写出 `wlan-plan`（316 B、0600、`rows=2`、`ZTEMESHCTRL`/`Ztemesh2631!`/`access=32`/`beacon_type=12`）、`wlan-sync` 实例在跑、日志 `no usable 2g radio; left alone` / `no usable 5g radio; left alone`；切回 `master` 后 plan 与 `wlan-sync` 实例一起消失（一个 plan 只有一个生产者） | — |
+| B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | wlan-sync 86 项、rpcd 18 项 | — |
 | B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | ⬜ | 只做了 AP 侧 | 4 |
-| B14 | 真机：本机当子路由，接真主控（有线回程） | ✅ | **2026-10-31 11:01 两台实验机打通**。抓包先否掉了"子路由在发 Search"：ax3600 的 `br-lan` 上 30 秒 **0 帧 `0x893a`**，两端日志都是 `SSEND socket Message[0X%04X] to [%s] failed`。真正原因是 **C6**：那份冻住的 `db-engine-probe` 让子路由的 controller 实例每 5 秒崩一次，它根本没机会开口。**抓包否掉了「子路由被 cspd 门控所以不发 Search」这个判断** —— 修好 C6 之后在 ax3600 上抓到子路由（`02:00:00:00:19:03`）朝 1905 组播 `01:80:c2:00:00:13` 发 `0x0007` Search，主控回 `0x0008` 并把 WSC 档案带回去。cspd 门控只在**控制器**那一侧成立：沙箱里的 vendor daemon 确实从不为自己发 Search，那一拍仍要靠 B18。VM 上 `enroller br-lan 100 --al-mac 02:00:00:00:19:03 --search` 补一拍后立刻通：`0x0002/0x0003` 拓扑发现、`0x0004/0x0005` 查询/响应、`0x0006` 链路度量、子路由自己发出 `0x0007`（band 0/1）并收到 `0x0008`、`M1/M2` 往返，`heard=352 replies=2`；VM 的 `state.json` 出现子节点（`mac=02:00:00:00:19:e3` `model=ZXSLC SR1010` `zte=true` `online=true`）。补的这一拍已作为 B18 进包。**r7 装到两台后复测（12:31）**：把主控 SSID 改成 `MASTERTEST`，子路由的 `wlan-plan` 跟着变成 `0.ssid=MASTERTEST` / `1.ssid=MASTERTEST-5G`，wlan-sync 应用到 radio2(2g)/radio1(5g) 并 `wireless committed and reloaded`，`iw dev` 确认空中就是 `MASTERTEST` / `MASTERTEST-5G`，密码同为 `Ztemesh2631!`。**用户报的「子路由 WiFi 名没按主控改」就是 C6**：冻住的那份 `db-engine-probe` 里压根没有 `wlan-plan` 这段发布逻辑，子路由收到 M2 也没人把档案落成 plan | — |
-| B18 | **cspd 替身**：控制器侧自己发 `0x0007` Search、并代答子路由的 Search（`0x0008`），补上沙箱里不存在的 cspd | ✅ | `tools/lab/enroller.c` 编成 `/usr/libexec/zte-mesh/mesh-search`，init 在控制器角色（非 `slave`）下多起一个 `search` 实例，带 `--al-mac 02:00:00:00:19:<al_last>`（子路由的 M1 发给控制器 AL MAC，不是出接口 MAC），生命周期就是「多久重发一次 Search」，所以必须短：`--search` 每次启动只发**一帧**，控制器比子路由先起来的话，晚开机的子路由要等到下一次才被收进来。`86400` 实测就是这个下场（子路由重启后只能靠手工重启主控才入网），已改成 `300`，最坏等 5 分钟。**实测不抖**：每 5 分钟重发一次，wlan-sync 一直报 `plan applied nothing new`，`daemon_restarts=0`，没有反复重载 Wi-Fi。**实验机**：机制就是上面 B14 那次实测（同一份代码，手工跑的 `enroller --search`）；**装 r6 后真机自动入网已验证**：ax3600 切 master（控制器）、VM 切 slave（子路由），全程不跑手工 enroller，ax3600 的 `state.json` 自动出现 `mac=02:00:00:00:19:03 online=true`，日志 `topology dev_num=2`；`ubus call service list` 里 search 实例命令行确认为 `mesh-search br-lan 86400 --al-mac 02:00:00:00:19:e3 --search --quiet` | — |
+| B14 | 真机：本机当子路由，接真主控（有线回程） | ✅ | 两台实验机打通。抓包确认**子路由自己会发** `0x0007` Search、主控回 `0x0008` 带 WSC；原判断"子路由被 cspd 门控"是错的，真因是 C6。r7 后主控改 SSID，子路由 `wlan-plan` 与 `iw dev` 跟着变成 `MASTERTEST`/`MASTERTEST-5G` | — |
 | B15 | `CmWLANMapSsidCfgSync2Repeater` 对齐（libcmapi 内部调用，替身命中不到） | ⬜ | 沙箱里是 no-op | 5 |
 | B16 | `CurHop` 在子路由侧的真实更新 | ⬜ | 实验室用 `-2` 顶替 | 2 |
+| B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ✅ | init 79；VM 切 `main` 后 init 写出 `wlan-plan`（`rows=2`）、`wlan-sync` 在跑、日志 `no usable 2g radio; left alone`；切回 `master` 后 plan 与实例一起消失（一个 plan 只有一个生产者） | — |
+| B18 | **cspd 替身**：控制器侧自己发 `0x0007` Search、并代答子路由的 Search（`0x0008`） | ✅ | `tools/lab/enroller.c` → `/usr/libexec/zte-mesh/mesh-search`，init 在非 `slave` 角色下多起一个 `search` 实例，带 `--al-mac 02:00:00:00:19:<al_last>`（子路由的 M1 发给控制器 AL MAC）。`--search` 每次启动只发**一帧**，所以周期就是"多久收一次新子节点"，已从 `86400` 改成 `300`（最坏等 5 分钟）；实测不抖：`plan applied nothing new`、`daemon_restarts=0`。装 r6 后真机自动入网，不再需要手工 enroller | — |
 
 ## C. 打包与分发
 
 | # | 功能 | 状态 | 证据 | 难度 |
 |---|---|---|---|---|
-| C1 | 单个 apk（runtime + init + wlan-sync + rpcd + LuCI），4.1 MB | ✅ | 装在真路由器上，procd/rpcd 全通；**实验机**：ax3600 走完整 `apk del` → `apk add --allow-untrusted /tmp/*.apk`（三个包全在、旧配置 `/etc/config/zte_mesh` 保留、新文件替换），VM 因为包是 `aarch64_cortex-a53` 架构装不进去，改用同一批产物解包覆盖（见 C5） | — |
-| C2 | 拆包：`zte-mesh-runtime` + `zte-mesh-controller` + `zte-mesh-agent` | ✅ | **做了一半，就是"让 x86_64 能直装"那一半**。`zte-mesh` 改成 `PKGARCH:=all`（init / wlan-sync / attach / rpcd / config 加运行时 tarball，全是脚本和数据），新建 `zte-mesh-launcher`（`PKGARCH:=aarch64_cortex-a53`，只装 `ns-run` 与 `mesh-search`，`DEPENDS:=+zte-mesh`）。**为什么必须拆成两个目录**：`package-pack.mk` 里 `Architecture: $(PKGARCH)` 读的是**全局单一变量**，同一个 Makefile 里两个包没法用不同架构。虚拟机现在可以 `apk add zte-mesh`（装完不会覆盖它自己 gcc 编的 ns-run），ax3600 装 `zte-mesh` + `zte-mesh-launcher` 两个。原方案的 controller / agent 拆分仍未做 | 1 |
-| C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ⬜ | 现在工作区 CRLF，测试要转 LF 才能跑 | 1 |
-| C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配了 `=m`、没编译，中文目录从不产出 | ✅ | 本轮；CI 断言三个 apk 都在；**实验机**：两台装完后 `/usr/lib/lua/luci/i18n/zte-mesh.zh-cn.lmo` 就是包带来的（11632 B），端点读得出中文 | — |
-| C5 | **包里的 `ns-run` 与 init 脚本不同步**：`zte-mesh-runtime.tar.gz` 里的 aarch64 `ns-run` 还是旧版，不认 `ZTE_MESH_QEMU` / `ZTE_MESH_EMULATED_LAB`，在内核没有 `CONFIG_COMPAT` 的 aarch64 上 `execv` 直接 `errno=8`（ENOEXEC），controller 实例反复退 80 | ✅ | **ax3600 实测**：包里的 ns-run（strip 后 598083 B）`strings` 里没有 `emulated_lab`；换成现编的版本后三个实例全起、`errno=8` 消失。**修法是消除这类漂移本身**，不是换一个二进制：tarball 现在额外带 `ns-run.c` / `controller-net.c` / `enroller.c`（`repack-runtime.py --add`，41 个成员，`SHA256SUMS` 重算），`Build/Compile` 用 `$(TARGET_CC)` 现编，包再也发不出过期的 ns-run。`tests/test_runtime.py`（20 项，已进 test-host）比对 tarball 里的副本与仓库文件，重打包漏了它们在本机就失败 | — |
-| C6 | **tarball 里的 `db-engine-probe` 冻结在打包那天**：ARM32 那一半（`parse_config`、服务循环）只能挂在 lab-tools 分支上、对着原厂 glibc 2.26 用 `-nostdlib` 编，包里编不了。三角色上线后 init 已经喂 `mesh.role=slave`，可那份副本还不认这个值 → `controller_service()` 直接 `-1`，子路由角色的 controller 实例每 5 秒退一次（`fail=config-missing-or-invalid`，连 `config-reject` 详情都没有），两台都是 2/3 | ✅ | **ax3600 实测**：`strings` 里 `config-reject`、`wlan-plan` 都是 0；换成 lab-tools 重编的副本（193364 B，sha256 `7ff631a7…`）后 slave 角色 `agent_election attempt=1`、`cfg cur_hop=2 max_hop=2`、3/3 实例全起。`tests/test_runtime.py` 现在断言包里那份必须带 `config-reject` 与 `wlan-plan`，冻住的副本在本机就会被拦下 | — |
-| C7 | **全新装包后服务起不来：`qemu-arm-static` 不在任何包里，而 `CONFIG_COMPAT` 的探测在官方固件上必然误判。** init 原本靠 `/proc/config.gz` 里的 `CONFIG_COMPAT=y` 决定走原生还是模拟器，但 ImmortalWrt 官方固件（ax3600 上那个 6.12.103）根本不导出这个文件，`grep -c` 于是返回 0 → 一律走模拟器 → 而包里没有模拟器 → `execv errno=8`，controller 实例每 5 秒退一次，日志里只有一行裸错误 | ✅ | **2026-10-31 卸干净重装时暴露**：两台都中招（ax3600 是 aarch64 但内核确实没开 COMPAT，VM 是 x86_64 更不可能原生跑 ARM32）。修法是让"没有答案"不再等同于"不支持"：config 读不到时直接 exec 一次 `$ROOT/lib/ld-linux.so.3`，ARM32 能跑它会打印自己的 usage，跑不动则 shell 把它当脚本读、报 syntax error —— 据此判断。找不到模拟器时改为一条可操作的日志（含主机架构、必须在私有根内、或刷带 `CONFIG_COMPAT=y` 的固件、或 `emulator=none` 强制原生）。模拟器本身仍**不入包**：OpenWrt 不编 qemu-user，且它必须与主机架构匹配（aarch64 与 x86_64 各一份，约 11 MB），lab 环境按 `tools/lab/emulate.sh` 的老办法手工放进 `/usr/lib/zte-mesh/root/qemu-arm-static` 即可。**这是明确的取舍，不是待办**：完整的判定表、三条出路（刷 `CONFIG_COMPAT=y` 固件 > 手工放模拟器 > `emulator=none` 仅诊断）和「看到 `errno=8` 先查模拟器」写在 [LAB.md](LAB.md) 第 4.2 节 | 1 |
+| C1 | 单个 apk（runtime + init + wlan-sync + rpcd + LuCI），4.1 MB | ✅ | 真路由器上 procd/rpcd 全通 | — |
+| C2 | 拆包：`zte-mesh`（`arch: all`）+ `zte-mesh-launcher`（aarch64，只装 `ns-run`/`mesh-search`） | ✅ | **只做了"让 x86_64 能直装"这一半**。必须两个目录：`package-pack.mk` 的 `Architecture` 读 Makefile 级全局 `PKGARCH`，一个 Makefile 给不了两个架构。VM 现在 `apk add zte-mesh` 直装且不覆盖自编的 `ns-run`。原方案的 controller/agent 拆分仍未做 | 1 |
+| C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ⬜ | 工作区 CRLF，测试要转 LF 才能跑 | 1 |
+| C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配 `=m` 没编译，中文从不产出 | ✅ | 两台装完后 `zte-mesh.zh-cn.lmo` 就是包带来的 | — |
+| C5 | **包里的 `ns-run` 与 init 不同步**：tarball 里是旧版，不认 `ZTE_MESH_QEMU`/`ZTE_MESH_EMULATED_LAB`，无 `CONFIG_COMPAT` 的 aarch64 上 `execv` 直接 `errno=8` | ✅ | 修法是消除漂移本身：tarball 额外带 `ns-run.c`/`controller-net.c`/`enroller.c`，`Build/Compile` 用 `$(TARGET_CC)` 现编；`test_runtime.py` 比对源码副本，重打包漏了就在本机失败 | — |
+| C6 | **tarball 里的 `db-engine-probe` 冻结在打包那天**：ARM32 半边只能 `-nostdlib` 对着原厂 glibc 2.26 编，包里编不了；冻住的那份不认 `mesh.role=slave` → 子路由的 controller 实例每 5 秒退一次 | ✅ | 换重编副本（193364 B，sha256 `7ff631a7…`）后 slave 角色 3/3 实例全起；`test_runtime.py` 断言包里那份必须带 `config-reject` 与 `wlan-plan` | — |
+| C7 | **全新装包后服务起不来**：`qemu-arm-static` 不在包里，而 `CONFIG_COMPAT` 探测在官方固件上必然误判（不导出 `/proc/config.gz` → `grep -c` 返回 0 → 一律走模拟器） | ✅ | 改成"没有答案不等于不支持"：读不到 config 就 exec 一次 `$ROOT/lib/ld-linux.so.3` 看它有没有打印 usage。模拟器**仍不入包**（取舍，不是待办），判定表与三条出路见 [LAB](LAB.md) 第 4.2 节 | 1 |
 
 ## D. 没有通道的（换子路由固件才谈得上）
 
 | # | 功能 | 原因 |
 |---|---|---|
-| D1 | 带宽 20/40/80/160 | Z506 不写 `BandWidth`，也不关“自动信道” |
+| D1 | 带宽 20/40/80/160 | Z506 不写 `BandWidth`，也不关"自动信道" |
 | D2 | 访客限速 | 1905 里没有这个字段 |
 | D3 | 信道扫描 / CAC | Z506 无接收代码 |
 | D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | Z506 无 |
@@ -125,20 +105,15 @@ C2 拆包之后（r9 起）VM 不必再这么绕：`zte-mesh` 已是 `arch: all`
 
 ## 推进顺序（只做下一项，做完打勾再往下）
 
-按难度从 1 到 5，同难度按“能立刻验证”优先：
-
-| 顺序 | 项 | 难度 | 为什么排这里 |
+| 顺序 | 项 | 难度 | 说明 |
 |---|---|---|---|
-| 1 | ~~B8 / B9 / B10~~ | — | **2026-10-29 已完成** |
-| 2 | ~~B12 应用结果回传~~ | — | **2026-10-29 已完成** |
-| 3 | ~~A20 / B5 / B7 / B10 / B17 / C4~~ | — | **2026-10-31 两台实验机装新包后已全部升到 ✅**（中文、打开关着的 radio、角色暴露与三角色落地、翻译包随包产出） |
-| 4 | ~~C5 包里的 ns-run 与 init 同步~~ | — | **2026-10-31 已修**：tarball 带源码、包里现编，并有 test_runtime 守着漂移 |
-| 5 | C3 统一行尾 | 1 | 一次改动，之后所有测试不用再转 LF；影响整个仓库，**需要单独确认**（本轮已把两台设备上出过问题的脚本都归一为 LF） |
-| 6 | ~~B14 子路由接真主控（有线）~~ | — | **2026-10-31 已打通**：缺的是 cspd 那一拍，已作为 B18 进包 |
-| 7 | ~~C2 拆包（x86_64 直装那一半）~~ | — | **2026-10-31 已做**：`zte-mesh` = `arch: all`，`zte-mesh-launcher` = `aarch64_cortex-a53`。剩下 controller / agent 的拆分属于分发形态，不阻塞功能。（原来的症状：VM 是 `x86_64`，包却自称 `aarch64_cortex-a53`，`apk add` 直接拒装；`luci-app-zte-mesh` 虽是 `arch: all`，也被 `LUCI_DEPENDS:=+zte-mesh` 一起拖住。现在两个都能在 VM 上直接装） |
-| 8 | B16 `CurHop` 真机确认 | 2 | 需要真机，可并入 B14 一起看 |
-| 9 | B11 额外槽位在子路由侧应用 | 3 | 要先把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
-| 10 | A18 拓扑页 | 3 | 需要状态字段（RSSI、终端数）先落到 `state.json` |
-| 11 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺的是策略与 UI |
-| 12 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
-| 13 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，只有前 6 项都过了才值得动 |
+| — | B8 / B9 / B10 / B12 / A20 / B5 / B7 / B17 / C4 / C5 / C6 / C7 | — | **已完成**（2026-10-31） |
+| 1 | r10 四包装机验收 | 0 | 产物已在手，两台换上即可 |
+| 2 | ax3600 刷 `CONFIG_COMPAT=y` 固件 | 1 | 彻底摆脱手工模拟器，`.github/workflows/build-firmware.yml` |
+| 3 | C3 统一行尾 | 1 | 影响整个仓库，**需要单独确认** |
+| 4 | B16 `CurHop` 真机确认 | 2 | 需要真机 |
+| 5 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
+| 6 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
+| 7 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
+| 8 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
+| 9 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 8 项都过了才值得动 |
