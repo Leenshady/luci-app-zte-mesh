@@ -58,6 +58,15 @@ endef
 # on this one. The sources those two are built from still travel inside the runtime tarball --
 # that is what stops them drifting (FEATURE_STATUS C5) -- and the launcher unpacks them from
 # there, so there is exactly one copy of each.
+#
+# Build/Compile has to be overridden rather than merely left out. Undefined, it falls back to
+# Build/Compile/Default, which runs $(MAKE) in the build directory -- and that directory is just
+# the unpacked tarball, so the build dies with "No targets specified and no makefile found".
+# (Build/Configure/Default is safe to leave alone: it is guarded by [ -x ./configure ].)
+define Build/Compile
+	true
+endef
+
 define Package/zte-mesh/install
 	$(INSTALL_DIR) $(1)/usr/lib/zte-mesh $(1)/usr/libexec/zte-mesh
 	$(CP) $(PKG_BUILD_DIR)/root $(1)/usr/lib/zte-mesh/

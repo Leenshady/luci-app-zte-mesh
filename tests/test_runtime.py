@@ -111,6 +111,9 @@ def main():
           "/usr/libexec/zte-mesh/ns-run" not in makefile
           and "/usr/libexec/zte-mesh/mesh-search" not in makefile,
           "a binary built by $(TARGET_CC) cannot be installed by an arch:all package")
+    check("zte-mesh overrides Build/Compile", "define Build/Compile" in makefile,
+          "undefined, it falls back to Build/Compile/Default, which runs $(MAKE) in the build "
+          "directory -- there is no makefile there, only the unpacked tarball")
 
     launcher = text("openwrt/zte-mesh-launcher/Makefile")
     check("the launcher builds ns-run from the archive sources",
