@@ -1,7 +1,7 @@
 name: Build APK
 
-# Builds the three zte-mesh packages (zte-mesh, luci-app-zte-mesh, and the
-# auto-generated luci-i18n-zte-mesh-zh-cn) as OpenWrt .apk files inside a
+# Builds the four zte-mesh packages (zte-mesh, zte-mesh-launcher, luci-app-zte-mesh,
+# and the auto-generated luci-i18n-zte-mesh-zh-cn) as OpenWrt .apk files inside a
 # GitHub runner. The packages are compiled against the `zte/zx279133` target
 # from the cnjn/immortalwrt fork (branch `sr1010-zx279133`), which is the only
 # tree that carries that target.
@@ -268,7 +268,12 @@ jobs:
           # Must run before `make defconfig`: defconfig resolves the dependencies
           # and would pin CONFIG_PACKAGE_kmod-veth=m, dragging the kernel package
           # back in even though DEPENDS no longer mentions it.
-          MK=../../zte-mesh/openwrt/zte-mesh/Makefile
+          # The runtime deps moved with the compiled binaries: zte-mesh itself is
+          # arch:all now (scripts and the runtime tarball), and everything that
+          # only a real board can satisfy -- iproute2, the veth module -- is
+          # declared by zte-mesh-launcher, which is arch-tagged. Trimming has to
+          # happen there or the apk would still drag a kernel build in.
+          MK=../../zte-mesh/openwrt/zte-mesh-launcher/Makefile
           echo "target builds kernel modules: $TARGET_BUILDS_KERNEL_MODULES"
           echo "trim ip-full:                  $TRIM_IP_FULL"
           echo "before: $(grep -n 'DEPENDS' "$MK")"
@@ -304,6 +309,7 @@ jobs:
           CONFIG_TARGET_zte=y
           CONFIG_TARGET_zte_zx279133=y
           CONFIG_PACKAGE_zte-mesh=m
+          CONFIG_PACKAGE_zte-mesh-launcher=m
           CONFIG_PACKAGE_luci-app-zte-mesh=m
           CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=m
           EOF
@@ -453,6 +459,11 @@ jobs:
           build package/feeds/luci/luci-base/compile
           build package/feeds/zte_mesh/zte-mesh/compile
 
+          # The launcher unpacks ns-run.c / controller-net.c / enroller.c out of
+          # the runtime tarball in the sibling directory, so it has to be built
+          # from the same feed checkout; there is no second copy of the sources.
+          build package/feeds/zte_mesh/zte-mesh-launcher/compile
+
           # luci-i18n-zte-mesh-zh-cn has no directory of its own to name here
           # (luci.mk derives it from po/zh_Hans/), so asking for it as a path
           # yields "No rule to make target". Compiling the parent directory
@@ -470,7 +481,7 @@ jobs:
 
           # A green build with no artifact is the worst outcome: assert the
           # packages are really there instead of trusting exit codes.
-          for stem in zte-mesh luci-app-zte-mesh luci-i18n-zte-mesh-zh-cn; do
+          for stem in zte-mesh zte-mesh-launcher luci-app-zte-mesh luci-i18n-zte-mesh-zh-cn; do
             test -n "$(find bin -name "$stem-*.apk" -print -quit)" || {
               echo "build reported success but produced no $stem apk" >&2; exit 1; }
           done
@@ -479,9 +490,11 @@ jobs:
       - name: Locate artifacts
         id: collect
         run: |
-          # zte-mesh is PKG_FLAGS:=nonshared + PKGARCH:=aarch64_cortex-a53, so it
-          # lands under the target packages dir; the LuCI packages are arch:all
-          # and land under the feed packages dir.
+          # zte-mesh is PKG_FLAGS:=nonshared but PKGARCH:=all (scripts plus the
+          # runtime tarball are data), so it lands under the feed packages dir with
+          # the LuCI packages. zte-mesh-launcher carries the compiled ns-run and
+          # mesh-search and is aarch64_cortex-a53, so it lands under the target
+          # packages dir. `zte-mesh*.apk` matches both.
           mkdir -p dist
           find sr1010/immortalwrt/bin -name 'zte-mesh*.apk' -exec cp -v {} dist/ \;
           find sr1010/immortalwrt/bin -name 'luci-*zte-mesh*.apk' -exec cp -v {} dist/ \;

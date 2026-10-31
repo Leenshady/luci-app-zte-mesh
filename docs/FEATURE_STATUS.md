@@ -96,7 +96,7 @@
 | # | 功能 | 状态 | 证据 | 难度 |
 |---|---|---|---|---|
 | C1 | 单个 apk（runtime + init + wlan-sync + rpcd + LuCI），4.1 MB | ✅ | 装在真路由器上，procd/rpcd 全通；**实验机**：ax3600 走完整 `apk del` → `apk add --allow-untrusted /tmp/*.apk`（三个包全在、旧配置 `/etc/config/zte_mesh` 保留、新文件替换），VM 因为包是 `aarch64_cortex-a53` 架构装不进去，改用同一批产物解包覆盖（见 C5） | — |
-| C2 | 拆包：`zte-mesh-runtime` + `zte-mesh-controller` + `zte-mesh-agent` | ⬜ | 方案已定（见 AGENT_PROBE §11.7），未动手 | 2 |
+| C2 | 拆包：`zte-mesh-runtime` + `zte-mesh-controller` + `zte-mesh-agent` | ✅ | **做了一半，就是"让 x86_64 能直装"那一半**。`zte-mesh` 改成 `PKGARCH:=all`（init / wlan-sync / attach / rpcd / config 加运行时 tarball，全是脚本和数据），新建 `zte-mesh-launcher`（`PKGARCH:=aarch64_cortex-a53`，只装 `ns-run` 与 `mesh-search`，`DEPENDS:=+zte-mesh`）。**为什么必须拆成两个目录**：`package-pack.mk` 里 `Architecture: $(PKGARCH)` 读的是**全局单一变量**，同一个 Makefile 里两个包没法用不同架构。虚拟机现在可以 `apk add zte-mesh`（装完不会覆盖它自己 gcc 编的 ns-run），ax3600 装 `zte-mesh` + `zte-mesh-launcher` 两个。原方案的 controller / agent 拆分仍未做 | 1 |
 | C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ⬜ | 现在工作区 CRLF，测试要转 LF 才能跑 | 1 |
 | C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配了 `=m`、没编译，中文目录从不产出 | ✅ | 本轮；CI 断言三个 apk 都在；**实验机**：两台装完后 `/usr/lib/lua/luci/i18n/zte-mesh.zh-cn.lmo` 就是包带来的（11632 B），端点读得出中文 | — |
 | C5 | **包里的 `ns-run` 与 init 脚本不同步**：`zte-mesh-runtime.tar.gz` 里的 aarch64 `ns-run` 还是旧版，不认 `ZTE_MESH_QEMU` / `ZTE_MESH_EMULATED_LAB`，在内核没有 `CONFIG_COMPAT` 的 aarch64 上 `execv` 直接 `errno=8`（ENOEXEC），controller 实例反复退 80 | ✅ | **ax3600 实测**：包里的 ns-run（strip 后 598083 B）`strings` 里没有 `emulated_lab`；换成现编的版本后三个实例全起、`errno=8` 消失。**修法是消除这类漂移本身**，不是换一个二进制：tarball 现在额外带 `ns-run.c` / `controller-net.c` / `enroller.c`（`repack-runtime.py --add`，41 个成员，`SHA256SUMS` 重算），`Build/Compile` 用 `$(TARGET_CC)` 现编，包再也发不出过期的 ns-run。`tests/test_runtime.py`（20 项，已进 test-host）比对 tarball 里的副本与仓库文件，重打包漏了它们在本机就失败 | — |
@@ -126,7 +126,7 @@
 | 4 | ~~C5 包里的 ns-run 与 init 同步~~ | — | **2026-10-31 已修**：tarball 带源码、包里现编，并有 test_runtime 守着漂移 |
 | 5 | C3 统一行尾 | 1 | 一次改动，之后所有测试不用再转 LF；影响整个仓库，**需要单独确认**（本轮已把两台设备上出过问题的脚本都归一为 LF） |
 | 6 | ~~B14 子路由接真主控（有线）~~ | — | **2026-10-31 已打通**：缺的是 cspd 那一拍，已作为 B18 进包 |
-| 7 | C2 拆包 | 2 | 方案已定，属于分发形态，不阻塞功能。**顺带解决 x86_64 装不上包**：`zte-mesh` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS` 带 `@(TARGET_zte\|\|TARGET_qualcommax)`，VM 装不进去；`luci-app-zte-mesh` 虽是 `LUCI_PKGARCH:=all`，但 `LUCI_DEPENDS` 里有 `+zte-mesh`，一样被拖住。把 init/wlan-sync/rpcd/LuCI 拆成 `arch: all` 的包，VM 就能直接装 |
+| 7 | ~~C2 拆包（x86_64 直装那一半）~~ | — | **2026-10-31 已做**：`zte-mesh` = `arch: all`，`zte-mesh-launcher` = `aarch64_cortex-a53`。剩下 controller / agent 的拆分属于分发形态，不阻塞功能。（原来的症状：VM 是 `x86_64`，包却自称 `aarch64_cortex-a53`，`apk add` 直接拒装；`luci-app-zte-mesh` 虽是 `arch: all`，也被 `LUCI_DEPENDS:=+zte-mesh` 一起拖住。现在两个都能在 VM 上直接装） |
 | 8 | B16 `CurHop` 真机确认 | 2 | 需要真机，可并入 B14 一起看 |
 | 9 | B11 额外槽位在子路由侧应用 | 3 | 要先把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
 | 10 | A18 拓扑页 | 3 | 需要状态字段（RSSI、终端数）先落到 `state.json` |

@@ -28,6 +28,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 ARCHIVE = REPO / "openwrt/zte-mesh/zte-mesh-runtime.tar.gz"
 
+
+def text(path):
+    return (REPO / path).read_text()
+
 # member name in the archive -> the file it must be a copy of
 SOURCES = {
     "ns-run.c": REPO / "ns-run.c",
@@ -94,12 +98,32 @@ def main():
               "the packed copy predates the current sources; rebuild prebuilt/db-engine-probe on the "
               "lab-tools branch and repack with openwrt/repack-runtime.py --replace")
 
-    makefile = (REPO / "openwrt/zte-mesh/Makefile").read_text()
-    check("the package builds ns-run from the archive sources",
-          "$(PKG_BUILD_DIR)/ns-run.c" in makefile and "$(PKG_BUILD_DIR)/controller-net.c" in makefile)
-    check("the package builds mesh-search from the archive sources",
-          "$(PKG_BUILD_DIR)/enroller.c" in makefile)
-    check("the package installs mesh-search", "/usr/libexec/zte-mesh/mesh-search" in makefile)
+    # The compiled halves are machine code, so they cannot ride in an arch:all apk: on the
+    # x86_64 lab box an aarch64 ns-run would not exec at all. zte-mesh is arch:all (scripts
+    # plus the runtime tarball, which is data), and ns-run / mesh-search have their own
+    # arch-tagged package. package-pack.mk reads one global PKGARCH per Makefile, so two
+    # architectures genuinely require two package directories -- this is the guard against
+    # quietly moving a binary back and breaking the lab box again.
+    makefile = text("openwrt/zte-mesh/Makefile")
+    check("zte-mesh is architecture independent", "PKGARCH:=all" in makefile,
+          "the package still claims a board arch; the x86_64 lab box cannot install it")
+    check("zte-mesh ships no compiled launcher",
+          "/usr/libexec/zte-mesh/ns-run" not in makefile
+          and "/usr/libexec/zte-mesh/mesh-search" not in makefile,
+          "a binary built by $(TARGET_CC) cannot be installed by an arch:all package")
+
+    launcher = text("openwrt/zte-mesh-launcher/Makefile")
+    check("the launcher builds ns-run from the archive sources",
+          "$(PKG_BUILD_DIR)/ns-run.c" in launcher and "$(PKG_BUILD_DIR)/controller-net.c" in launcher)
+    check("the launcher builds mesh-search from the archive sources",
+          "$(PKG_BUILD_DIR)/enroller.c" in launcher)
+    check("the launcher installs both binaries",
+          "/usr/libexec/zte-mesh/ns-run" in launcher
+          and "/usr/libexec/zte-mesh/mesh-search" in launcher)
+    check("the launcher is arch-tagged", "PKGARCH:=aarch64_cortex-a53" in launcher)
+    check("the launcher takes the sources from the sibling runtime tarball",
+          "../zte-mesh/zte-mesh-runtime.tar.gz" in launcher,
+          "the sources must not be duplicated; they travel inside the tarball (see C5)")
 
     init = (REPO / "openwrt/zte-mesh/files/zte-mesh.init").read_text()
     check("the init script starts the search helper", "MESH_SEARCH" in init and "procd_open_instance search" in init)
