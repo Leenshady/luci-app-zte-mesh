@@ -8,7 +8,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zte-mesh
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 PKG_LICENSE:=GPL-2.0-only
 # The tarball carries proprietary ARM32 vendor code; keep it out of shared builds.
 PKG_FLAGS:=nonshared
@@ -46,13 +46,27 @@ define Build/Prepare
 	tar -C $(PKG_BUILD_DIR) -xzf $(ZTE_MESH_RUNTIME)
 endef
 
+# ns-run used to be taken from the tarball, so it was only as new as the last
+# `sh tools/build/runtime.sh install`. On 2026-10-31 the copy in the tarball predated the
+# emulator branch of ns-run.c: it had no ZTE_MESH_QEMU, and on an arm64 kernel without
+# CONFIG_COMPAT the guest exec died with "execv errno=8" and the controller instance respawned
+# forever (FEATURE_STATUS C5). The tarball now carries the launcher sources and they are built
+# here, so the package cannot ship a stale ns-run again; tests/test_runtime.py compares the
+# copies against the repository files so a regeneration that forgets them fails on the host.
+# mesh-search is the same idea: the controller half of the enrolment handshake (see the search
+# instance in zte-mesh.init), built from tools/lab/enroller.c.
 define Build/Compile
+	$(TARGET_CC) $(TARGET_CFLAGS) -std=c11 -O2 -Wall -o $(PKG_BUILD_DIR)/ns-run \
+		$(PKG_BUILD_DIR)/ns-run.c $(PKG_BUILD_DIR)/controller-net.c
+	$(TARGET_CC) $(TARGET_CFLAGS) -std=c11 -O2 -Wall -o $(PKG_BUILD_DIR)/mesh-search \
+		$(PKG_BUILD_DIR)/enroller.c
 endef
 
 define Package/zte-mesh/install
 	$(INSTALL_DIR) $(1)/usr/lib/zte-mesh $(1)/usr/libexec/zte-mesh
 	$(CP) $(PKG_BUILD_DIR)/root $(1)/usr/lib/zte-mesh/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ns-run $(1)/usr/libexec/zte-mesh/ns-run
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/mesh-search $(1)/usr/libexec/zte-mesh/mesh-search
 	$(INSTALL_BIN) ./files/attach $(1)/usr/libexec/zte-mesh/attach
 	$(INSTALL_BIN) ./files/wlan-sync $(1)/usr/libexec/zte-mesh/wlan-sync
 	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/config $(1)/usr/libexec/rpcd

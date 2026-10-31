@@ -155,6 +155,7 @@ test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/
 	sh tests/test_rpcd.sh
 	sh tests/test_wlan_sync.sh
 	python3 tests/test_i18n.py
+	python3 tests/test_runtime.py
 	@if command -v node >/dev/null 2>&1; then node tests/test_luci.js; else echo "test_luci: skipped (node is not installed)"; fi
 	python3 tests/test_preload.py $(abspath $(ARTIFACTS)/tests)
 	python3 tests/test_sandbox.py $(abspath $(ARTIFACTS)/ns-run)
