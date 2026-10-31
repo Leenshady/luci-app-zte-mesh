@@ -71,11 +71,12 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [FINDINGS](docs/FINDINGS.md) | 逆向与真机发现：角色选举、自组网 V2、`VersionMode`、`CurHop`、ACL 等 |
 | [CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md) | 原厂控制器能下发什么、Z506 实际支持什么、本项目覆盖了什么 |
 | [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：状态与证据、做不到的项、推进顺序 |
+| [MESH_INTEROP](docs/research/MESH_INTEROP.md) | 中兴 mesh 的协议归属、外部项目（prplMesh / BBF 1905.1a）能借什么、固件解密的边界、**做功能时的兼容性硬约束** |
 | [research/](docs/research/) | 原厂对照研究（存档）：`FEATURE_MAP`、`GAP_ANALYSIS`、`REPLAY_RESULTS`、`AGENT_PROBE`、`E2633_FIRMWARE` |
 | [milestones/](docs/milestones/) | 早期里程碑 B.1–B.3.3 的验收记录（存档） |
 | [tools/README.md](tools/README.md) | 各个脚本 |
 
-`docs/research/` 与 `docs/milestones/` 是**证据存档**，按时间保留原始记录、不随结论更新；结论以上面八份为准。
+`docs/research/` 与 `docs/milestones/` 是**证据存档**，按时间保留原始记录、不随结论更新；结论以 `ARCHITECTURE` 到 `MESH_INTEROP` 这九份为准。
 
 ## 约定
 
