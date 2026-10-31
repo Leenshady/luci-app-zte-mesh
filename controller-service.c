@@ -5,11 +5,9 @@
  * (through the typed, rolled-back bridge); everything else is the vendor's.
  */
 #define _GNU_SOURCE
-#include <arpa/inet.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/if_packet.h>
 #include <net/if.h>
 #include <signal.h>
 #include <stdio.h>
@@ -24,7 +22,6 @@
 
 #include "controller-service.h"
 #include "controller-packet.h"
-#include "controller-conflict.h"
 #include "agent-sync.h"
 #include "wlan-profiles.h"
 #include "mesh-policies.h"
@@ -745,10 +742,6 @@ struct service_state {
     time_t guest_since[2][4];
     uint8_t guest_expired[2][4];
     unsigned int sched_rules, guest_left[2][4]; /* for state.json: rule count, seconds left of each access countdown */
-    /* Another node presenting our AL MAC, seen on the 0x893a wire (controller-conflict.c): how many such
-     * frames and when the first and last of them arrived. 0 = never seen. conflict_logged throttles the log. */
-    unsigned int conflict_count;
-    long conflict_first, conflict_last, conflict_logged;
 };
 
 /* Node actions requested from the host (reboot / LED of a child router, FEATURE_MAP section 17 / REPLAY_RESULTS section 16):
@@ -779,105 +772,6 @@ static void al_mac(char out[18])
     }
     if (fd >= 0)
         close(fd);
-}
-
-/* The same identity as six bytes: br0 carries the AL MAC (controller-net.c), and the 1905 frames carry it
- * verbatim in their ethernet source field, which is what the wire check compares against. */
-static void al_mac_bytes(uint8_t out[6])
-{
-    char text[18];
-    unsigned int byte[6], i;
-    al_mac(text);
-    memset(out, 0, sizeof(uint8_t) * 6);
-    if (sscanf(text, "%x:%x:%x:%x:%x:%x", &byte[0], &byte[1], &byte[2], &byte[3], &byte[4], &byte[5]) != 6)
-        return;
-    for (i = 0; i < 6; i++)
-        out[i] = (uint8_t)(byte[i] & 0xff);
-}
-
-/* A packet socket on the sandbox ingress, which is the only path to the LAN. veth-lab is standalone inside the
- * private namespace (controller-net.c), so protocol frames reach this socket unmodified instead of being eaten
- * by a bridge RX handler. Every interface in the namespace is ours, so binding to veth-lab by index narrows it
- * to the one that sees other routers; if it is missing (a lab run that never created it) the socket stays any. */
-static int conflict_listener(void)
-{
-    struct sockaddr_ll address;
-    int fd = socket(AF_PACKET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, htons(0x893a));
-    if (fd < 0)
-        return -1;
-    memset(&address, 0, sizeof(address));
-    address.sll_family = AF_PACKET;
-    address.sll_protocol = htons(0x893a);
-    address.sll_ifindex = (int)if_nametoindex("veth-lab"); /* 0 = any interface of this namespace */
-    if (bind(fd, (struct sockaddr *)&address, sizeof(address))) {
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
-/* One of this router's own transmissions came back through the bridge.
- *
- * Not every frame with our source address is evidence: mesh-search runs in the host namespace (zte-mesh.init),
- * and the LAN bridge floods what it sends to the sandbox port as well, so its Search arrives here looking
- * exactly like a second router with the same AL MAC. It stamps the time of each transmission next to the state
- * file (tools/lab/enroller.c note_tx), and anything within a couple of seconds of a stamp is ours. Two seconds
- * is far longer than the trip through the bridge and far shorter than the interval between two peers' searches,
- * so at worst one frame of a real conflict is skipped. */
-static int conflict_own_transmission(long now)
-{
-    char text[32];
-    long stamp;
-    ssize_t bytes;
-    int fd = open(SERVICE_DIR "/search-sent", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0)
-        return 0;
-    bytes = read(fd, text, sizeof(text) - 1);
-    (void)close(fd);
-    if (bytes <= 0)
-        return 0;
-    text[bytes] = 0;
-    if (strncmp(text, "epoch=", 6))
-        return 0;
-    stamp = strtol(text + 6, NULL, 10);
-    return stamp > 0 && now - stamp >= -2 && now - stamp <= 2;
-}
-
-/* Drain what the socket holds right now; the frame itself is discarded, only the fact that one of them carried
- * our AL MAC matters. Logged when it first happens and every ten minutes after, so a router left in this state
- * does not bury the log while somebody is still looking for the cause. */
-static void conflict_poll(int fd, const uint8_t own[6], struct service_state *state)
-{
-    uint8_t frame[2048];
-    unsigned int drained;
-    long now = (long)time(NULL);
-    if (fd < 0)
-        return;
-    for (drained = 0; drained < 32; drained++) {
-        struct sockaddr_ll from;
-        socklen_t from_bytes = sizeof(from);
-        ssize_t bytes;
-        memset(&from, 0, sizeof(from));
-        bytes = recvfrom(fd, frame, sizeof(frame), MSG_DONTWAIT, (struct sockaddr *)&from, &from_bytes);
-        if (bytes <= 0)
-            return;
-        if (!controller_conflict_from_peer(frame, (size_t)bytes, from.sll_pkttype, own))
-            continue;
-        if (conflict_own_transmission(now))
-            continue;
-        if (!state->conflict_count) {
-            state->conflict_first = now;
-            state->conflict_logged = 0;
-        }
-        state->conflict_count++;
-        state->conflict_last = now;
-        if (now - state->conflict_logged >= 600) {
-            state->conflict_logged = now;
-            printf("ZTE_MESH_SERVICE al_mac_conflict=1 count=%u al_mac=%02x:%02x:%02x:%02x:%02x:%02x epoch=%ld\n",
-                   state->conflict_count, own[0], own[1], own[2], own[3], own[4], own[5], now);
-            fflush(NULL);
-        }
-    }
 }
 
 /* What the trace library digested from the child's frames (controller-trace.c note_peer): the value of "key" in
@@ -922,11 +816,9 @@ static int write_state(const struct service_state *state)
     al_mac(mac);
     used += (size_t)snprintf(json + used, sizeof(json) - used,
         "{\"schema\":1,\"running\":%s,\"sequence\":%lu,\"uptime\":%ld,\"daemon_pid\":%d,\"daemon_restarts\":%u,"
-        "\"al_mac\":\"%s\",\"al_mac_conflict\":{\"count\":%u,\"first\":%ld,\"last\":%ld},"
-        "\"version_mode\":%u,\"config_applied\":%lu,\"restart_required\":%s,\"config_error\":",
+        "\"al_mac\":\"%s\",\"version_mode\":%u,\"config_applied\":%lu,\"restart_required\":%s,\"config_error\":",
         state->running ? "true" : "false", state->sequence, (long)(now.tv_sec - state->started), (int)state->daemon,
-        state->respawns, mac, state->conflict_count, state->conflict_first, state->conflict_last,
-        state->version_mode, state->applied, state->restart_required ? "true" : "false");
+        state->respawns, mac, state->version_mode, state->applied, state->restart_required ? "true" : "false");
     json_string(quoted, sizeof(quoted), state->config_error);
     used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"nodes\":[", quoted);
     for (i = 0; i < count && used + 1200 < sizeof(json); i++) {
@@ -1766,8 +1658,6 @@ int controller_service(void)
     char version[8];
     pid_t child;
     int id = -1, status;
-    uint8_t own_mac[6];
-    int conflict_fd;
     if (parse_config(&config, &stamp)) {
         printf("ZTE_MESH_SERVICE fail=config-missing-or-invalid\n");
         fflush(NULL);
@@ -1830,13 +1720,6 @@ int controller_service(void)
     state.daemon = child;
     state.version_mode = config.version_mode;
     printf("ZTE_MESH_SERVICE running=1 version_mode=%u\n", config.version_mode);
-    /* The identity other routers see, and a socket that notices when one of them presents the same one. The
-     * socket is opened after controller_boot: the private network it reads from exists only then. */
-    al_mac_bytes(own_mac);
-    conflict_fd = conflict_listener();
-    printf("ZTE_MESH_SERVICE conflict_watch=%d al_mac=%02x:%02x:%02x:%02x:%02x:%02x epoch=%ld\n", conflict_fd,
-           own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5], (long)time(NULL));
-    fflush(NULL);
     fflush(NULL);
     (void)mkdir(SERVICE_DIR "/peers", 0755);
     {
@@ -1872,7 +1755,6 @@ int controller_service(void)
         if (info.si_pid == child)
             break;
         clock_gettime(CLOCK_MONOTONIC, &now);
-        conflict_poll(conflict_fd, own_mac, &state);
         if (!renew_sent && now.tv_sec - state.started >= 5) {
             /* Once the daemon's acd task is up, broadcast an AP-autoconfiguration
              * Renew so an agent that had onboarded against a previous controller
@@ -1977,8 +1859,6 @@ int controller_service(void)
            WIFEXITED(status) ? WEXITSTATUS(status) : -1, WIFSIGNALED(status) ? WTERMSIG(status) : 0);
     fflush(NULL);
     mb_wipe(&config, sizeof(config));
-    if (conflict_fd >= 0)
-        close(conflict_fd);
     (void)controller_shutdown_private(id);
     return 1;
 }

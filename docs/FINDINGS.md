@@ -85,12 +85,6 @@
   第 11 节与 [SERVICE.md](SERVICE.md)。
 - 控制器的 `AL MAC` 默认 `02:00:00:00:19:06`；启动器的 `ZTE_MESH_AL_LAST` 改最后一个字节（实验时用来让子节点当成新控制器）。
   OpenWrt 包用 UCI `al_last`，默认取 LAN 桥 MAC 末字节。
-- 两台设备拿到同一个 AL MAC 时的失败是**静默的**：1905 栈丢弃源地址等于本机的帧，于是双方各自发 Search/Discovery、谁也不应答，
-  拓扑停在单条，日志干净——和"附近没有设备"看起来一样。控制服务因此在 `veth-lab` 上旁听 `0x893a`（`controller-conflict.c`）：
-  源 MAC 等于本机 AL MAC、且不是自己发出的（`PACKET_OUTGOING`）就算一次冲突。`state.json` 的 `al_mac_conflict` 记次数与首末
-  时间，LuCI 页面顶部提示并给出 `al_last` 的改法。发现延迟取决于对端多久发一帧（控制器 300 s 一轮）。
-  注意 `mesh-search` 跑在宿主命名空间：它从 `br-lan` 发出的帧会被网桥泛洪回 `zmesh0`，在沙箱里和“另一台同 AL MAC 的设备”一样，
-  所以它每次发送后写 `/run/zte-mesh/search-sent`，服务忽略该时间戳 ±2 s 内的帧（`tools/lab/enroller.c` `note_tx`）。
 
 ## 5. 自组网 V2（`P1905ComCfg`）
 

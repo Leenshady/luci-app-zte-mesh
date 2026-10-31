@@ -550,15 +550,3 @@ msgstr "失败"
 
 msgid "%d s ago"
 msgstr "%d 秒前"
-
-msgid "Identity conflicts"
-msgstr "身份冲突"
-
-msgid "%d frames, last one %d s ago"
-msgstr "%d 个帧，最近一次在 %d 秒前"
-
-msgid "Another device on this network uses the same controller address (AL MAC) as this router."
-msgstr "本网络上还有一台设备使用与本机相同的控制器地址（AL MAC）。"
-
-msgid "The two cannot join while that is true: each drops the other's frames as its own, so both send searches and neither answers. Change the last byte on one of them, for example uci set zte-mesh.main.al_last='%s', then restart this service."
-msgstr "只要地址相同就无法组网：双方都把对方发来的帧当成自己发的而丢弃，于是各自发搜索、谁也不应答。请把其中一台的最后一个字节改掉，例如 uci set zte-mesh.main.al_last='%s'，然后重启本服务。"

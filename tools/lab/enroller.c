@@ -24,7 +24,6 @@
  */
 #define _GNU_SOURCE
 #include <errno.h>
-#include <fcntl.h>
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
 #include <net/if.h>
@@ -36,7 +35,6 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -155,27 +153,6 @@ static unsigned int tlv_value(const uint8_t *frame, unsigned int bytes, unsigned
     return 0;
 }
 
-/* Every frame this program sends also comes back into the controller's sandbox: it runs in the host namespace,
- * the LAN bridge floods what it puts on the bridge to the sandbox port as well, and there it is a 0x893a frame
- * whose source is the controller's own AL MAC -- exactly the shape controller-service.c watches for to detect a
- * second router using the same address. So it stamps the time of each transmission next to the service's state
- * file, and the service ignores frames that follow one of these stamps. Both sides name the same path. */
-static void note_tx(void)
-{
-    char text[32];
-    struct stat info;
-    int fd, bytes;
-    if (stat("/run/zte-mesh", &info) || !S_ISDIR(info.st_mode))
-        return;                     /* not installed as the router's mesh-search: nothing to tell */
-    fd = open("/run/zte-mesh/search-sent", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-    if (fd < 0)
-        return;
-    bytes = snprintf(text, sizeof(text), "epoch=%ld\n", (long)time(NULL));
-    if (write(fd, text, (size_t)bytes) != bytes)
-        fprintf(stderr, "enroller: cannot stamp %s\n", "/run/zte-mesh/search-sent");
-    close(fd);
-}
-
 static int send_frame(int fd, int index, const uint8_t *frame, unsigned int bytes, const uint8_t *to)
 {
     struct sockaddr_ll target;
@@ -185,9 +162,6 @@ static int send_frame(int fd, int index, const uint8_t *frame, unsigned int byte
     target.sll_ifindex = index;
     target.sll_halen = 6;
     memcpy(target.sll_addr, to, 6);
-    /* Stamped before the frame leaves: the service may drain its socket within microseconds of the send, and a
-     * stamp written afterwards would race it and report a conflict of this router with itself. */
-    note_tx();
     if (sendto(fd, frame, bytes, 0, (struct sockaddr *)&target, sizeof(target)) != (ssize_t)bytes) {
         printf("enroller tx=failed errno=%d\n", errno);
         return -1;
