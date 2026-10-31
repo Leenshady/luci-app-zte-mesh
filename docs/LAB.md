@@ -102,8 +102,8 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 且私有根里存在 `qemu-arm-static` 时才把这两个变量传给 `ns-run`。`zte_mesh.main.emulator` 可指定路径，
 `=none` 强制走原生（刷过 `CONFIG_COMPAT=y` 固件之后就是这个状态）。
 
-AL MAC 是 `02:00:00:HH:19:LL`，`HH` 为 LAN 网桥 MAC 前 5 字节的哈希、`LL` 为其末字节，两台设备不会撞车
-（撞车的后果是 1905 栈把对端当自己，见 [AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
+AL MAC 是 `02:00:00:HH:19:LL`，`HH` 为 LAN 网桥 MAC 前 5 字节的哈希、`LL` 为其末字节：两台设备的差异
+从 8 bit 变成 16 bit（撞车的后果是 1905 栈把对端当自己，见 [AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
 `zte_mesh.main.al_last` 只覆盖 `LL`。
 
 看"线上到底有没有帧"用 `tools/lab/spark.c`：
