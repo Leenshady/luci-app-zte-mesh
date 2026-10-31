@@ -30,6 +30,7 @@
 | WFA Multi-AP R1 | `0x0007`/`0x0008`/`0x000a`（AP 自动配置）、`0x8006`/`0x8007`（信道选择请求/响应）、`0x0009` 里的 WSC M1/M2、`0x8003` Multi-AP Policy Config Request、`0x8001`/`0x8002` 能力查询/报告 | 已实现，M2 在 Z506 上真机生效（编号已用 dissector 的表核过，见 [WIRESHARK_1905](WIRESHARK_1905.md)） | REAL_CHILD 第 1 节 |
 | ZTE 私有 TLV | 厂商 TLV（`0xdd`/`0xe0`），由 `MultiAPCfg.VersionMode` 决定发不发 | 已实现，`version_mode=128` 时发 | REAL_CHILD 第 2 节 |
 | ZTE 私有策略 | `SSEND(0x2401, 0x10205/0x10206)` 热更新域/漫游阈值 | 已实现 | FINDINGS 第 4 节 |
+| ZTE 内部总线（不是协议） | `ASEND`/`SSEND` 消息号：`0x9095` 角色、`0x90d3` DevSearch、`0x90aa` 拓扑查询、`0xa932`/`0xa93c` Multi-AP 配置、`0xa94e` VLAN、`0xa980` 信道扫描 | 不适用——我们直接把 CMDU 组出来发 | [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 第 3 节 |
 
 对表的直接用途：**任何新功能先问"它对应哪个 CMDU/TLV"**。答不出来，说明这个功能要么是本机行为
 （UCI 侧），要么就是自造协议。
@@ -85,6 +86,7 @@
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
 | ~~用 Wireshark `ieee1905` 对照我们发出的帧~~ **已做**（2026-11-01） | 不用真机就能查编码错误，比"装上去看现象"快 | 结果与改法见 [WIRESHARK_1905](WIRESHARK_1905.md)：`0x0007` 缺 EOM 已修，`0x0008` 的 EOM/`0xb3` 留待真机复验 |
+| 拿 **AX3000（E2631）** 当子路由，验 Steering / BTM | D7 的接收路径（`handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`）在原厂 `cspd` 里是齐的，但线上没有证据 | 停机窗口 + 限时抓包，步骤见 [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 第 8 节 |
 | 找一台**非中兴**的标准 agent 做对照 | 证明我们不是"只会跟 ZTE 说话"；这是"兼容任意 OpenWrt"这句话的唯一证据 | 一台支持 Multi-AP 的 OpenWrt 设备（hostapd 带 multi_ap） |
 | `slave` 角色补 Topology Response 的 BSS/终端 TLV | 现在中兴主控看不到我们下面挂了哪些终端 | Z506 或任意主控做对照 |
 | 纯 OpenWrt 组网（无中兴设备）另开一档 | 想做就复用 prplMesh 当 agent，而不是自己再写一套控制面 | 明确的范围与独立验收 |

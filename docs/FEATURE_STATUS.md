@@ -95,17 +95,22 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | C6 | **tarball 里的 `db-engine-probe` 冻结在打包那天**：ARM32 半边只能 `-nostdlib` 对着原厂 glibc 2.26 编，包里编不了；冻住的那份不认 `mesh.role=slave` → 子路由的 controller 实例每 5 秒退一次 | ✅ | 换重编副本（193364 B，sha256 `7ff631a7…`）后 slave 角色 3/3 实例全起；`test_runtime.py` 断言包里那份必须带 `config-reject` 与 `wlan-plan` | — |
 | C7 | **全新装包后服务起不来**：`qemu-arm-static` 不在包里，而 `CONFIG_COMPAT` 探测在官方固件上必然误判（不导出 `/proc/config.gz` → `grep -c` 返回 0 → 一律走模拟器） | ✅ | 改成"没有答案不等于不支持"：读不到 config 就 exec 一次 `$ROOT/lib/ld-linux.so.3` 看它有没有打印 usage。模拟器**仍不入包**（取舍，不是待办），判定表与三条出路见 [LAB](LAB.md) 第 4.2 节 | 1 |
 
-## D. 没有通道的（换子路由固件才谈得上）
+## D. 换子路由固件才谈得上的（原判据只有 Z506）
 
-| # | 功能 | 原因 |
-|---|---|---|
-| D1 | 带宽 20/40/80/160 | Z506 不写 `BandWidth`，也不关"自动信道" |
-| D2 | 访客限速 | 1905 里没有这个字段 |
-| D3 | 信道扫描 / CAC | Z506 无接收代码 |
-| D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | Z506 无 |
-| D5 | VLAN / 流量分离 / Profile-2 | Z506 无 |
-| D6 | STA 绑定 | Z506 无 |
-| D7 | 802.11r/BTM 踢人（部分） | Z506 固件不支持 FT |
+| # | 功能 | Z506（原判据） | E2631 / AX3000（2026-11-01 补） |
+|---|---|---|---|
+| D1 | 带宽 20/40/80/160 | 不写 `BandWidth`，也不关"自动信道" | 未找到新证据，不变 |
+| D2 | 访客限速 | 1905 里没有这个字段 | 协议外的东西，不变 |
+| D3 | 信道扫描 / CAC | 无接收代码 | 有 `SendCAC` / `ChannelScan` **发送**入口，接收侧没查（弱） |
+| D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | 无 | `cspd` 有 `EnVbss` / `ToVbssMode` 配置位，但**没有任何 CM/CF 导出**（中） |
+| D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） |
+| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） |
+| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**） |
+
+这一节的判据原来只有 Z506（Wi-Fi 5 老固件）。2026-11-01 从一台市售 AX3000（E2631，2026-08 固件）
+拿出明文用户态之后，D5/D6/D7 从"没有通道"变成"厂商有入口"，其中 **D7 的接收侧处理路径是齐的**。
+强度分级（强/中/弱）与反汇编证据见 [VENDOR_MESH_STACK](research/VENDOR_MESH_STACK.md) 第 5 节。
+**四项都还没实测**，所以没有一项改成 ✅。
 
 ## 推进顺序（只做下一项，做完打勾再往下）
 
@@ -121,3 +126,4 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 7 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
 | 8 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
 | 9 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 8 项都过了才值得动 |
+| 10 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；先限时抓 `0x893a` 看有没有 Steering Request，再谈下发 |
