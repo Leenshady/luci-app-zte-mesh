@@ -95,7 +95,8 @@
    （最后这一条当时是从 `mount`/`df` 推的，实证判据与真机侧做法见 §4.2）；
 3. eFuse/OTP 里的设备唯一密钥，运行时喂给上面两者之一。
 
-**一条能证伪的判据**：在任意一台能 root 的 ZTE 上读 `dd if=/dev/mtdblock8 bs=2048 count=1 | hexdump -C`
+**一条能证伪的判据**：在任意一台能 root 的 ZTE 上读 `hexdump -C -n 64 /dev/mtdblock8`
+（原文写的是 `dd … | hexdump`，但 E2631 的 busybox 没编 `dd`，见 §4.2.2/§4.2.3）
 ——若看到 `hsqs`/`UBI#`/JFFS2 节点而编程器 dump 同页是密文，就是第 2 条（硬件透明解密），
 密钥根本不在可读的镜像空间里；若也是高熵，才回落到第 1/3 条。
 
@@ -106,7 +107,7 @@
 | 你要的是 | 能不能 | 怎么做 | 成本 |
 |---|---|---|---|
 | rootfs 的**文件内容** | 能，而且不用解 | `cat` 单个文件，或 `tar` 挂载点 | 十分钟 |
-| rootfs 的**整块镜像** | 能 | `dd if=/dev/mtdblock8`（17 MiB） | 十分钟 + 一次 tftp |
+| rootfs 的**整块镜像** | 能 | `cat /dev/mtdblock8 > …`（没有 `dd`，见 §4.2.3） | 十分钟 + 一次 tftp |
 | 解别人编程器 dump 用的**密钥** | 大概率不能 | §4.2.4 | 半天，期望值低 |
 
 原因是一件事：**设备上这块 Flash 的可读视图就是明文**。JFFS2 在 mtdblock8 上挂载成功、
@@ -124,14 +125,19 @@
 
 前者成立，后者未验。下面第一条命令就是补这一步。
 
-#### 4.2.2 判据：一条 dd，把三种机制分开
+#### 4.2.2 判据：读 64 字节，把三种机制分开
 
 ```sh
 # 只读。不写 flash、不动配置库
-cat /proc/mtd                                  # 确认 mtd8 的名字与大小
-cat /proc/mounts | grep mtdblock               # 确认根确实是 mtdblock8
-dd if=/dev/mtdblock8 bs=2048 count=1 2>/dev/null | hexdump -C | head -4
+cat /proc/mtd                    # 确认 mtd8 的名字与大小
+cat /proc/mounts | grep mtdblock # 确认根确实是 mtdblock8
+
+# 判据本体。不要用 dd，也不要 head —— 这台机器的 busybox 1.17.2 两个都没编（见 4.2.3）
+hexdump -C -n 64 /dev/mtdblock8
 ```
+
+`hexdump` 的 `-n`/`-s` 在 busybox 里是有的，所以这一条不依赖任何被裁掉的东西。
+若 `hexdump` 也没编，用 `busybox hexdump` 或 `cat /dev/mtdblock8 | od -c` 兜底。
 
 | 输出 | 机制 | 结论 |
 |---|---|---|
@@ -144,44 +150,57 @@ dd if=/dev/mtdblock8 bs=2048 count=1 2>/dev/null | hexdump -C | head -4
 
 #### 4.2.3 取镜像与取文件：两条都不需要"解密"
 
-**先确认 `/tmp` 落在哪**——这台机器的 rootfs 是 100% 占满的（17 MiB / 100%），若 `/tmp` 只是
-rootfs 上的一个普通目录而不是 tmpfs，`dd` 会在第一页就 ENOSPC，**一个字节都不留**，
-随后 `tftp` 报的是 `can't open '<file>': No such file or directory`（2026-11-01 实测踩到）：
+**先确认工具在不在**。这台机器的 busybox 是 `1.17.2 (2026-08-26)` 裁剪版：**没有 `dd`**
+（`dd: not found`，rc=127），也没有 `head`；`df` 不支持 `-h`（只有 `-P/-k/-a/-i/-B`）。
+照本节最早的版本抄命令时，`dd` 直接失败、文件从未存在，`tftp` 才报
+`can't open '<file>': No such file or directory`——**那条报错是后果，不是原因**。
 
 ```sh
-df -h /tmp ; mount | grep -E ' /tmp |tmpfs' ; ls -ld /tmp
+busybox --list | grep -E '^(dd|head|tail|cat|hexdump|md5sum|tar)$'
+busybox dd 2>&1        # applet 编进去了、只是没做软链时，这条路仍然可用
 ```
 
+同一次实测拿到的 tmpfs 布局（`size` 是上限，还要刨掉 root 自己占的那点）：
+
+| 挂载点 | size | 评价 |
+|---|---|---|
+| `/DPITMP` | 61440k（60 MiB） | 最宽松，但属于 DPI 模块，别长期占 |
+| `/var` | 40960k（40 MiB） | **推荐**：放 17 MiB 镜像后还剩 20 MiB |
+| `/tmp` | 20480k（20 MiB） | 勉强够，只剩 3 MiB 余量 |
+| `/tracelog` `/owjdxbplugin/tmp` `/owdptsplugin/tmp` `/uadd` `/mnt` | 16k–3 MiB | 太小，别用 |
+
+**取镜像：`cat` 顶替 `dd`**。mtdblock 是块设备，`cat` 读到设备尾就是 EOF，效果与
+`dd if=… of=…` 相同，只是不能 `skip`/`count`。目标选 `/var`，不是 `/tmp`：
+
 ```sh
-free                                           # 看 RAM 余量，tmpfs 吃的是它
-# A. 整块镜像（17 MiB）
-dd if=/dev/mtdblock8 of=/tmp/rootfs.jffs2 bs=65536 ; echo "rc=$?"
-ls -l /tmp/rootfs.jffs2                        # 这一步别省，dd 的错误常被忽略
-tftp -p -l /tmp/rootfs.jffs2 -r rootfs.jffs2 192.168.1.191
-rm /tmp/rootfs.jffs2
+cat /dev/mtdblock8 > /var/rootfs.jffs2 ; echo "rc=$?"
+ls -l /var/rootfs.jffs2        # 大小必须等于 /proc/mtd 里 mtd8 的 size，这步别省
+md5sum /var/rootfs.jffs2
+tftp -p -l /var/rootfs.jffs2 -r rootfs.jffs2 192.168.1.191
+rm /var/rootfs.jffs2
 
 # B. 只要文件（更省内存，且能立刻 grep）
-tar -czf /tmp/etc.tgz /etc /usr/sbin /usr/lib 2>/dev/null
-tftp -p -l /tmp/etc.tgz -r etc.tgz 192.168.1.191
+tar -czf /var/etc.tgz /etc /usr/sbin /usr/lib 2>/dev/null
+tftp -p -l /var/etc.tgz -r etc.tgz 192.168.1.191
 ```
 
-**`dd` 没写出文件时的四种成因**（按出现频率排）：
+**没写出文件时的成因**（前两条是 2026-11-01 实测，按出现频率排）：
 
 | 现象 | 成因 | 处置 |
 |---|---|---|
-| 无文件，`dd` 报 `No space left on device` | `/tmp` 在满的 rootfs 上，或 tmpfs 太小 | 走下面的分块法；或 `mount -t tmpfs -o size=32m tmpfs /mnt` 造个够大的 |
-| `dd` 被 `Killed`（rc=137） | tmpfs 挤占内存，OOM 杀掉 dd（这台机器上 `cspd` 已经占着 174 MB VSZ） | 分块 + 传完即删 |
-| 无 `/tmp` 目录 | 部分固件用 `/var/tmp` | `df -h /var` 后把路径换掉 |
+| `dd: not found`（rc=127） | busybox 裁剪版根本没编 `dd` | 用 `cat 设备 > 文件`；先试 `busybox dd` |
+| 无文件，报 `No space left on device` | 目标在满的 rootfs 上，或 tmpfs 太小 | 换 `/var`；或 `mount -t tmpfs -o size=32m none /mnt` |
+| 进程被 `Killed`（rc=137） | tmpfs 挤内存，OOM 杀掉它（`cspd` 已占 174 MB VSZ） | 改流式（见下），别落盘 |
+| 目标目录不存在 | 部分固件只有 `/var/tmp` | `df -k /var` 后换路径 |
 | 文件在但 `tftp` 仍打不开 | busybox 没编 put（`tftp --help` 里没有 `-p`） | 用 `/kmodule/bin` 的 `wput` 或 `curl` |
 
-还有两种是"文件**消失**"而不是"没生成"，现象一样、处置完全不同：① 整段粘贴时末尾那条
-`rm` 已经执行过；② `/tmp` 是 tmpfs，**设备一重启就清空**。这两种先在对端 `ls -l` 一眼就能分开，
-别在设备上白折腾。
+还有两种是文件**消失**而不是没生成，现象一样、处置完全不同：① 整段粘贴时末尾那条 `rm`
+已经执行过；② tmpfs **设备一重启就清空**。这两种先在对端 `ls -l` 一眼分开，别在设备上白折腾。
 
-最快的定性办法其实是不落盘：`dd if=/dev/mtdblock8 bs=2048 count=1 2>&1 | hexdump -C | head -4`
-——既回答"mtdblock8 读不读得出来"，也顺手把 §4.2.2 那条判据做了。
+最快的定性办法完全不落盘：`hexdump -C -n 64 /dev/mtdblock8`
+——既回答读不读得出来，也顺手把 §4.2.2 那条判据做了。
 
-**分块法**（只要 `/tmp` 有几百 KiB 空间就能走完）：
+**分块法**（需要 `dd`，这台机器没有；脚本留给 applet 齐全的固件）：**分块法**（只要 `/tmp` 有几百 KiB 空间就能走完）：
 
 ```sh
 # 每块 2 MiB；放不下就把 CH 降到 262144（256 KiB），块数变多而已
@@ -202,11 +221,11 @@ cat part0.bin part1.bin part2.bin part3.bin part4.bin \
 hexdump -C rootfs.jffs2 | head -2
 ```
 
-**完全不落盘的做法**（空间与内存都不占，推荐给 17 MiB 以上或内存紧的时候）：
-`/kmodule/bin` 里有 `curl`，`-T -` 能直接从 stdin 读：
+**完全不落盘的做法**（空间与内存都不占，**这台机器首选**——`cat` 已经够用，`curl` 又不需要
+`dd`）：`/kmodule/bin` 里有 `curl`，`-T -` 能直接从 stdin 读：
 
 ```sh
-dd if=/dev/mtdblock8 | curl -T - http://192.168.1.191:8000/rootfs.jffs2
+cat /dev/mtdblock8 | /kmodule/bin/curl -T - http://192.168.1.191:8000/rootfs.jffs2
 ```
 
 前提是对端有一个接受 `PUT` 的服务（`python3 -m http.server` **不接受** PUT）。仓库里带了一个：
@@ -214,8 +233,8 @@ dd if=/dev/mtdblock8 | curl -T - http://192.168.1.191:8000/rootfs.jffs2
 ```sh
 # 实验机上
 python3 tools/lab/httpput.py --dir /srv/tftp --port 8000
-# 设备上（/kmodule/bin/curl）
-dd if=/dev/mtdblock8 | curl -T - http://192.168.1.191:8000/rootfs.jffs2
+# 设备上（没有 dd，用 cat；curl 在 /kmodule/bin 里，可能不在 PATH）
+cat /dev/mtdblock8 | /kmodule/bin/curl -T - http://192.168.1.191:8000/rootfs.jffs2
 # 校验：curl -s http://192.168.1.191:8000/rootfs.jffs2 | sha256sum（与设备侧对比）
 ```
 
@@ -249,11 +268,16 @@ AES_encrypt(key, FF×16) == 9b58f878 bbb34136 6b2b543d affb0185
 范围也明确：`/proc/iomem` 里 `System RAM` 的 256 MiB，重点在 lowmem 映射的低 64–128 MiB。
 
 ```sh
-cat /proc/iomem | head -20                  # 看 System RAM 与 carveout（secure/tee/reserved）
-/kmodule/bin/devmem2 0x80000000             # 一次读，判断 /dev/mem 是否被 STRICT_DEVMEM 挡住
-# 能读就分段 dump（每段 16 MiB，传完即删，别把 tmpfs 撑爆）
-dd if=/dev/mem of=/tmp/m0.bin bs=1M count=16 skip=2048
+cat /proc/iomem                            # 看 System RAM 与 carveout（secure/tee/reserved）
+/kmodule/bin/devmem2 0x80000000            # 一次读，判断 /dev/mem 是否被 STRICT_DEVMEM 挡住
+# 能读就分段 dump（每段 16 MiB，传完即删）——这行需要 dd
+dd if=/dev/mem of=/var/m0.bin bs=1048576 count=16 skip=2048
 ```
+
+**这段在 E2631 上跑不了**：既没有 `dd`、也没有 `head`，而 `devmem2` 一次只读一个字，
+256 MiB 走不通。真要查这条路，得先用 VM 上的 `arm-linux-gnueabi-gcc` 编一个静态小工具
+（`open("/dev/mem")` + `read()` 16 MiB 到 stdout，管道接 `curl -T -`），
+这也顺带解决了"落盘空间"问题。工具没写，写之前先确认 `/dev/mem` 能不能读、值不值。
 
 离线扫描的 C 骨架（**未实测**，跑通再考虑收进 `tools/`）：对 4 字节对齐的每个偏移取 32 字节
 当 AES-256 key（也试 16 字节当 AES-128），做一次 `AES_encrypt(key, FF×16)` 比对。256 MiB ÷ 4 × 2
@@ -287,7 +311,7 @@ dd if=/dev/mem of=/tmp/m0.bin bs=1M count=16 skip=2048
 
 #### 4.2.6 风险
 
-- `dd if=/dev/mtdblock8` **只读**，不写 flash、不磨损、不改配置库，安全；
+- `cat /dev/mtdblock8` 或 `hexdump -n 64` **只读**，不写 flash、不磨损、不改配置库，安全；
 - `/tmp` 是 tmpfs（吃 RAM），17 MiB 镜像没问题，但别同时开大 tar，先看 `free`；
 - **不要** `sendcmd 1 DB set/save`、**不要** `rreset`（按区域重建整库 = 恢复出厂）；
 - 不要往任何 mtd 写字节。本节命令没有一条是写操作。
@@ -511,7 +535,7 @@ wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
 
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
-| 跑 §4.2.2 那条 `dd`（三秒，只读） | 把"rootfs 明文"从**推断**变成**实证**，顺手把 §4.1 的判据关掉；同时决定要不要走 §4.2.4 | 一次 telnet，无需停机 |
+| 跑 §4.2.2 那条 `hexdump -C -n 64 /dev/mtdblock8`（一秒，只读） | 把"rootfs 明文"从**推断**变成**实证**，顺手把 §4.1 的判据关掉；同时决定要不要走 §4.2.4 | 一次 telnet，无需停机 |
 | `tar` 一份 `/etc` + `/etc/init.d` + Web CGI | D3–D6 的入口命名全在这几处明文里（§4.2.5），比继续逆向二进制便宜 | 一次 telnet + tftp |
 | ~~用 Wireshark `ieee1905` 对照我们发出的帧~~ **已做**（2026-11-01） | 不用真机就能查编码错误，比"装上去看现象"快 | 结果与改法见 [WIRESHARK_1905](WIRESHARK_1905.md)：`0x0007` 缺 EOM 已修，`0x0008` 的 EOM/`0xb3` 留待真机复验 |
 | 拿 **AX3000（E2631）** 当子路由，验 Steering / BTM | D7 的接收路径（`handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`）在原厂 `cspd` 里是齐的，但线上没有证据 | 停机窗口 + 限时抓包，步骤见 [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 第 8 节 |
