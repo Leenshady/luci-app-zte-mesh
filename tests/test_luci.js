@@ -73,7 +73,7 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		}
 	}
 	const text = fs.readFileSync(initTest, 'utf8');
-	const wanted = { zte_mesh: new Set(['enabled', 'bridge']), /* read by start_service, not by write_config */ zte_mesh_bss: new Set(['band', 'slot', 'enabled', 'ssid', 'key', 'hidden', 'security', 'acl_policy', 'access_minutes', 'force_wifi5']),
+	const wanted = { zte_mesh: new Set(['enabled', 'bridge', 'al_last']), /* read by start_service, not by write_config */ zte_mesh_bss: new Set(['band', 'slot', 'enabled', 'ssid', 'key', 'hidden', 'security', 'acl_policy', 'access_minutes', 'force_wifi5']),
 	                 zte_mesh_acl: new Set(['mac', 'name', 'band', 'bss']), zte_mesh_timer: new Set(['start', 'end', 'days', 'scope']), zte_mesh_node: new Set(['mac', 'name']) };
 	const block = text.slice(text.indexOf('# 8. every optional main option'), text.indexOf('run all-options'));
 	for (const m of block.matchAll(/^\toption (\w+) '/gm)) wanted.zte_mesh.add(m[1]);

@@ -809,25 +809,45 @@ static int write_state(const struct service_state *state)
     struct controller_node nodes[MAX_NODES];
     unsigned int count = controller_read_nodes(nodes, MAX_NODES), i;
     struct timespec now;
-    char mac[18], quoted[320];
+    char mac[18], quoted[320], self_model[64], self_name[64];
     size_t used = 0;
     int fd, written;
     clock_gettime(CLOCK_MONOTONIC, &now);
     al_mac(mac);
+    controller_self_identity(self_model, sizeof(self_model), self_name, sizeof(self_name));
     used += (size_t)snprintf(json + used, sizeof(json) - used,
         "{\"schema\":1,\"running\":%s,\"sequence\":%lu,\"uptime\":%ld,\"daemon_pid\":%d,\"daemon_restarts\":%u,"
-        "\"al_mac\":\"%s\",\"version_mode\":%u,\"config_applied\":%lu,\"restart_required\":%s,\"config_error\":",
+        "\"al_mac\":\"%s\",\"self\":{\"model\":",
         state->running ? "true" : "false", state->sequence, (long)(now.tv_sec - state->started), (int)state->daemon,
-        state->respawns, mac, state->version_mode, state->applied, state->restart_required ? "true" : "false");
+        state->respawns, mac);
+    json_string(quoted, sizeof(quoted), self_model);
+    used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"name\":", quoted);
+    json_string(quoted, sizeof(quoted), self_name);
+    used += (size_t)snprintf(json + used, sizeof(json) - used,
+        "%s},\"version_mode\":%u,\"config_applied\":%lu,\"restart_required\":%s,\"config_error\":",
+        quoted, state->version_mode, state->applied, state->restart_required ? "true" : "false");
     json_string(quoted, sizeof(quoted), state->config_error);
     used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"nodes\":[", quoted);
     for (i = 0; i < count && used + 1200 < sizeof(json); i++) {
+        /* A node that reports no model or name is common enough (a non-ZTE child, or a row added before its identity
+         * TLV arrived). "router" is what the page shows instead of an empty cell. The row that carries our own
+         * address is this router, so it gets this router's system model and host name. */
+        const char *model = nodes[i].model, *name = nodes[i].name;
+        if (!strcmp(nodes[i].mac, mac)) {
+            model = self_model;
+            name = self_name;
+        } else {
+            if (!model[0])
+                model = "router";
+            if (!name[0])
+                name = "router";
+        }
         used += (size_t)snprintf(json + used, sizeof(json) - used, "%s{\"key\":", i ? "," : "");
         json_string(quoted, sizeof(quoted), nodes[i].view);
         used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"mac\":\"%s\",\"model\":", quoted, nodes[i].mac);
-        json_string(quoted, sizeof(quoted), nodes[i].model);
+        json_string(quoted, sizeof(quoted), model);
         used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"name\":", quoted);
-        json_string(quoted, sizeof(quoted), nodes[i].name);
+        json_string(quoted, sizeof(quoted), name);
         used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"software\":", quoted);
         json_string(quoted, sizeof(quoted), nodes[i].software);
         {

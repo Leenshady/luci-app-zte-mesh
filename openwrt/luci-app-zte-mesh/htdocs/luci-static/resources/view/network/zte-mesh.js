@@ -129,6 +129,12 @@ return view.extend({
 
 		if (state && state.running) {
 			row(_('Controller address (AL MAC)'), state.al_mac || '-');
+			/* This router's own two names, the ones the system knows. A router whose board name cannot be read
+			 * says "router", which is also what a child that reports nothing is shown as. */
+			if (state.self) {
+				row(_('Model'), state.self.model || 'router');
+				row(_('Host name'), state.self.name || 'router');
+			}
 			if (!child) {
 				row(_('Self-organizing network'), uci.get('zte_mesh', 'main', 'mesh_v2') === '1'
 					? _('On (ZTE enhanced)') : _('Off (ZTE compatible)'));
@@ -304,6 +310,23 @@ return view.extend({
 		o.datatype = 'maxlength(15)';
 		o.rmempty = false;
 		o.description = _('The bridge the child routers are cabled to (up to 15 characters, default br-lan).');
+
+		/* The controller identity a ZTE child matches on. Only the last byte is open: the first five bytes are the
+		 * shape the child's admission check expects, so a free-form address would simply be refused. The byte exists
+		 * for the one case a derivation cannot solve -- two boxes with the same LAN MAC (a cloned image). */
+		if (!child) {
+		var alNow = (info.state && info.state.al_mac) || '';
+		o = s.taboption('general', form.Value, 'al_last', _('Controller address, last byte'));
+		o.datatype = 'and(minlength(2),maxlength(2))';
+		o.placeholder = alNow ? alNow.slice(-2) : '06';
+		o.optional = true;
+		o.validate = function(section_id, value) {
+			if (value == null || value === '')
+				return true;
+			return /^[0-9a-fA-F]{2}$/.test(value) ? true : _('Two hex digits, as in e3.');
+		};
+		o.description = _('The address this router presents as a mesh controller is 02:00:00:00:19:<this byte>. Empty: the last byte of the LAN bridge MAC, which already differs between two boxes. Change it only when they still collide, for example because the same image was cloned onto both. Only this byte can be changed: the first five are the shape a ZTE child accepts. Currently %s.').format(alNow || '02:00:00:00:19:--');
+		}
 
 		o = s.taboption('general', form.ListValue, 'mesh_role', _('Device role'));
 		o.value('master', _('Controller only'));

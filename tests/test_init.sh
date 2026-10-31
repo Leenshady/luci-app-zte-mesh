@@ -800,5 +800,15 @@ for needle in 'CONFIG_COMPAT=y' 'ld-linux.so.3' 'sage:' 'qemu-arm-static' 'no qe
 	fi
 done
 
+# start_service() also owns the controller address (only the last byte is configurable, and the value is
+# handed to both the emulated daemon and mesh-search), so guard the source the same way.
+for needle in 'config_get al_last_override main al_last' '02:00:00:00:19:$al_last' 'ZTE_MESH_AL_LAST=$al_last' 'is not two hex digits'; do
+	if grep -q -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL al_last source: $needle"
+	fi
+done
+
 echo "init test: $pass passed, $fail failed"
 [ "$fail" = 0 ]

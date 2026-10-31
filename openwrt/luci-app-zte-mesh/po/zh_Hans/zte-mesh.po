@@ -550,3 +550,15 @@ msgstr "失败"
 
 msgid "%d s ago"
 msgstr "%d 秒前"
+
+msgid "Controller address, last byte"
+msgstr "控制器地址末字节"
+
+msgid "Two hex digits, as in e3."
+msgstr "两位十六进制，例如 e3。"
+
+msgid "The address this router presents as a mesh controller is 02:00:00:00:19:<this byte>. Empty: the last byte of the LAN bridge MAC, which already differs between two boxes. Change it only when they still collide, for example because the same image was cloned onto both. Only this byte can be changed: the first five are the shape a ZTE child accepts. Currently %s."
+msgstr "本机作为组网控制器对外使用的地址是 02:00:00:00:19:<这个字节>。留空时取 LAN 网桥 MAC 的最后一个字节，两台设备本来就不会相同。只有两台设备仍然撞车时才需要改（例如同一个镜像被克隆到了两台机器上）。只有这个字节可以改：前五个字节是中兴子路由能够接受的固定形状。当前为 %s。"
+
+msgid "Host name"
+msgstr "主机名"

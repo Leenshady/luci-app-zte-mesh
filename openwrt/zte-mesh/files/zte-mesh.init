@@ -544,13 +544,33 @@ start_service() {
 	# and the topology stays at a single entry. The last byte is taken from this router's LAN MAC (unique on
 	# the segment by definition) unless zte_mesh.main.al_last overrides it; the rest is fixed because the
 	# address must stay locally administered for the vendor's route adapter to accept it.
-	al_last=$(cat "/sys/class/net/$bridge/address" 2>/dev/null)
-	al_last=${al_last##*:}
+	#
+	# Only the last byte is open: the first five are the shape a ZTE controller presents, and no endpoint
+	# accepts anything else. The override is the way out of two boxes with the same LAN MAC (an image cloned
+	# onto both, or a MAC clone) where no derivation can help.
+	al_lan=$(cat "/sys/class/net/$bridge/address" 2>/dev/null)
+	al_last=${al_lan##*:}
 	config_get al_last_override main al_last ""
-	[ -n "$al_last_override" ] && al_last=$al_last_override
+	if [ -n "$al_last_override" ]; then
+		al_typed=$al_last_override
+		case "$al_typed" in
+		[0-9a-fA-F][0-9a-fA-F]) al_last=$(echo "$al_typed" | tr 'A-F' 'a-f') ;;
+		*)
+			# Falling back silently would leave the box on one byte while the page shows the one the
+			# user typed: a difference nobody can see is the worst kind to diagnose later.
+			log "zte_mesh.main.al_last=$al_typed is not two hex digits (as in 02:00:00:00:19:e3 -> e3); keeping $al_last, from the LAN MAC of $bridge"
+			;;
+		esac
+	fi
 	case "$al_last" in
 	[0-9a-fA-F][0-9a-fA-F]) ;;
-	*) al_last=06 ;;
+	*)
+		# No usable LAN MAC either: every box in this state ends up on the built-in address, which is
+		# the collision this derivation exists to avoid. Say it once instead of leaving it to a
+		# topology that never fills in.
+		al_last=06
+		log "cannot read the LAN MAC of $bridge: the AL MAC falls back to 02:00:00:00:19:06, which any other box in this state would share"
+		;;
 	esac
 
 	# A previous sandbox's wire can only be left behind by a crash.

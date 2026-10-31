@@ -79,6 +79,9 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ✅ | init 79；VM 切 `main` 后 init 写出 `wlan-plan`（`rows=2`）、`wlan-sync` 在跑、日志 `no usable 2g radio; left alone`；切回 `master` 后 plan 与实例一起消失（一个 plan 只有一个生产者） | — |
 | B18 | **cspd 替身**：控制器侧自己发 `0x0007` Search、并代答子路由的 Search（`0x0008`） | ✅ | `tools/lab/enroller.c` → `/usr/libexec/zte-mesh/mesh-search`，init 在非 `slave` 角色下多起一个 `search` 实例，带 `--al-mac 02:00:00:00:19:<al_last>`（子路由的 M1 发给控制器 AL MAC）。`--search` 每次启动只发**一帧**，所以周期就是"多久收一次新子节点"，已从 `86400` 改成 `300`（最坏等 5 分钟）；实测不抖：`plan applied nothing new`、`daemon_restarts=0`。装 r6 后真机自动入网，不再需要手工 enroller | — |
 
+| B19 | **控制器地址末字节可配**（UCI `al_last` / 页面"控制器地址末字节"）：两台设备 LAN MAC 相同时手工错开 | ✅ | init 83 条（含 `al_last` 空/大小写/非法值四个分支，VM 上 busybox ash 实测）；只暴露末字节，前五字节固定为子路由准入检查认的形状 | 1 |
+| B20 | 页面上本机型号取系统型号（`/tmp/sysinfo/model`）、名称取主机名，取不到都显示 `router` | ✅ | `controller_self_identity()`（`controller-run.c`），`state.json` 的 `self`；子路由行缺型号/名称时同样显示 `router` | 1 |
+
 ## C. 打包与分发
 
 | # | 功能 | 状态 | 证据 | 难度 |

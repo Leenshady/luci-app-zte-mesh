@@ -84,7 +84,8 @@
   daemon 既不重读也不推送；工厂调试通道 `/var/tmp/<进程>_asy` 也没有效果。见 [REPLAY_RESULTS](research/REPLAY_RESULTS.md)
   第 11 节与 [SERVICE.md](SERVICE.md)。
 - 控制器的 `AL MAC` 默认 `02:00:00:00:19:06`；启动器的 `ZTE_MESH_AL_LAST` 改最后一个字节（实验时用来让子节点当成新控制器）。
-  OpenWrt 包用 UCI `al_last`，默认取 LAN 桥 MAC 末字节。
+  OpenWrt 包用 UCI `al_last`（页面"控制器地址末字节"），默认取 LAN 桥 MAC 末字节。**只有末字节可配**：前五字节是子路由
+  准入检查认的形状，改成别的地址子路由直接不收。
 
 ## 5. 自组网 V2（`P1905ComCfg`）
 
