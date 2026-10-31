@@ -59,7 +59,7 @@ shim 在主线 f66c96d8（首次冷启动成功）上，由 `tools/mreplay.py` �
 ## 4. 本轮对 shim 源码的改动（都在 mac `port/mesh-shim/`，已备份 `/tmp/shim-bak-20261016/`，未入库）
 
 1. **profile 加载器**（`mesh-policies.c/.h`、`controller-run.c`）：启动时读 `/run/zte-mesh/db-profile`（行 `表 行 字段 值`），覆盖 `MultiAPMaster`、`MultiAPDomain`（行 0 到 7 → 内部行 2 到 9）、`P1905ComCfg`、`MultiAPCfg`；显式服务配置仍然优先。`tools/mkprofile.py` 从原厂快照生成。
-2. **AL MAC 可配置**（`controller-net.c`）：环境变量 `ZTE_MESH_AL_LAST`（十六进制末字节，默认 06）同时决定 `br0` 与 `veth-lab`。后续改为整串 `ZTE_MESH_AL_MAC`（`02:00:00:HH:19:LL`，见 [FINDINGS](../FINDINGS.md) 第 4 节），`ZTE_MESH_AL_LAST` 保留为只改末字节。
+2. **AL MAC 可配置**（`controller-net.c`）：环境变量 `ZTE_MESH_AL_LAST`（十六进制末字节，默认 06）同时决定 `br0` 与 `veth-lab`。
 3. **去掉写死的自检**（`controller-run.c` `verify_route_adapter`）：只校验前缀 `02:00:00:00:19`。
 4. 构建：用 `/tmp/build10.sh`（容器内删旧产物）；`ns-run` 用 `ns-run-al`（带市场码、`SERVICE_ROOT`、AL MAC 可配）。
 

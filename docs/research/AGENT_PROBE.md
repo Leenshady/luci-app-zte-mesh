@@ -565,9 +565,6 @@ Multi-AP 的 backhaul BSS 正是 4 地址 BSS，正好是这套控制面缺的�
 （`02:00:00:00:19:XX`，前缀不动，因为 `controller-route.c` 的 `GetRouteIFInfo` 要求它是本地
 管理地址），通过 `ZTE_MESH_AL_LAST` 传给 `ns-run`；`zte_mesh.main.al_last` 可以覆盖。
 
-> 后续把这个字节让给了 `HH`：现在是 `02:00:00:HH:19:LL`，整串走 `ZTE_MESH_AL_MAC`，8 bit 撞车风险降到 16 bit。
-> 上面是当时的形态，结论与原因不变。
-
 同一个 commit 里补了第二件事：**模拟器的自动探测**。第 11 节为止 `ZTE_MESH_EMULATED_LAB=1` /
 `ZTE_MESH_QEMU=/qemu-arm-static` 是手工加在两台设备上的 env，仓库里没有，所以任何人重新部署一次
 init 就会把服务打回 `execv errno=8`。现在按 `uname -m` + `/proc/config.gz` 里的 `CONFIG_COMPAT`

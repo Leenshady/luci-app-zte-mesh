@@ -570,13 +570,10 @@ done:
     return result;
 }
 
-/* Defined with the rest of the interface helpers, further down. */
-static int local_mac(const char *name, uint8_t out[6]);
-
 static int verify_route_adapter(void)
 {
     struct { uint32_t pre[4]; uint8_t data[532]; uint32_t post[4]; } guarded;
-    uint8_t snapshot[532], expect[6];
+    uint8_t snapshot[532];
     unsigned int i;
     int result = -1, fd = -1;
     struct sockaddr_ll target = { .sll_family = AF_PACKET, .sll_protocol = htons(0x893a) }, actual, original;
@@ -587,12 +584,9 @@ static int verify_route_adapter(void)
     if (!getter || !binder)
         goto done;
     memset(&guarded, 0xa5, sizeof(guarded));
-    /* What the adapter reports for DEV.IP.IF1 must be br0's own address. Nothing about that address is fixed
-     * any more -- 02:00:00:HH:19:LL is derived, and zte_mesh.main.al_mac can name any locally administered
-     * one -- so compare against the device instead of against a shape. */
     if (getter("DEV.IP.IF1", guarded.data) || strcmp((char *)guarded.data, "DEV.IP.IF1") ||
         strcmp((char *)guarded.data + 32, "br0") ||
-        local_mac("br0", expect) || memcmp(guarded.data + 172, expect, sizeof(expect)))
+        memcmp(guarded.data + 172, "\x02\x00\x00\x00\x19", 5)) /* AL MAC prefix only: the last byte is ZTE_MESH_AL_LAST */
         goto done;
     for (i = 0; i < 4; i++)
         if (guarded.pre[i] != 0xa5a5a5a5 || guarded.post[i] != 0xa5a5a5a5)
