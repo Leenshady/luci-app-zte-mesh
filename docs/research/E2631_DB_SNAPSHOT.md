@@ -1,6 +1,6 @@
-# E2631 配置库实测快照：十张表的真身
+# E2631 配置库实测快照：十三张表的真身
 
-2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。四轮：
+2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。五轮：
 
 ```sh
 # 第一轮
@@ -19,11 +19,16 @@ sendcmd 1 DB all                 # 全部表名，276 张 —— 见 E2631_DB_TA
 sendcmd 1 DB p P1905StaBind      # RowCount=0（表存在、无实例）
 sendcmd 1 DB p P1905Cfg          # RowCount=12，3 列 —— ViewName 就是 IGD.P1905CFG1..6
 sendcmd 1 DB p WlanRoamingCfg    # RowCount=1，6 列 —— 不是 11r，是客户端弱信号重关联
+# 第五轮（§9）
+sendcmd 1 DB p MultiapCapability # RowCount=1，2 列 —— 不是位图对照表
+sendcmd 1 DB p EthVlan           # RowCount=0（表存在、无实例）
+sendcmd 1 DB p Brport            # RowCount=16，23 列 —— 桥端口拓扑 + VLAN 列全默认
 ```
 
 这份文件的用途只有一个：**它是 [E2631_ROOTFS](E2631_ROOTFS.md) §6 那些离线推断的对照答案**。
 §6 是从 `cspd` 字符串表按排列顺序切出来的（当时标"中—强"），这里给出实测结果 —
-**表归属错了三处、数值注释错了一处、命名空间层级错了一处**，错误与成因记在 §4、§5.1、§6.2、§8.1。
+**表归属错了三处、数值注释错了一处、命名空间层级错了一处、把"表名像什么"当证据错了一处**，
+错误与成因记在 §4、§5.1、§6.2、§8.1、§9.1。
 表名全集另见 [E2631_DB_TABLES](E2631_DB_TABLES.md)。
 
 > 值都带出处：这一份是出厂状态，机器已组过网（domain 4/8 是自动生成的 `ZMESH-` 专用 SSID）。
@@ -611,16 +616,201 @@ sendcmd 1 DB p WlanRoamingCfg   # RowCount=1，6 列
 
 ---
 
-## 9. 还没 dump 的表（按价值排序）
+## 9. 第五轮：`MultiapCapability` 把"表名联想"打回原形，`Brport` 一次读全端口拓扑
+
+三条命令、三张表，结局各不相同——**一张证明我的待办排序理由错了，一张是空的，一张是本轮信息量最大的**：
+
+```sh
+sendcmd 1 DB p MultiapCapability   # RowCount=1，2 列
+sendcmd 1 DB p EthVlan             # RowCount=0
+sendcmd 1 DB p Brport              # RowCount=16，每行 23 列
+```
+
+### 9.1 `MultiapCapability`：2 列 —— 上一轮排它的理由不成立（第四处自纠）
+
+| 列 | 值 | `isSave` |
+|---|---|---|
+| `SupportBSSync` | **1** | 1 |
+| `SupportPackageProduct` | **0** | 1 |
+
+只有两列，**两个都是 `Support*` 能力位，没有任何 `Strategies` / `RoamModes` 之类的东西**。
+
+上一轮的待 dump 表里，我把它排在第 1 位，理由是「与 `MultiAPDomain.SupportStrategies=251` 位图对照，
+可能一次解开」。这个理由有两层错：
+
+**① 名字相似被当成结构证据。** 表名叫 `MultiapCapability`、列名里有 `Support*`，
+我就假定它和 `MultiAPDomain` 的 `SupportStrategies` 有对照关系。这与前面三次
+"表名夹在列名序列里当分隔"是同一类错的变种：**把命名相似当成了结构关系**，中间没有任何证据链。
+
+**② 更根本的一层：把"缺语义"误判成"缺数据"。** `SupportStrategies=251` 和 `EnRoamModes=19`
+**本来就已经在 `MultiAPDomain` 的 106 列里实测到值了**，缺的是「第 n 位代表什么」。
+位图语义只能从反汇编或 Multi-AP 规范正文里来，**任何一张别的表都不可能替我解释它**。
+所以那条待办从写下的那一刻起就不可能靠 dump 解决——它是**排序错误 + 手段错误**，不只是表选错。
+
+⇒ 现修正为：位图语义这条线**不再排进 dump 待办**；`MultiapCapability` 的作用就是下面两条能力位。
+
+**正面收获一：`SupportBSSync=1` + 配置侧关着。**
+
+`MultiAPCfg` 里同族的三个开关是 `SyncEnable=1`、`SyncBhBssEnable=0`（§6.1）、`SSIDSyncRadio=0`。
+即 **BSS 同步能力声明为"有"（`SupportBSSync=1`），但回程 BSS 同步与 radio 同步都关着**。
+这是第三次看到同一个模式——能力在、出厂配置关（前两次是 D4 的 `EnVbss=0`、D7 的 `EnBtmKickoff=0`）。
+做功能比对时，**"支持某能力"这句话在这台设备上一律指"编进去了"，不指"开着"**。
+
+**正面收获二（弱）：`SupportPackageProduct=0` 是唯一一个为 0 的能力位。**
+
+D5 的原始诉求写着「VLAN / 流量分离 / **Profile-2**」。EasyMesh 语境里 "packaged product"
+指的是整机形态的产品（相对 component）。**如果**这个列名对应的就是那个概念，那它是 D5 的一个
+直接否定锚点——但**仅凭列名不能定**，要拿 `multiapd` 的字符串交叉才能说话。这里只登记现象，不当结论用。
+
+### 9.2 `EthVlan`：0 行 —— D5 的第一个候选落空（但只落一半）
+
+`RowCount=0`。与 §5.2 的判据一致：**表存在、无实例**，不是表名错。
+
+读法要克制：0 行只能证明**出厂没有任何以太 VLAN 配置**，
+**不能**证明「VLAN 的落点不在这张表」——per-STA 那三张表（§8.2）也是 0 行，它们是"按需建行"。
+所以 `EthVlan` 的正确状态是「**候选未被否证，只是没被启用**」。
+
+真正的判断要靠下一张表。
+
+### 9.3 `Brport`：16 行 × 23 列 —— 端口拓扑一次读全
+
+这是本轮信息量最大的一张。全部 16 行都属于**一个桥** `DEV.BRIDGING.BR1`，行名 `BRPORT1`–`BRPORT16`，
+每行 23 列（`ViewName/Enable/Status/Alias/Name/LastChange/LowerLayers/ManagementPort/
+DefaultUserPriority/PriorityRegeneration/PortState/PVID/AcceptableFrameTypes/IngressFiltering/
+PriorityTagging/WanPortVlanEnable/WanPortVlanMode/WanPortVlanID/WanPortPri/ServList/WanName/Origin/HideState`）。
+
+**结构**（`Alias` 与 `LowerLayers` 原文）：
+
+| BRPORT | `Alias` | `LowerLayers` | 读法 |
+|---|---|---|---|
+| 1 | `M_BRPORT1` | `BRPORT2`…`BRPORT12`（11 个） | **桥自身**，`ManagementPort=1`，`LowerLayers` 是成员表 |
+| 2 | `LAN1` | `DEV.ETH.IF2` | 以太口 |
+| 3–10 | `SSID1`…`SSID8` | `DEV.WIFI.SSID1`…`SSID8` | **8 个无线 BSS**，与 `MULTIAPDOMAIN1..8` 一一对号 |
+| 11 | `LAN2` | `DEV.ETH.IF3` | 以太口 |
+| 12 | `LAN3` | `DEV.ETH.IF4` | 以太口 |
+| 13 | `APCLI1` | `DEV.WIFI.STAPROFILE1` | 回程 STA（无线上行） |
+| 14 | `APCLI5G1` | `DEV.WIFI.STAPROFILE2` | 回程 STA，**名字自带 `5G`** |
+| 15 | `BRIDGING_BR1_BRPORT15`（默认名） | `DEV.ETH.IF1` | **WAN 侧**：`ServList=1`、`WanName=Bridge` |
+| 16 | `ETH_WAN` | `DEV.ETH.IF99` | **WAN 侧**：`ServList=1`、`WanName=""` |
+
+四件事：
+
+**① `eth0` 的疑问换成了一半答案。** §8.1 记的「`eth0` 不在 `P1905Cfg`」旁边，现在能补一条：
+以太口在 DB 里是 `DEV.ETH.IF1`–`IF4` 再加一个 `IF99`，**没有 `IF0`**。
+`IF1` 是 WAN 侧、`IF2/IF3/IF4` 恰好是 `LAN1/LAN2/LAN3` —— 与 AX3000「1 WAN + 3 LAN」的口数**完全吻合**。
+
+**② 但「`IFn` 就是 `ethn`」本轮没有证到。** TR-069 实例号与内核接口名之间没有必然的同号关系。
+如果同号成立，`P1905Cfg` 的 `eth1`–`eth4` 就是「WAN + 3×LAN 全跑 1905」——这在 mesh 里是合理的
+（有线回程可以走 WAN 口，也可以走 LAN 口）。**这是间接证据，不是证明**；要定得靠 `ip link` / `ifconfig`
+把 `DEV.ETH.IFn` 与真实接口名绑起来。[E2631_ROOTFS](E2631_ROOTFS.md) §10 的这条局限从「完全未知」降级为
+「结构已知、同号待证」。
+
+**③ `IF1` 与 `IF99` 都挂在 WAN 侧，是两个不同的东西。** `IF1` 的 `WanName` 是 `Bridge`（WAN 工作在桥模式），
+`IF99` 的 `Alias` 直接叫 `ETH_WAN`。99 这种编号通常不是物理口。
+⇒ 合理猜测是「`IF1` = 物理 WAN、`IF99` = 逻辑 WAN 抽象（供 PPPoE/DHCP 服务绑定）」，
+**但这只是编号习惯，本轮无证据**，登记为待解。
+
+**④ `LowerLayers` 只列 `BRPORT2`–`BRPORT12`，不含 13–16。** 说明回程 STA（13/14）与两个 WAN 口（15/16）
+**不是通过 `LowerLayers` 挂进 `br1` 的**，而是靠 `ServList`/`WanName` 挂到"服务"上。
+13/14 的 `ServList=0`、`PortState=0` ⇒ 出厂无线回程未建立。
+
+### 9.4 `Brport` 的 8 个 VLAN 列：入口明确，出厂全默认
+
+16 行里这 8 列**无一例外**是默认值：
+
+| 列 | 16 行的值 | 含义（按 TR-069 桥端口惯例，**推断**） |
+|---|---|---|
+| `PVID` | 全 **1** | 全部端口同属 VLAN 1 |
+| `AcceptableFrameTypes` | 全 **0** | Admit All |
+| `IngressFiltering` | 全 **0** | 入口不过滤 |
+| `PriorityTagging` | 全 **0** | 不打标 |
+| `WanPortVlanEnable` | 全 **0** | WAN 侧 VLAN 未启用 |
+| `WanPortVlanMode` | 全 **0** | |
+| `WanPortVlanID` | 全 **0** | |
+| `WanPortPri` | 全 **0** | |
+
+另外 `ServList` 只有 `BRPORT15`/`BRPORT16` 为 1（WAN 侧两条），其余全 0；`Origin`/`HideState` 全 0。
+
+### 9.5 D5 现在能结到什么程度
+
+**能结的（强）：出厂状态是一个单广播域桥，零 VLAN 划分。**
+两条独立证据：`EthVlan` 0 行（§9.2）+ `Brport` 16 口 8 个 VLAN 列全默认（§9.4）。
+
+**能结的（强）：D5 在桥侧的入口就是 `Brport` 那 8 列，不再是"未定位"。**
+这一点比 `EthVlan` 更重要：`EthVlan` 空只说明"没配"，而 `Brport` 的 16 行是**固定存在的、列名就在那里、
+值可写**——它是**明确的、可写的、出厂关着的入口**。上一轮写的「VLAN 本体未定位，新候选 `EthVlan`(#79)/
+`Brport`(#20)/`PortBinding`(#182)」应当改成下面这句。
+
+**不能结的：厂商实现流量分离时到底写哪张表。**
+`EthVlan` 空 + `Brport` 全默认，只说明**出厂没启用**。厂商在网页上打开"VLAN/流量分离"时，
+是往 `EthVlan` 建行、还是改 `Brport` 的 `PVID`/`WanPortVlan*`、还是第三个地方，**本轮看不到**。
+要看只有两条路：① 在网页上真的配一次（改配置，不是取证）；② `webmodules` 里那个 VLAN 页面的 `.lua`
+字节码，读它的 `OBJ_*_ID` 指向哪张表——**这是只读的，值得排在 dump 之后做**。
+
+⇒ 修正后的 D5 表述：
+
+> 编译期 `CONFIG_CSP_WLAN_VLAN` + `EBTABLES_{VLAN,FFE_T}` + `CfMultiAPSetVlanCfg`（`0xa94e`）三条
+> 说明能力与下发入口都在；**配置层实测为零**：`EthVlan` 0 行、`Brport` 16 口 `PVID` 全 1 且
+> `IngressFiltering`/`AcceptableFrameTypes`/`WanPortVlan*` 全默认。桥侧入口 = `Brport` 的 8 个 VLAN 列（可写、出厂关）。
+
+### 9.6 一处新的张力：`PortState` 与 `DomainUsed` 对不上
+
+`PortState` 是 `isSave=0`（运行时），16 行只有 0 和 4 两种值，**8 : 8**：
+
+| `PortState=4`（**推断** = 转发/up） | `PortState=0` |
+|---|---|
+| `BRPORT1`（桥自身） | `BRPORT2` `LAN1` |
+| `BRPORT3` `SSID1` | `BRPORT4` `SSID2` |
+| `BRPORT5` `SSID3` | `BRPORT8` `SSID6` |
+| `BRPORT6` `SSID4` | `BRPORT9` `SSID7` |
+| `BRPORT7` `SSID5` | `BRPORT12` `LAN3` |
+| `BRPORT10` `SSID8` | `BRPORT13` `APCLI1` |
+| `BRPORT11` `LAN2` | `BRPORT14` `APCLI5G1` |
+| `BRPORT15` `ETH.IF1` | `BRPORT16` `ETH_WAN` |
+
+ZTE 没给 `PortState` 的枚举值，4 的含义是**推断**（桥自身与 WAN 口都是 4，看起来像"在转发"）。
+在这个读法下，当时有 5 个 BSS 在跑：`SSID1/3/4/5/8`。
+而 §3.1 从 `DomainUsed` 数出来生效的 domain 是 **1/4/5/8 四个**。差集正好是 **SSID3**。
+
+（对差集讨论要说清一件事：§3.1 已经记了 **domain 4/8 是自动生成的 `ZMESH-` 专用 SSID**，
+所以这里比的是**编号对应关系**，不是"用户可见 SSID 有几个"。）
+
+这个张力不能靠猜消掉，记三种可能：
+
+1. `PortState=4` 不等于 up（比如 4 表示 "BSS 已创建但未承载"），5 与 4 的差是巧合；
+2. `MULTIAPDOMAINn` 与 `SSIDn` **并非严格同号**（§3.1 的 1:1 推断只在 domain 侧验证过，没在 BSS 侧验证）；
+3. `DomainUsed` 是 `isSave=0` 的运行时值，dump 那一刻与 `PortState` 不是同一时刻的状态。
+
+**判据**：dump `WLANSSID`(#261) 看 SSID 实例与 `MULTIAPDOMAINn` 的对应关系，同时问用户当时 LAN1/LAN2/LAN3
+实际插了哪根线——若 4 真是 up，则应是**只有 LAN2 插着线**。这条是可检验的预测，下一轮一并验。
+
+### 9.7 顺带读出的一条：1905 走 `br0`，业务走 `br1`
+
+`MultiAPCfg.IFLink = "br0"`（§6.1），而 `Brport` 全部 16 行都在 `DEV.BRIDGING.BR1` 下——**不是同一个桥**。
+
+如果这条成立，厂商的"控制面/数据面分离"就**不依赖 VLAN**：1905 报文走 `br0`，
+LAN/SSID 用户流量走 `br1`，桥本身就隔开了。这也顺手解释了为什么 D5 的 VLAN 配置层是空的
+——**它不需要 VLAN 就已经把 1905 与用户数据分开了**。
+
+但 `Brport` 里只有 `BR1`，**没有 `BR0` 的端口实例**，说明 `br0` 可能只是内核桥、没有 TR-069 实例。
+所以这条只能写成「现象 + 一个合理的解释」，**不能当结论**。要证得看 `ip link` 的桥成员。
+
+---
+
+## 10. 还没 dump 的表（按价值排序）
 
 | 顺序 | 表 | 为什么要它 | D 段哪一项 |
 |---|---|---|---|
-| 1 | `MultiapCapability`(#154) | 与 `MultiAPDomain.SupportStrategies=251` 位图对照，可能一次解开 | D7 |
-| 2 | `EthVlan`(#79) / `Brport`(#20) / `PortBinding`(#182) | **D5 的 VLAN 本体**——`P1905Cfg` 只解决"哪些接口跑 1905"，没解决流量分离 | D5 |
-| 3 | `MapCooperatorCfg`(#139) | 角色选举触发分支（`AutoSetup`/`EnRebootElect`） | 角色 |
-| 4 | `WLANSSID`(#261) | SSID 实例；与 `MULTIAPDOMAINn` 的 1:1 关系可交叉验证（§3.1） | D7 |
+| 1 | `MapCooperatorCfg`(#139) | 角色选举触发分支（`AutoSetup`/`EnRebootElect`）—— 本机是 `Mode=1` 的 Slave，选举相关的值**从来没看到过** | 角色 |
+| 2 | `WLANSSID`(#261) | SSID 实例；用来证伪/证实 `MULTIAPDOMAINn ↔ SSIDn` 的 1:1（§3.1），并消掉 §9.6 的张力 | D7 |
+| 3 | `PortBinding`(#182) | `Brport` 已定桥侧入口，这张表是「端口↔服务」的另一种绑法，可用来解释 15/16 的 `ServList` | D5 |
 
+`MultiapCapability` / `EthVlan` / `Brport` **已在 §9 结掉**。
 全部只读、不用停机。表名清单见 [E2631_DB_TABLES](E2631_DB_TABLES.md)。
+
+**不再排进 dump 的**：`SupportStrategies=251` / `EnRoamModes=19` 的位含义——
+数据早就有了（在 `MultiAPDomain` 里），缺的是语义，dump 再多表也解不出来（§9.1）。
 
 `MultiAPCacheMac` / `MultiAPStaCfg` / `P1905StaBind` 已 dump 完但行空（§5、§8.2），
 要看到行得先在网页上配一条绑定，属于**改配置**，不再是只读取证。
+

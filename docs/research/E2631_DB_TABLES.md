@@ -24,7 +24,7 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 
 | # | 表 | 已知情况 |
 |---|---|---|
-| 143 | **`MultiAPCfg`** | **已实测，50 列**（[SNAPSHOT](E2631_DB_SNAPSHOT.md) §7）。角色开关 / 跳数 / `MeshName` / `IFLink` / ACD 全在这 |
+| 143 | **`MultiAPCfg`** | **已实测，50 列**（[SNAPSHOT](E2631_DB_SNAPSHOT.md) §6）。角色开关 / 跳数 / `MeshName` / `IFLink` / ACD 全在这 |
 | 146 | `MultiAPMaster` | 已实测，55 列。`EnBtmKickoff`/`EnVbss`/`En11rSteer`/`EnActiveDeauth` |
 | 144 | `MultiAPDomain` | 已实测，8 实例 × 106 列。全部阈值与状态机 |
 | 148 | `MultiAPRoamCatonCfg` | 已实测，1 行 7 列。漫游帧缓存全局参数，出厂全关 |
@@ -35,7 +35,7 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 | 145 | `MultiAPDualBand` | 拓扑视图：双频 |
 | 150 | `MultiAPTopo` | 拓扑视图 |
 | 165 | `P1905ComCfg` | 已实测，**8 列**（§4.1 自纠的那张） |
-| 164 | `P1905Cfg` | **与 `P1905ComCfg` 并列的另一张**，此前完全没注意。1905 接口名的候选落点（D5） |
+| 164 | `P1905Cfg` | **已实测，12 行 × 3 列**：`ViewName`=`IGD.P1905CFG1..6`，`eth1`–`eth4`/`wlan0`/`wlan1` 全 `EnableP1905=1`。它管"哪些接口跑 1905"，**不是 VLAN**（§8.1） |
 | 168 | **`P1905StaBind`** | **D6 的真正落点**：`P1905StaBind` 是**表名**，不是列名。此前我把它当成 `P1905ComCfg` 的一列 |
 | 162 | `P1905AcdBssCfg` | ACD 按 BSS 的配置 |
 | 163 | `P1905AcdVenderCfg` | ACD 厂商配置 |
@@ -83,11 +83,13 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 | # | 表 | 说明 |
 |---|---|---|
 | 139 | `MapCooperatorCfg` | [SCHEMA](../milestones/SCHEMA.md) 已记录：`AutoSetup`、`EnRebootElect`、`WpsLongPress` 等，**影响角色选举触发分支** |
-| 154 | `MultiapCapability` | 能力声明表：设备向控制器声明支持哪些能力（与 `SupportStrategies=251` 位图可能对应） |
+| 154 | **`MultiapCapability`** | **已 dump（2026-11-01）**：只有 2 列 `SupportBSSync=1`、`SupportPackageProduct=0`，**不含任何策略/漫游模式位图**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §9.1 |
 | 206 | `SFUMeshCfg` | SFU（主网关侧）的 mesh 配置 |
 | 207 | `SFUTopoCfg` | SFU 侧拓扑配置 |
 
-`MultiapCapability` 与 `MultiAPDomain.SupportStrategies=251` 一起看，有机会解开那个位图。
+**`MultiapCapability` 与 `SupportStrategies=251` 没有对照关系**——上一版这里写"一起看有机会解开那个位图"，
+实测证伪：那张表只有两个 `Support*` 能力位。`SupportStrategies=251` / `EnRoamModes=19` 的值本来就在
+`MultiAPDomain` 里，**缺的是位的语义，不是缺数据**，dump 再多表也解不出来（详见快照 §9.1）。
 
 ## 4. 其余表（按字母序全量）
 
@@ -212,16 +214,19 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 
 ## 6. 下一步 dump 的优先级（全部只读）
 
-前三轮列的 5 条已全部跑完（`P1905StaBind` 0 行、`P1905Cfg` 12 行、`WlanRoamingCfg` 1 行，
-结果见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §8）。剩下这些：
+前五轮列出的命令已跑完 11 条（结果见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §5–§9）。
+其中 `MultiapCapability` / `EthVlan` / `Brport` 三张已在第五轮结掉：**前者否掉了"位图对照"的假设，
+后两者给出 D5 的负结果 + 桥侧可用入口**。剩下这些：
 
 | 顺序 | 命令 | 期望 |
 |---|---|---|
-| 1 | `sendcmd 1 DB p MultiapCapability` | 与 `MultiAPDomain.SupportStrategies=251` 位图对照，可能一次解开 |
-| 2 | `sendcmd 1 DB p EthVlan` | **D5 的 VLAN 本体**：`P1905Cfg` 只解决"哪些接口跑 1905"，没解决流量分离 |
-| 3 | `sendcmd 1 DB p Brport` | 桥端口属性，D5 的第二个候选（与 `EthVlan` 一起看） |
-| 4 | `sendcmd 1 DB p MapCooperatorCfg` | 角色选举触发分支（`AutoSetup`/`EnRebootElect`） |
-| 5 | `sendcmd 1 DB p WLANSSID` | SSID 实例，与 `MULTIAPDOMAINn` 的 1:1 关系交叉验证 |
+| 1 | `sendcmd 1 DB p MapCooperatorCfg` | 角色选举触发分支（`AutoSetup`/`EnRebootElect`）——本机是 `Mode=1` 的 Slave，选举相关值从没看到过 |
+| 2 | `sendcmd 1 DB p WLANSSID` | SSID 实例，与 `MULTIAPDOMAINn` 的 1:1 关系交叉验证；同时用来消掉快照 §9.6 的张力（5 个 BSS up vs 4 个 domain 生效） |
+| 3 | `sendcmd 1 DB p PortBinding` | `Brport` 已定桥侧入口，这张表是"端口↔服务"的另一种绑法，可解释 `BRPORT15/16` 的 `ServList=1` |
+
+**不再排进 dump 的**：`SupportStrategies=251` / `EnRoamModes=19` 的位含义。数据早就在
+`MultiAPDomain` 里，缺的是语义——位图解释只能从反汇编或 Multi-AP 规范正文来，
+**dump 再多表也解不出来**（快照 §9.1）。
 
 `DB all` 已经跑过，不必再跑。三张 per-STA 表（`MultiAPStaCfg` / `P1905StaBind` /
 `MultiAPCacheMac`）**行空是常态**，要看到行得先配一条绑定——那是改配置，不是取证。

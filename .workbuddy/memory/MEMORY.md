@@ -7,12 +7,16 @@
    Master/Domain 策略表的字段级还原。2026-11-01 我从 `cspd` 字符串表重新推断表边界，
    把 `P1905ComCfg` 切成四十多列（实际 8 列），把 `MultiAPCacheMac` 的 7 列记到了
    `MultiAPRoamCatonCfg` 上——两处都是重做已完成的活还做错了。
-2. **表名不许猜。** 先用 `sendcmd 1 DB l` 列出全部表名。`IGD.P1905CFGn` 就是凭空猜的产物，
-   实测 `table not find`；角色开关的正解是 `MultiAPCfg`。
-3. **`RowCount=0` ≠ 表不存在。** 表在、行空是"入口存在但没配过"（`MultiAPStaCfg`），
+2. **表名不许猜。** 先用 `sendcmd 1 DB all` 列出全部表名（**不是 `DB l`，那个不存在**）。
+   `IGD.P1905CFGn` 就是凭空猜的产物，实测 `table not find`；它后来被证实是 `P1905Cfg` 的**行名**。
+3. **`RowCount=0` ≠ 表不存在。** 表在、行空是"入口存在但没配过"（`MultiAPStaCfg`/`EthVlan`），
    运行时填充（`MultiAPCacheMac` 每 MAC 一行）也一样；只有 `table(X) not find` 才是表名错。
+   **也不要据此否定落点**：0 行可能是"按需建行"。
 4. **列名以实测为准**：`cspd` 字符串表里列名连续排列、表名夹在中间当分隔，
    漏切一个表名就会把整段列名并进上一张表——离线切分只能当假设。
+5. **"缺语义"不要当"缺数据"去 dump。** `SupportStrategies=251` / `EnRoamModes=19` 的值早在
+   `MultiAPDomain` 里，缺的是"第 n 位是什么"；这类问题只能靠反汇编或 Multi-AP 规范正文，
+   dump 再多表也解不出来（2026-11-01 第五轮，`MultiapCapability` 只有 2 个能力位，已证伪）。
 
 ## 文档收尾惯例
 
