@@ -309,6 +309,25 @@ jobs:
           EOF
           make defconfig
 
+          # The translations are a *virtual* package: luci.mk turns po/zh_Hans/
+          # into luci-i18n-zte-mesh-zh-cn, which owns no directory, so it can
+          # only be emitted by compiling its parent directory -- and only while
+          # it is selected in .config. defconfig quietly drops the selection
+          # when the symbol never reached Config.in, which is what happens when
+          # luci.mk could not see po/ (it builds its language list from
+          # ${CURDIR}/po/*). Name the case that is happening instead of letting
+          # the build die 20 minutes later on a target that does not exist.
+          if grep -qs 'luci-i18n-zte-mesh-zh-cn' .config-package.in tmp/.config-package.in; then
+            grep -q '^CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=' .config ||
+              printf 'CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=m\n' >> .config
+            grep -E '^CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=' .config
+          else
+            echo "luci.mk produced no luci-i18n-zte-mesh-zh-cn package:" >&2
+            echo "  po/ as the feed sees it: $(ls package/feeds/zte_mesh/luci-app-zte-mesh/po 2>&1 | tr '\n' ' ')" >&2
+            echo "  LUCI_LANG.zh_Hans in feeds/luci/luci.mk: $(grep -c 'LUCI_LANG\.zh_Hans' feeds/luci/luci.mk 2>/dev/null)" >&2
+            exit 1
+          fi
+
           # Must come after defconfig: kconfig regenerates .config from Config.in
           # and resets EXTERNAL_KERNEL_TREE to its default empty string, which
           # makes target/linux/zte/Makefile abort with
@@ -433,13 +452,21 @@ jobs:
           # before it can build luci-app-zte-mesh and its zh-cn translations.
           build package/feeds/luci/luci-base/compile
           build package/feeds/zte_mesh/zte-mesh/compile
+
+          # luci-i18n-zte-mesh-zh-cn has no directory of its own to name here
+          # (luci.mk derives it from po/zh_Hans/), so asking for it as a path
+          # yields "No rule to make target". Compiling the parent directory
+          # emits every package of that directory .config has selected, so the
+          # translation rides along -- provided Configure target kept it
+          # selected, which it now guarantees or fails loudly about.
           build package/feeds/zte_mesh/luci-app-zte-mesh/compile
 
-          # The translations are their own package (luci.mk turns every po/ dir
-          # into luci-i18n-<app>-<lang>); compiling the app does not build it,
-          # so without this line the Chinese catalog never ships and the page
-          # comes up in English even when the firmware is set to Chinese.
-          build package/feeds/zte_mesh/luci-i18n-zte-mesh-zh-cn/compile
+          find ./bin -name 'luci-i18n-zte-mesh-zh-cn-*.apk' | tee -a "$LOG"
+          test -n "$(find ./bin -name 'luci-i18n-zte-mesh-zh-cn-*.apk' | head -1)" || {
+            echo "the Chinese translation apk was not produced although it is selected" >&2
+            ls -R ./bin/packages 2>/dev/null | head -40 >&2
+            exit 1
+          }
 
           # A green build with no artifact is the worst outcome: assert the
           # packages are really there instead of trusting exit codes.
