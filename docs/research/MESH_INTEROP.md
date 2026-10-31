@@ -95,10 +95,15 @@
    （最后这一条当时是从 `mount`/`df` 推的，实证判据与真机侧做法见 §4.2）；
 3. eFuse/OTP 里的设备唯一密钥，运行时喂给上面两者之一。
 
-**一条能证伪的判据**：在任意一台能 root 的 ZTE 上读 `hexdump -C -n 64 /dev/mtdblock8`
-（原文写的是 `dd … | hexdump`，但 E2631 的 busybox 没编 `dd`，见 §4.2.2/§4.2.3）
-——若看到 `hsqs`/`UBI#`/JFFS2 节点而编程器 dump 同页是密文，就是第 2 条（硬件透明解密），
-密钥根本不在可读的镜像空间里；若也是高熵，才回落到第 1/3 条。
+**这条判据已于 2026-11-01 在 E2631 上跑完，结果落在第 2 条**：
+`/dev/mtdblock8` 首 8 字节是 `85 19 01 e0 31 00 00 00`（JFFS2 magic + dirent 节点），
+17 825 792 B 全量取回后**每个节点 CRC 都通过**（`hdr_crc` 0 坏、`data_crc` 0 坏），
+558 个 entry 全部解出。也就是说内核从 MTD 拿到的就是明文，变换在控制器硬件或 BootROM，
+**只在读路径里发生一次，CPU 侧没有任何一份密钥可偷**。
+
+另外这次还发现一个**标准工具会踩的坑**：这份 JFFS2 的 inode 头是 **68 字节**（标准 64），
+`data_crc` 之后多 4 字节才到 `data`；`ino`/`version` 的顺序也与标准相反。jefferson / mtd-utils
+不会报错，只会解出满地垃圾。验证与解包脚本见 [E2631_ROOTFS](E2631_ROOTFS.md) §1.2。
 
 ### 4.2 手上有 telnet root：能取，但"解密"这个动作不存在（2026-11-01）
 
@@ -123,7 +128,12 @@
 - "挂载成功" 只证明**内核看到的字节**是合法 JFFS2；
 - "同一物理页在编程器 dump 里是密文、在 `/dev/mtd8` 里是明文" 才证明**变换发生在读路径**。
 
-前者成立，后者未验。下面第一条命令就是补这一步。
+前者成立，后者未验。
+
+> **2026-11-01 更新：已验，结论是第 2 条。** 整块 mtdblock8（17 825 792 B）取回后
+> 是标准 JFFS2 明文（每节点 CRC 全通过），细节与"68 字节 inode 头"这个坑见
+> [E2631_ROOTFS](E2631_ROOTFS.md) §1。下面这节仍保留，作为**没跑过时**的判据写法。
+
 
 #### 4.2.2 判据：读 64 字节，把三种机制分开
 
@@ -308,6 +318,18 @@ dd if=/dev/mem of=/var/m0.bin bs=1048576 count=16 skip=2048
 | 谁 `dlopen` 了 `libzte_agent_mm.so` | agent 侧落配置的真实调用点 | D6 |
 
 这四类全在明文里，`cat` 就能拿——不需要密钥，一次 telnet 就够。
+
+> **2026-11-01 实取结果（见 [E2631_ROOTFS](E2631_ROOTFS.md)）**，与上表的预期有两处出入：
+> 这个 rootfs **没有 `/etc/init.d`、没有 `/www`**——启动脚本只有 `/etc/{rc,init.norm,init.debug}`，
+> 而 Web 与所有应用都在 `/kmodule`（squashfs）。真正拿到手的是：
+> - 启动链 `rc → init.norm → initwifi → pc&`（`pc` 才是拉起 cspd 的那个），multiapd 由 cspd 派生；
+> - **257 个 web 模块 `.lua`（字节码，常量表可读）+ `cspd` 的 schema 字符串**，两条独立路径交叉
+>   印证出 mesh 配置库的表名与列名（`P1905ComCfg` / `MultiAPMaster` / `MultiAPDomain` /
+>   `MultiAPRoamCatonCfg` / `MultiAPCacheMac` / `MultiAPStaCfg`）。**D3–D7 的入口命名就此确定。**
+> - 两份编译配置：内核 `.config`（`CONFIG_CRYPTO_AES=y` 但无任何 NAND crypto 消费者，
+>   从配置层面印证 §4.1）与 cspd 的 612 个开关（`CONFIG_CSP_WLAN_SUPPORT_80211KV`，
+>   **只有 11k/11v、没有 11r**）。
+
 
 #### 4.2.6 风险
 

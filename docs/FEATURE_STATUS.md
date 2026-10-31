@@ -99,20 +99,30 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 
 ## D. 换子路由固件才谈得上的（原判据只有 Z506）
 
-| # | 功能 | Z506（原判据） | E2631 / AX3000（2026-11-01 补） |
-|---|---|---|---|
-| D1 | 带宽 20/40/80/160 | 不写 `BandWidth`，也不关"自动信道" | 未找到新证据，不变 |
-| D2 | 访客限速 | 1905 里没有这个字段 | 协议外的东西，不变 |
-| D3 | 信道扫描 / CAC | 无接收代码 | 有 `SendCAC` / `ChannelScan` **发送**入口，接收侧没查（弱） |
-| D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | 无 | `cspd` 有 `EnVbss` / `ToVbssMode` 配置位，但**没有任何 CM/CF 导出**（中） |
-| D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） |
-| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） |
-| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**）。内核侧 `br_ieee1905_local_in_handle` 放行本地投递（§5.5），帧能到 `multiapd`；而它自带 `pktdump`，线上取证不必再自带抓包程序 |
+| # | 功能 | Z506（原判据） | E2631 / AX3000（2026-11-01 补） | **配置库入口（表.列）** |
+|---|---|---|---|---|
+| D1 | 带宽 20/40/80/160 | 不写 `BandWidth`，也不关"自动信道" | 未找到新证据，不变 | — |
+| D2 | 访客限速 | 1905 里没有这个字段 | 协议外的东西，不变 | — |
+| D3 | 信道扫描 / CAC | 无接收代码 | 有 `SendCAC` / `ChannelScan` **发送**入口，接收侧没查（弱） | `MultiAPMaster.InChannelScanRptFlag`、`P1905ComCfg.EnReportCenterChannel` |
+| D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | 无 | `cspd` 有 `EnVbss` / `ToVbssMode` 配置位，但**没有任何 CM/CF 导出**（中） | **`MultiAPMaster.EnVbss` / `.ToVbssMode`**（与 `EnBtmKickoff` 同表） |
+| D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） | `IGD.P1905CFGn.{P1905InterfaceName,EnableP1905}`；端口侧 `WANPortVlanMode/Enable/ID/Pri` |
+| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） | `MultiAPStaCfg{devMac,bssMac,staMac}`、`P1905ComCfg.{STAMac,TargetBand,P1905StaBind}` |
+| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**）。内核侧 `br_ieee1905_local_in_handle` 放行本地投递（§5.5），帧能到 `multiapd`；而它自带 `pktdump`，线上取证不必再自带抓包程序 | **`MultiAPMaster.{EnBtmKickoff,EnRoamKick,En11rSteer,11rSsidSync}`**、`MultiAPDomain.{ToSlowLmt,RoamingLmt,StatusPreRoamTimer}`、`MultiAPCacheMac.tBtmCacheEn` |
 
 这一节的判据原来只有 Z506（Wi-Fi 5 老固件）。2026-11-01 从一台市售 AX3000（E2631，2026-08 固件）
 拿出明文用户态之后，D5/D6/D7 从"没有通道"变成"厂商有入口"，其中 **D7 的接收侧处理路径是齐的**。
 强度分级（强/中/弱）与反汇编证据见 [VENDOR_MESH_STACK](research/VENDOR_MESH_STACK.md) 第 5 节。
-**四项都还没实测**，所以没有一项改成 ✅。
+
+**右列是 2026-11-01 新增的**：把整块 rootfs（[E2631_ROOTFS](research/E2631_ROOTFS.md)）解出来后，
+从 `cspd` 的 schema 字符串表 + web 模块 `.lua` 两条独立路径交叉得到 mesh 配置库的表名与列名，
+**D3–D7 各自"该改哪个字段"不再是猜测**。证据强度：表名与列名的存在是硬的；列归属是按 cspd
+字符串排列顺序切的，有 httpd 字段表与 lua 写入顺序印证，但**还没逐列 `sendcmd 1 DB p` 实测**。
+
+另外两条编译期证据（`/etc/autouserconf`，612 个开关）：`CONFIG_CSP_WLAN_SUPPORT_80211KV`
+**只有 11k/11v、没有 11r**——与 D7"固件不支持 FT"是同一件事的两面；
+`CONFIG_CSP_WLAN_VLAN` + `CONFIG_CSPCORE_EBTABLES_{VLAN,FFE_T}` 说明 WLAN 侧 VLAN 是编进去的。
+
+**七项都还没实测**，所以没有一项改成 ✅。
 
 ## 推进顺序（只做下一项，做完打勾再往下）
 
@@ -122,10 +132,11 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 1 | r10 四包装机验收 | 0 | 产物已在手，两台换上即可 |
 | 2 | ax3600 刷 `CONFIG_COMPAT=y` 固件 | 1 | 彻底摆脱手工模拟器，`.github/workflows/build-firmware.yml` |
 | 3 | C3 统一行尾 | 1 | 影响整个仓库，**需要单独确认** |
-| 4 | B16 `CurHop` 真机确认 | 2 | 需要真机 |
-| 5 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
-| 6 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
-| 7 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
-| 8 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
-| 9 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 8 项都过了才值得动 |
-| 10 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；取证改用它自带的 `pktdump 1`（落 `/var/tmp`）或 `logcat | grep "AGENT RECV"`，**不必再自带抓包程序**。停机前先做零成本只读项：`sendcmd 1 DB p`（读 mesh 配置库）、`cat /proc/kallsyms | grep 1905`、取 `/kmodule/bin/multiapd` 原件。见 [MULTIAPD](research/MULTIAPD.md) §5 与 [E2633_TELNET_BOOT](research/E2633_TELNET_BOOT.md) §11 |
+| 4 | `sendcmd 1 DB p MultiAPMaster` / `P1905ComCfg` / `MultiAPDomain` | 1 | **只读、不用停机**：把 D 段右列从"命名级"抬到"实测级" |
+| 5 | B16 `CurHop` 真机确认 | 2 | 需要真机 |
+| 6 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
+| 7 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
+| 8 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
+| 9 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
+| 10 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 9 项都过了才值得动 |
+| 11 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；取证改用它自带的 `pktdump 1`（落 `/var/tmp`）或 `logcat | grep "AGENT RECV"`，**不必再自带抓包程序**。停机前先做零成本只读项：`sendcmd 1 DB p`（读 mesh 配置库）、`cat /proc/kallsyms | grep 1905`、取 `/kmodule/bin/multiapd` 原件。见 [MULTIAPD](research/MULTIAPD.md) §5 与 [E2633_TELNET_BOOT](research/E2633_TELNET_BOOT.md) §11 |

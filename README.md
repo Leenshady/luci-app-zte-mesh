@@ -76,11 +76,12 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [VENDOR_MESH_STACK](docs/research/VENDOR_MESH_STACK.md) | 从市售 AX3000（E2631）拿到的**明文原厂 mesh 栈**：cspd 的模块划分、`ASEND`/`SSEND` 内部总线号、和 SR1010 的能力面差异、**D 段（VLAN/绑定/BTM/VBSS）的修订依据**（§2.1 记录了「漏取 multiapd」的自纠） |
 | [MULTIAPD](docs/research/MULTIAPD.md) | **没被 strip 的 1905 协议实体**：6835 个符号 / 2184 个具名函数、TLV 与 M1/M2 的收发两端、`br0` 上的 raw socket、`pktdump`/`setrole`/`querydev` 调试命令表、DB 通道 |
 | [E2633_TELNET_BOOT](docs/research/E2633_TELNET_BOOT.md) | 市售 E2633「转正」工具链（开 telnet / 改型号 / 刷 boot）：**`config.bin` 容器格式与密钥派生**、`boot.bin` 两段式结构、升级密钥对闸门、安全启动未启用的实证、与英文参考实现 `zcu` 的逐字段对照（§10）、**`sendcmd`/换区开关与 `/kmodule/bin` 工具清单**（§11） |
+| [E2631_ROOTFS](docs/research/E2631_ROOTFS.md) | 真机取回的 `rootfs.jffs2` 解包结果：**68 字节 inode 头 + 小端 + 非 zlib CRC 三个坑**、mtd→挂载点权威表、`/etc/autokernelconf` 与 `/etc/autouserconf`、**mesh 配置库的表名与列名**（`MultiAPMaster`/`MultiAPDomain`/`P1905ComCfg`）、`kmodule` squashfs 里的 257 个 lua 与 `OBJ_*_ID` 对照、`db_default_auto_cfg.xml` 解不开的负结果 |
 | [research/](docs/research/) | 原厂对照研究（存档）：`FEATURE_MAP`、`GAP_ANALYSIS`、`REPLAY_RESULTS`、`AGENT_PROBE`、`E2633_FIRMWARE` |
 | [milestones/](docs/milestones/) | 早期里程碑 B.1–B.3.3 的验收记录（存档） |
 | [tools/README.md](tools/README.md) | 各个脚本 |
 
-`docs/research/` 与 `docs/milestones/` 是**证据存档**，按时间保留原始记录、不随结论更新；结论以 `ARCHITECTURE` 到 `MULTIAPD` 这十二份为准。
+`docs/research/` 与 `docs/milestones/` 是**证据存档**，按时间保留原始记录、不随结论更新；结论以 `ARCHITECTURE` 到 `E2631_ROOTFS` 这十四份为准。
 
 ## 约定
 

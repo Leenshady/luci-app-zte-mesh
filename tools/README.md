@@ -52,6 +52,8 @@ passed as files that stay outside the repository. Unless noted, run them on the 
 | `run-service.sh` | Starts the controller service in the sandbox via `ns-run-svctest`; `--seconds N`, `--config FILE`. Needs root. |
 | `emulate.sh` | The same sandbox built by hand with `qemu-arm-static`, so emulator flags (`-strace`) can be passed — `ns-run` goes through binfmt and cannot. |
 | `syms.py` | Which object exports/imports a symbol (`python3 tools/lab/syms.py out/runtime/lib/libdb.so --imports --prefix shm`). |
+| `unpack_jffs2.py` | Pure-stdlib JFFS2 unpacker for a factory flash image; auto-detects endianness and the inode layout, so the ZTE 68-byte-header variant (`ino`/`version` swapped, extra 4 bytes before `data`, non-zlib CRC) is not silently unpacked into garbage. `--list` first, `-o DIR` to write. Results: docs/research/E2631_ROOTFS.md section 2. |
+| `unpack_squashfs.py` | Pure-stdlib squashfs 4.0 reader (gzip/lzma/xz/lz4/zstd) for the `kmodule` partition a JFFS2 root links to; `--list`, `--cat PATH`, `-o DIR`. |
 | `shm-fixed.c` | Probe for fixed-address `shmat()` under qemu-user: `NULL` and `|SHM_REMAP` work, a plain fixed address returns `EINVAL`. This is why `shim.c` retries that call on an emulated run. |
 
 Setup steps, the failure modes behind each script and the current test status: [docs/LAB.md](../docs/LAB.md).
