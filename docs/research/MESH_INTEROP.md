@@ -98,7 +98,10 @@
 ——若看到 `hsqs`/`UBI#`/JFFS2 节点而编程器 dump 同页是密文，就是第 2 条（硬件透明解密），
 密钥根本不在可读的镜像空间里；若也是高熵，才回落到第 1/3 条。
 
-## 5. 内核里的 1905：只识别、只丢弃，不做协议
+## 5. 内核里的 1905：识别命中、丢转发、送本机，但不做协议
+
+> 标题原为"只识别、只丢弃"。2026-11-01 用第三方的全符号表补出 `br_ieee1905_local_in_handle`
+> 后修正：**丢的是转发，不是本地投递**。详见 §5.5，那一节也交代了这处修正的依据与边界。
 
 这一节回答"原厂内核为 mesh 做了什么"。素材是 E2631（2024-09 版）的 `vmlinux.bin`，方法见
 §5.4，可复现。结论先说：**内核里没有 Multi-AP/1905 协议逻辑**，只有三件事——识别帧、把 1905
@@ -206,7 +209,7 @@ bx   lr
 
 1. **§6 的第 2 条硬约束（不新增控制通道）从"推论"变成"可复现的事实"**：内核里连解析器都没有，
    任何 mesh 语义只可能存在于 1905 帧里。想做新功能又没有对应 CMDU/TLV，就必然无处落地。
-2. **解释了 lab 与真机的行为差**：沙箱里没有这个钩子，`0x893a` 帧会在 `br-lan` 上被泛洪回
+2. **解释了 lab 与真机的行为差**：沙箱里没有这对钩子（丢转发 + 送本机，见 §5.5），`0x893a` 帧会在 `br-lan` 上被泛洪回
    `zmesh0`——上一轮自检功能的假阳性正是这个原因（[WIRESHARK_1905](WIRESHARK_1905.md) 记的
    `/run/zte-mesh/search-sent` 绕法，本质是在用户态模拟这个钩子该做的事）。
 3. **对我们自己的实现没有要求变更**：我们发的帧本来就是单播/组播的裸 `0x893a`，不带 VLAN。
@@ -228,6 +231,74 @@ bx   lr
 局限：非导出符号拿不到名字（`br_ieee1905_check_is1905_msg` 的调用者就是这样一段匿名代码）；
 `0xC0617954` 那个 ops 结构的 `pf`/`hooknum` 字段布局未能确证，所以本节只按"钩子 + 丢弃 1905 组播"
 描述行为，不引用具体 hook 点编号。
+
+### 5.5 用第三方全符号表交叉验证，并修正本节两处（2026-11-01）
+
+上一节最后那条局限——「非导出符号拿不到名字」——可以直接消掉：第三方 E2631 移植仓库
+[Zlion-Y/zte-e2631-openwrt](https://github.com/Zlion-Y/zte-e2631-openwrt) 里带了一份
+`re/ffe/ksym-all.txt`，**21 946 行全符号表**（含 static，不是只有 `__ksymtab` 那 6 393 个）。
+拿它对照，先验证、再补漏：
+
+**验证**：三个同名符号全部对上，地址因固件版本不同而平移，**且平移量互不相同**
+（`+0x11b0` / `+0x28b8` / `+0x412c`），符合代码增删的正常形态，不是系统性偏移：
+
+| 符号 | 我们（e1630 2024-09） | 第三方（E2631 较新版） |
+|---|---|---|
+| `wlan_get_wlan_multiap_mode` | `0xC02AF210` | `c02b03c0` |
+| `br_ieee1905_check_is1905_msg` | `0xC02AFB3C` | `c02b23f4` |
+| `br_ieee1905_filter_init` | `0xC05F723C` | `c05fb368` |
+
+这条交叉验证的意义不小：**两张表由两条互不相干的路径产生**（我们靠 `__bug_table`+`__ksymtab`
+从无 ELF 头的裸镜像里恢复，他们那份是现成的），结果逐名对上——`__ksymtab` 那套恢复方法是可信的。
+
+**补漏一：`br_ieee1905_*` 是 6 个函数，不是 3 个**。多出来的三个：
+
+```
+c02b243c  br_ieee1905_filter_handle
+c02b2484  br_ieee1905_local_in_handle     ← 关键
+c06087f0  br_ieee1905_filter_exit
+c0611f20  __initcall_br_ieee1905_filter_init6
+```
+
+**补漏二：§5 的"只识别、只丢弃"要改。** `br_ieee1905_local_in_handle` 这个名字指向
+**local delivery**——桥的 LOCAL_IN 钩子，即把命中 1905 的帧**送一份给本机协议栈**，而不是
+只有 `NF_DROP`。这和 [MULTIAPD](MULTIAPD.md) §3 发现的「`multiapd` 在 `br0` 上用用户态
+raw socket 收 1905」互为对端：**丢弃的是转发，不是本地投递**。
+
+正确的模型是三分支：
+
+```
+1905 帧进桥
+  ├─ br_ieee1905_check_is1905_msg   命中（含 802.1Q 内层）
+  ├─ br_ieee1905_filter_handle      FORWARD 钩子：不放行 → NF_DROP（不再跨口泛洪）
+  └─ br_ieee1905_local_in_handle    LOCAL_IN 钩子：送本机 → multiapd 的 raw socket 收到
+```
+
+§5.3 第 1 条的结论**不受影响**（内核仍无解析器，mesh 语义只在 CMDU/TLV 里）；但第 2 条
+「`0x893a` 被泛洪回 `zmesh0`」的解释要更精确：我们 lab 里缺的不是"丢弃"，而是**这对
+"丢转发 + 送本机"的配套**——沙箱里两者都没有，帧才回到了自己身上。
+
+**补漏三：内核里的 multiap 侧符号是 22 个，不是 3 个**，而且是一整套 **procfs 读/写配对**：
+
+```
+wlan_get_wlan_multiap_mode / _wlan_get_wlan_multiap_mode
+wlan_multiap_mode_read / wlan_multiap_mode_write / _wlan_multiap_mode_read
+wlan_multiap_btm_kick_read / _write
+wlan_multiap_btm_cache_en_read / _write
+wlan_multiap_TxDataAfterBaEn_read / _write
+wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
+```
+
+`read`/`write` 成对 + `_read` 下划线变体，是 ZTE 那套 procfs 属性的典型形态。**这解释了一件事**：
+`wlan_get_wlan_multiap_mode` 只读一个 u32 位（§5.2 反汇编结论），而这个位**有对应的写入口**——
+也就是说 mesh 模式在驱动侧是可读可写的，`/proc/wlan_cfg/map/btm_kick` 那条待验证项
+（[VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) §8）由此得到符号级支持：
+`wlan_multiap_btm_kick_write` 确实存在。节点名与属性名仍需在设备上 `ls` 确认。
+
+**局限的更新**：上述三个修正都建立在「两份符号表指的是同一份源码的不同版本」这个前提上。
+固件差一年多（我们 2024-09、他们较新），`local_in_handle` 在我们那版是否**同址同存**未验证——
+它在我们恢复的导出表里不存在，因为它是 static（`__ksymtab` 只收导出符号）。
+要落实，只需在 e1630 镜像里按 `br_ieee1905_filter_init` 附近的函数边界找相邻未命名块。
 
 
 

@@ -14,6 +14,7 @@
 | libc | `uClibc-0.9.33.2`（不是 glibc） |
 | 根文件系统 | `/dev/mtdblock8`，**JFFS2 明文**，17 MiB，**100% 占满** |
 | mesh 进程 | `cspd`，PID 597，`/kmodule/bin/cspd`，3,045,829 B |
+| mesh 进程（**首次取漏**） | `multiapd`，PID 1293，`/kmodule/bin/multiapd`，**大小未取**；`VSZ 45344 / RSS 8260` KiB |
 | 库所在 | `/kmodule` = `/dev/loop0` 挂载的 12.6 MiB 镜像 |
 
 取出来的是 22 个文件（`cspd` + 6 个 mesh 库 + 15 个支撑库），走 tftp 上传到实验机：
@@ -29,7 +30,11 @@ meshstack.tgz  sha256 f6508f456af1655ff5aae15629c360f259b225838dae3f53a933d3c6cd
 对照样本是 SR1010 的原厂库（`out/runtime/lib/`，AArch64 + glibc）。**两边同名库成套存在**，
 所以可以做跨机型 diff，这是这次最重要的收获。
 
-## 2. 运行结构：cspd 是唯一的 mesh 进程
+## 2. 运行结构：cspd 不是唯一的 mesh 进程（2026-11-01 修订）
+
+> **本节原先的判断已被推翻。** 原标题是「cspd 是唯一的 mesh 进程」、结论是「1905 帧由驱动收发，
+> 不走 socket、不走 netlink」。两条都错了，原因只有一个：**取样本时漏了 `/kmodule/bin/multiapd`**。
+> 修订依据见 §2.1，逐条剖析见 [MULTIAPD](MULTIAPD.md)。
 
 `/proc/597/maps` 给出的完整依赖链，按层看：
 
@@ -42,7 +47,41 @@ meshstack.tgz  sha256 f6508f456af1655ff5aae15629c360f259b225838dae3f53a933d3c6cd
 
 另外两个映射暴露了通道形状：`/SYSV0000ffff`、`/SYSV0000abab` 两个 **System V 共享内存段**，加 `/dev/mem`。
 配合上一份固件里 vmlinux 的符号（`wlan_cspkernel_ops`、`get_wlan_cspkernel_param`），
-可以确定：**cspd 与 Wi-Fi 驱动之间走私有共享内存，1905 帧由驱动收发，不走 socket、不走 netlink**。
+可以确定：**cspd 与 Wi-Fi 驱动之间走私有共享内存**——这一半仍然成立。
+
+**但 1905 帧不走这里。** 它走用户态 raw socket，收在 `multiapd` 手里，而且绑在 `br0` 上：
+
+```
+bind socket to br0 failed, close 1905Sockfd        ← multiapd 的失败日志
+BaseRecv1905Packet recvfrom fail
+1905 Packet fd is %d
+```
+
+`multiapd` 的导入符号里有 `socket / bind / recvfrom / sendto / if_nametoindex / if_indextoname`，
+数据符号里有 `g_ieee1905_sockfd`（4 B）和 `g_ieee1905_msgseq`。所以「驱动收发、不走 socket」的
+原始判断是**把 cspd 的通道当成了 1905 的通道**：cspd 确实只碰共享内存，但那是因为它根本不碰 1905。
+
+### 2.1 修订依据：一次 `ps` 与一次漏取
+
+第三方移植仓库（[Zlion-Y/zte-e2631-openwrt](https://github.com/Zlion-Y/zte-e2631-openwrt)，
+详见 [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §11）的 `board/mr4.out.txt` 是同型号机器的
+完整 `ps`，里面并排坐着两个 mesh 进程：
+
+```
+  597  Z500_w9b 174m    10800  S  <0>  cspd
+ 1293  Z500_w9b 45344    8260  S  <0>  multiapd
+```
+
+`/kmodule/bin` 的完整清单里 `multiapd` 与 `cspd` 都在（同一份输出里还有 `sendcmd`、`setmac`、
+`upgradetest`、`wlandiagcli`）。我们取 22 个文件时按「cspd + 6 个 mesh 库 + 15 个支撑库」挑，
+**把 multiapd 当成了 cspd 的一部分，实际上它是独立 ELF、独立进程、44 MiB 地址空间**。
+
+`cspd` 里那个 `cspd.cspd.multiapd_mgr` 日志 view 现在读起来就通了：**它是 multiapd 的管理者，
+不是 multiapd 本身**。
+
+一句方法论：**用 `/proc/<pid>/maps` 推架构，前提是进程列表是全的**。我们是从 cspd 的 maps
+倒推整个栈，等于默认了「mesh 只有一个进程」——而这个默认从未被验证过。今后取原厂栈，
+先把 `ps` 全表和 `<bin>` 目录列表落盘，再按 `maps` 钻。
 
 模块划分从日志 view 名和残留源文件名直接读出来：
 
@@ -59,7 +98,15 @@ source/multiap_sub.c
 
 这些 CF/CM 库**自己不往线上发帧**：它们写配置库（`dbAPI{Add,Get,Qry,Set}View`，视图名如
 `MultiAPCfg`、`MultiAPRoamCatonCfg`、`MultiAPCacheMac`、`MultiAPStaCfg`），
-然后用 `ASEND`/`SSEND` 把消息投进 cspd 的私有总线。逐个函数反汇编出来的消息号：
+然后用 `ASEND`/`SSEND` 把消息投进 cspd 的私有总线。
+
+**总线下游是 `multiapd`，CMDU 由它真正写进 `br0` 上的 1905 socket**（§2.1）。`libieee1905cfapi.so`
+只有 56 个导出，是一层薄门面——`CfIeee1905RegI5Msg`（注册 I5 回调）、`CfIeee1905RoleElect`（选举）、
+`CfIeee1905OpenWanPortListen`（开 WAN 口）、`CfIeee1905SendMsg2TopoDev`（按 MAC 投递）；
+**TLV 编解码不在任何库里，全在 `multiapd` 自己的 360 个 `I5Tlv*` 函数里**。所以「改状态 →
+由谁决定发不发帧」的答案是 `multiapd`，不是 cspd，也不是这些库。
+
+逐个函数反汇编出来的消息号：
 
 | 消息号 | 入口 | 含义 |
 |---|---|---|
@@ -82,7 +129,8 @@ source/multiap_sub.c
 `CmMultiApSetStaBind` 走的就是 `0x2401`——它是本地绑定，不是 1905 下发。
 
 > 这一条同时是 [MESH_INTEROP](MESH_INTEROP.md) 硬约束 1 的第三个独立证据：
-> 厂商自己在这个进程里也是「改状态 → 由 cspd 决定发不发帧」，没有任何 API 能绕过它直接发 CMDU。
+> 厂商自己在这个进程里也是「改状态 → 由 mesh 守护决定发不发帧」，没有任何 API 能绕过它直接发 CMDU。
+> 修订后更准确的说法是：**cspd 收状态、`multiapd` 发帧**，二者之间仍然是私有总线，外部依旧插不进去。
 
 ## 4. 和 SR1010 的能力面差异
 
@@ -178,14 +226,19 @@ dump 里那个 22.25 MiB 的密文 rootfs 在这台上**依然解不开**（密�
 
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
+| **取 `/kmodule/bin/multiapd` 原件** | 我们剖析的那份是 SR1010 版；E2631 原厂那份大小与行为都可能不同，而 M2 是否被接受取决于它 | 一次 tftp，几 MB，**不用停机** |
+| **在 multiapd 里开 `pktdump 1`** | 它自带 1905 抓包，落到 `/var/tmp/<pid>_<proc>`——设备没有 tcpdump，这条比 static 编 `spark` 便宜一个量级，见 [MULTIAPD](MULTIAPD.md) §5 | 找到进 debug CLI 的口（stdin 还是消息） |
 | 把它拉成我们控制器的 slave，看 M2 是否被接受 | 第二个真机样本；E2631 的 `MarketSign`/`VersionMode` 可能和 Z506 的 `8000` 不同 | 改它 Wi-Fi（会断网），需停机窗口 |
-| 抓 `0x893a` 看有没有 Steering / Assoc Control | 第 4 节的接收路径是否真被触发，只有线上证据算数 | static 编 `spark`（armv7l musl），限时开 promisc |
-| 本地触发 BTM：`/proc/wlan_cfg/map/btm_kick` | 不用控制器就能验证 BTM 通路是否存在 | 只写一个 `/proc`，可回退 |
-| `EnVbss`/`ToVbssMode` 在 DB 里属于哪个视图 | 判断 D4 到底是「没入口」还是「入口在别处」 | 只读查 DB |
+| 抓 `0x893a` 看有没有 Steering / Assoc Control | 第 4 节的接收路径是否真被触发，只有线上证据算数 | 先用 `pktdump`；退路才是 static 编 `spark`（armv7l musl）+ 限时 promisc |
+| 本地触发 BTM：`/proc/wlan_cfg/map/btm_kick` | 不用控制器就能验证 BTM 通路是否存在 | 只写一个 `/proc`，可回退；内核侧确有 `wlan_multiap_btm_kick_write`，见 [MESH_INTEROP](MESH_INTEROP.md) §5.5 |
+| `EnVbss`/`ToVbssMode` 在 DB 里属于哪个视图 | 判断 D4 到底是「没入口」还是「入口在别处」 | 只读查 DB，`sendcmd 1 DB p <表名>` 即可 |
 
 ## 9. 局限
 
 - **没有反汇编 `cspd` 本体**（3 MB、已 strip）。第 4 节的结论来自导出符号、字符串和 6 个小库的反汇编。
+- 第 2.1 节剖析的 `multiapd` 是 **SR1010（ZX279133）版**（`sha256 a0ba6bee…`，同期 runtime 包内），
+  不是 E2631 原厂 `/kmodule/bin/multiapd`。同为 ARM32 EABI、同族代码，但**版本与裁剪未知**，
+  凡涉及「E2631 到底怎么做」的结论都必须标这个前提。
 - 「字符串存在」只证明代码路径编进去了，**不证明当前配置是开的**。
 - 两台设备固件差近两年（Z506 是 Wi-Fi 5 老货，E2631 是 Wi-Fi 6），行为差异不能全归给协议版本。
 - 只有 30 个符号同名，跨机型比对必须逐条人工判语义，机器 diff 只能用来**找候选**。

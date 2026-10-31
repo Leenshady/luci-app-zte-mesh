@@ -82,7 +82,8 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | B19 | **控制器地址末字节可配**（UCI `al_last` / 页面"控制器地址末字节"）：两台设备 LAN MAC 相同时手工错开 | ✅ | init 83 条（含 `al_last` 空/大小写/非法值四个分支，VM 上 busybox ash 实测）；只暴露末字节，前五字节固定为子路由准入检查认的形状 | 1 |
 | B20 | 页面上本机型号取系统型号（`/tmp/sysinfo/model`）、名称取主机名，取不到都显示 `router` | ✅ | `controller_self_identity()`（`controller-run.c`），`state.json` 的 `self`；子路由行缺型号/名称时同样显示 `router`。runtime 包里的 probe 已按这份源码重打（2026-11-01），设备上才会有 `self` | 1 |
 | B21 | `mesh-search` 的 `0x0007` 补 End of Message TLV；线上帧用 Wireshark `ieee1905` 逐字段核对过一遍 | ✅ | 沙箱 90 秒抓 34 帧五类消息：改前 12 个 `0x0007` 全被标 `[Malformed Packet]`，补三个 0 后 0 malformed 且对端照样回 `0x0008`；`0x8006` 的 TLV 编码与 dissector 解析一致（静态构造核对）；`0x0008` 少的 EOM/`0xb3` 故意不改（Z506 验过的形状）。见 [WIRESHARK_1905](research/WIRESHARK_1905.md) | 1 |
-| B22 | 查证原厂内核（E2631 2024-09 `vmlinux`）**不含 mesh 协议实现**，也不含 rootfs 解密 | ✅（查证，无代码改动） | 1908 条 `__bug_table` + 6393 个导出符号恢复出函数级地图：`zx_denali_nand.c` 读页路径只有 Denali 寄存器序列与 DMA、无 crypto 调用；内核无 `ecb(aes)`/`cbc(aes)` 模板实例、`"aes"` 字符串零引用；`wlan_get_wlan_multiap_mode()` 全函数只有"读一个 u32"；`br_ieee1905` 钩子对 1905 组播帧返回 DROP；`CBC decrypt OK!` 位于 Bootloader 分区（`0x619E`）。见 [MESH_INTEROP](research/MESH_INTEROP.md) §4.1 与 §5 | 0 |
+| B22 | 查证原厂内核（E2631 2024-09 `vmlinux`）**不含 mesh 协议实现**，也不含 rootfs 解密 | ✅（查证，无代码改动） | 1908 条 `__bug_table` + 6393 个导出符号恢复出函数级地图：`zx_denali_nand.c` 读页路径只有 Denali 寄存器序列与 DMA、无 crypto 调用；内核无 `ecb(aes)`/`cbc(aes)` 模板实例、`"aes"` 字符串零引用；`wlan_get_wlan_multiap_mode()` 全函数只有"读一个 u32"；`br_ieee1905` 钩子对 1905 组播帧在转发路径返回 DROP（**§5.5 修正：丢的是转发，本地投递走 `br_ieee1905_local_in_handle` 放行**）；`CBC decrypt OK!` 位于 Bootloader 分区（`0x619E`）。见 [MESH_INTEROP](research/MESH_INTEROP.md) §4.1 与 §5 | 0 |
+| B23 | 摸清**原厂 mesh 的 1905 协议实体是 `multiapd`，不是 cspd**；它未 strip，可直接按函数名调试与逆向 | ✅（查证，无代码改动） | 第三方同型机 `ps` 显示 `cspd`(597) 与 `multiapd`(1293) 是两个进程——我们此前 22 个成员**漏取了 `multiapd`**。该二进制 988 140 B / 6835 符号 / 2184 具名函数：`I5Tlv*` 360 个（TLV 编解码全在此，不在任何 `.so`）、M1/M2 两端对称（`_acdcSendApAutoConfigWSCM1` / `_acdsRcvApAutoConfigWSCM1` 2388 B / `_acdcRcvApAutoConfigWSCM2`）、`g_ieee1905_sockfd` + `bind socket to br0` 证明 1905 走用户态 raw socket。自带 `pktdump 1`（落 `/var/tmp`）、`setrole`、`querydev`、`showMsgStatistics`，**设备无 tcpdump 也能抓 1905**。见 [MULTIAPD](research/MULTIAPD.md) | 0 |
 
 ## C. 打包与分发
 
@@ -106,7 +107,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | 无 | `cspd` 有 `EnVbss` / `ToVbssMode` 配置位，但**没有任何 CM/CF 导出**（中） |
 | D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） |
 | D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） |
-| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**） |
+| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**）。内核侧 `br_ieee1905_local_in_handle` 放行本地投递（§5.5），帧能到 `multiapd`；而它自带 `pktdump`，线上取证不必再自带抓包程序 |
 
 这一节的判据原来只有 Z506（Wi-Fi 5 老固件）。2026-11-01 从一台市售 AX3000（E2631，2026-08 固件）
 拿出明文用户态之后，D5/D6/D7 从"没有通道"变成"厂商有入口"，其中 **D7 的接收侧处理路径是齐的**。
@@ -127,4 +128,4 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 7 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
 | 8 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
 | 9 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 8 项都过了才值得动 |
-| 10 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；先限时抓 `0x893a` 看有没有 Steering Request，再谈下发 |
+| 10 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；取证改用它自带的 `pktdump 1`（落 `/var/tmp`）或 `logcat | grep "AGENT RECV"`，**不必再自带抓包程序**。停机前先做零成本只读项：`sendcmd 1 DB p`（读 mesh 配置库）、`cat /proc/kallsyms | grep 1905`、取 `/kmodule/bin/multiapd` 原件。见 [MULTIAPD](research/MULTIAPD.md) §5 与 [E2633_TELNET_BOOT](research/E2633_TELNET_BOOT.md) §11 |
