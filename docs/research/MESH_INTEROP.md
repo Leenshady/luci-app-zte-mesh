@@ -20,6 +20,9 @@
    设备互不相通，正好违背项目目标）。
 5. 第三方项目（prplMesh、BBF 1905.1a 栈）可用来**对照编码**，不能整套搬进来：它们各自都是完整的
    mesh 栈，搬进来等于把项目变成另一个 prplMesh，而且都要求 mac80211 + hostapd。
+6. **原厂内核里没有 mesh 协议**：它只做三件事——认 `0x893a`（连 802.1Q 内层一起认）、把 1905 组播帧
+   从桥接路径里丢掉、用一个 u32 位表示"当前是不是 multi-ap 模式"。协议栈全在用户态 `cspd`（§5）。
+   这条把第 2 条硬约束从推论变成了实证。
 
 ## 2. 协议层：我们到底在跟谁对齐
 
@@ -31,6 +34,7 @@
 | ZTE 私有 TLV | 厂商 TLV（`0xdd`/`0xe0`），由 `MultiAPCfg.VersionMode` 决定发不发 | 已实现，`version_mode=128` 时发 | REAL_CHILD 第 2 节 |
 | ZTE 私有策略 | `SSEND(0x2401, 0x10205/0x10206)` 热更新域/漫游阈值 | 已实现 | FINDINGS 第 4 节 |
 | ZTE 内部总线（不是协议） | `ASEND`/`SSEND` 消息号：`0x9095` 角色、`0x90d3` DevSearch、`0x90aa` 拓扑查询、`0xa932`/`0xa93c` Multi-AP 配置、`0xa94e` VLAN、`0xa980` 信道扫描 | 不适用——我们直接把 CMDU 组出来发 | [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 第 3 节 |
+| ZTE 内核（不是协议层） | `br_ieee1905_check_is1905_msg` 认 `0x893a` 与 802.1Q 内层；桥接钩子丢弃 1905 组播；`wlan_get_wlan_multiap_mode()` 只读一个 u32 位 | 不适用——内核里没有可复用的实现 | 本文 §5 |
 
 对表的直接用途：**任何新功能先问"它对应哪个 CMDU/TLV"**。答不出来，说明这个功能要么是本机行为
 （UCI 侧），要么就是自造协议。
@@ -70,7 +74,164 @@
 就是从自己拥有的设备上取的（root 后读分区），不是从加密镜像里撬出来的。这条路的成本比破解低两个
 数量级，而且拿到的是**和目标机同版本**的库。固件线在拿到可 root 的新机型之前不再推进。
 
-## 5. 兼容性原则（做功能时的硬约束）
+### 4.1 内核读路径里没有解密代码（E2631 2024-09 vmlinux 实证，2026-11-01）
+
+编程器固件的 rootfs 是 AES-ECB 密文，于是最自然的假设是"内核在 NAND 读路径上解密，密钥就编在里面"。
+把这颗内核（6,627,680 B，`zx_denali_nand.c` 有 BUG 点可定位）拆开逐条核过，**假设不成立**：
+
+| 查什么 | 结果 |
+|---|---|
+| `zx_denali_nand.c` 的读页路径 | 3 处 BUG 点落在 `0xC023FE2C`(L1261) / `0xC0240080`(L1454) / `0xC0240B6C`(L1370)；整段是 Denali 控制器的寄存器序列（命令码 `0x2200`/`0x2300`/`0x2400`、bank/地址/`dsb st`、DMA 启动），**没有一次对 crypto 的调用** |
+| 内核编了哪些 crypto | 只有 `crypto/algapi.c`、`crypto/api.c`、`crypto/scatterwalk.c` 三个文件留下 BUG 点 |
+| 有没有 ECB/CBC 模板实例 | `"ecb(aes)"`、`"cbc(aes)"`、`"ecb"`、`"cbc"` 在镜像里**一个都没有** |
+| AES 原语在不在 | 在：`crypto_aes_set_key` @ `0xC015A194`、`crypto_aes_expand_key` @ `0xC0159D1C`、T 表 @ `0xC045D690` / `0xC0464668`。但 `crypto_aes_set_key` 是 `cra_cipher.cia_setkey` 回调，靠函数指针调用，**没有直接调用者**；`"aes"` 字符串（`0xC052AF40`、`0xC063A278`）也**零引用** |
+| `CBC decrypt OK!` 在哪 | `0x00619E`，和 `HASH timeout`/`RSA timeout`/`AES timeout`/`verify OK!` 连在一起 —— 属于 **Bootloader 分区（`0x0`–`0x100000`）的一级加载器**，不是内核 |
+
+所以密钥派生只有三个可能的挂点，**都不在这颗 Linux 里**：
+
+1. **BOOTROM / cspboot**（`0x0`–`0x100000`，LZ 之后是 ARM32，这次没反汇编）；
+2. **NAND 控制器硬件透明解密** —— 编程器关 ECC 裸读拿到的是物理密文，设备通过控制器读同一页拿到明文。
+   这一条能同时解释三件事：OOB 全 `0xFF`、rootfs 高熵、以及同型号活机器的 rootfs 是明文 JFFS2；
+3. eFuse/OTP 里的设备唯一密钥，运行时喂给上面两者之一。
+
+**一条能证伪的判据**：在任意一台能 root 的 ZTE 上读 `dd if=/dev/mtdblock8 bs=2048 count=1 | hexdump -C`
+——若看到 `hsqs`/`UBI#`/JFFS2 节点而编程器 dump 同页是密文，就是第 2 条（硬件透明解密），
+密钥根本不在可读的镜像空间里；若也是高熵，才回落到第 1/3 条。
+
+## 5. 内核里的 1905：只识别、只丢弃，不做协议
+
+这一节回答"原厂内核为 mesh 做了什么"。素材是 E2631（2024-09 版）的 `vmlinux.bin`，方法见
+§5.4，可复现。结论先说：**内核里没有 Multi-AP/1905 协议逻辑**，只有三件事——识别帧、把 1905
+组播帧从桥接路径里摘掉、暴露一个"当前是不是 multi-ap 模式"的位。协议栈全在用户态 `cspd`。
+
+### 5.1 全部相关字符串（原始命中 76 条，去噪后逐条列出）
+
+按性质分四组，地址为文件内虚拟地址（基址 `0xC0008000`，与文件偏移差 `0x8000`）。
+
+**(a) 导出符号 / 名（11 条）**
+
+| 地址 | 名字 | 性质 |
+|---|---|---|
+| `0xC02AE2D4` | `wlan_get_sta_bandcap` | 函数，"这个 STA 支持哪些频段" |
+| `0xC02AE460` | `wlan_get_wlan_multiap_mode` | 跳转桩，实体在 `0xC02AF210` |
+| `0xC02AE45C` | `wlan_get_limit_num` | 跳转桩，实体在 `0xC02AF170` |
+| `0xC02ADD08` | `get_wlan_cspkernel_param` | cspd 取内核侧参数的入口 |
+| `0xC02AFB3C` | `br_ieee1905_check_is1905_msg` | **判定 1905 帧**（§5.2） |
+| `0xC05B0A23` | `wlan_cspkernel_ops` | 数据对象（`ops` 表），不是函数 |
+| `0xC04097D0` | `CSPKernel_skb_SelectQueue` | QoS 选队列 |
+| — | `CSPKernel_QC_AppSet` / `CSPKernel_SKBQC_AppSet` / `CSPKernel_InMcast_SKBQC_AppSet` / `CSPKernel_QoS_QueueRun` | QoS/队列，与 mesh 无直接关系，列此备查 |
+
+**(b) cspd 的模块名，13 条**（写进内核日志的 view 名，说明 cspd 的日志通道直连内核）
+
+```
+cspd.dbd_task.DB                cspd.cspd.dev_mgr             cspd.wlan_manage.wlan_mgr
+cspd.cspd.led_ctrl              cspd.cspd.led_priority_mgr    cspd.adev_task.adev_mgr
+cspd.cspd.fw_core_mgr           cspd.cspd.simulation_mgr      cspd.cspd.addr6_mgr
+cspd.cspd.slaac_mgr             cspd.cspd.ppp_mgr             cspd.cspd.trafficsts_by_dev
+cspd.cspconfig.wlan_config
+```
+
+外加一条打印格式 `[wlan_cspkernel] [%s(%d)] : %s(%s)!` @ `0xC0572198`——`cspd` 与内核共用一个
+带模块名/行号的日志门面，这解释了为什么 `/kmodule` 里的用户态进程能出现在内核日志里。
+
+**(c) ZTE 私有内核补丁的源文件路径，22 条**（全部在 `/zte/csp/opensource/cspkernel4.1/` 下）
+
+```
+common/common_ioctl.c                 HAL/ver_info_nand_v2.c        HAL/ledkey_mod_v2.c
+protocol/netif_flag.c                 protocol/bridge/br_component.c
+protocol/wan_bridge.c                 protocol/wan_bridge_if.c      protocol/nd_agent.c
+protocol/dev_mirror.c                 protocol/netfilter/{xt_limitperip,nf_conntrack_pt,
+                                      nf_conntrack_rtsp,nf_nat_rtsp,xt_layer7}.c
+protocol/ffe/{ffe_main,ffe_pkt_misc,ffe_sharedata,ffe_sk_buff,ffe_fk_buff,ffe_proc,
+              ffe_flush,npu_main}.c   protocol/include/ffe/ffe_main.h
+```
+
+`protocol/bridge/br_component.c` 与 `protocol/netif_flag.c` 是网桥改造的落点，
+`protocol/ffe/*`（Fast Forwarding Engine，NPU 加速）是转发面——**没有一个是 mesh/1905 的**。
+
+**(d) 其余相关串**
+
+| 地址 | 字符串 |
+|---|---|
+| `0xC0572614` | `br_ieee1905_filter_init register nf hooks failed` |
+| `0xC05B0974` / `0xC05B0A0F` / `0xC05B0C26` | `wlan_get_wlan_multiap_mode` / `get_wlan_cspkernel_param` / `br_ieee1905_check_is1905_msg`（`__ksymtab_strings`） |
+| `0xC064EC00` | `wlan_multiap_mode`（变量名/调试名） |
+| 散落在 `0xC04E1A8E`–`0xC0530570` | 另有 8 处 `ieee1905_msg` 碎片（`0xC04E1A8E`、`0xC04FDCB9`、`0xC05194B6`、`0xC051FFAC`、`0xC0521359`、`0xC0523C48`、`0xC05256CD`、`0xC0530570`），**查不到任何引用**，推测是 trace/调试字符串池的残留，未能确证，不据此下结论 |
+
+### 5.2 三个函数的行为（反汇编实证）
+
+**`br_ieee1905_check_is1905_msg(skb)` @ `0xC02AFB3C`**
+
+```asm
+ldrh r3, [r0, #168]      ; skb->protocol
+movw r2, #0x3a89         ; htons(0x893a) —— 注意是按网络序存的值
+cmp  r3, r2   ; beq -> return 1
+cmp  r3, #0x81           ; ETH_P_8021Q=0x8100，按网络序存成 0x0081
+              ; beq -> 到 VLAN 分支
+                                  ; VLAN 分支：
+ldrh r1, [r0, #174]      ; 以太帧头在 skb->head 里的偏移
+ldr  r3, [r0, #212]      ; skb->head
+add  r3, r3, r1
+ldrh r3, [r3, #16]       ; 跳过 14 B 以太头 + 2 B TPID + 2 B TCI
+rsb  r0, r2, r3 ; clz ; lsr #5    ; return (内层 ethertype == 0x893a)
+```
+
+**它认 802.1Q 封装的 1905 帧**——这是我们此前没记录的一条：ZTE 允许 1905 走 VLAN tag，
+判定时剥掉一层 VLAN 再比 ethertype。对我们意味着"带 VLAN 的回程链路上，1905 仍然要被认出来"。
+
+**桥接钩子 @ `0xC02AFB84`**（`0xC0617954` 处的 ops 结构第 3 个字段指向它）
+
+```asm
+if (*(u32*)0xC064EED8 == 0) return NF_ACCEPT   ; 全局开关，关掉就不过滤
+p = skb->head + *(u16*)(skb + 174)
+if ((*p & 1) == 0) return NF_ACCEPT            ; 目的 MAC 首字节的组播位为 0 -> 放行
+return !check_is1905_msg(skb)                  ; 是 1905 -> 返回 0 = NF_DROP，否则放行
+```
+
+也就是：**目的 MAC 是组播、且是 1905 帧 → 丢弃**。这是一条"把 1905 从 Linux 桥接转发路径里摘出去"
+的规则，和 `EXTENDER_LINK_BY_DRIVER=y` 是同一套设计：1905 帧由驱动直送 cspd，不该被网桥泛洪、
+不该被送到协议栈。`br_ieee1905_filter_init()` @ `0xC05F723C` 负责注册它，失败就打印 §5.1(d) 那条串。
+
+**`wlan_get_wlan_multiap_mode()` @ `0xC02AF210`——全函数三条指令**
+
+```asm
+movw r3, #0xBFA8 ; movt r3, #0xC066
+ldr  r0, [r3, #0x94C]      ; return *(u32 *)(0xC066C8F4)
+bx   lr
+```
+
+**内核眼里的 Multi-AP 就是一个 u32 位。** 没有任何 TLV 解析、没有 CMDU、没有拓扑。
+
+### 5.3 这些证据改变了什么
+
+1. **§6 的第 2 条硬约束（不新增控制通道）从"推论"变成"可复现的事实"**：内核里连解析器都没有，
+   任何 mesh 语义只可能存在于 1905 帧里。想做新功能又没有对应 CMDU/TLV，就必然无处落地。
+2. **解释了 lab 与真机的行为差**：沙箱里没有这个钩子，`0x893a` 帧会在 `br-lan` 上被泛洪回
+   `zmesh0`——上一轮自检功能的假阳性正是这个原因（[WIRESHARK_1905](WIRESHARK_1905.md) 记的
+   `/run/zte-mesh/search-sent` 绕法，本质是在用户态模拟这个钩子该做的事）。
+3. **对我们自己的实现没有要求变更**：我们发的帧本来就是单播/组播的裸 `0x893a`，不带 VLAN。
+   要留意的只有一种情况——将来若在回程上启用 VLAN（D5），1905 必须被对端认出来，而 ZTE 的
+   判定支持"VLAN 内层 1905"，说明这条路上它是有准备的。
+
+### 5.4 方法（可复现）与局限
+
+镜像没有 ELF 头，也没有可用的 kallsyms token 表，但有两张可解析的表：
+
+- **`__bug_table`**：ARM 4.1 是 `{u32 bug_addr; u32 file; u16 line; u16 flags}` 绝对指针。
+  用"指针必须落在镜像内且指向 `.c/.h/.S` 路径"筛出 **1908 条** `(地址, 文件, 行号)`，
+  覆盖 **375 个源文件**——等价于一张函数级地图，`zx_denali_nand.c` 的 3 个 BUG 点就是这么定位的。
+- **`__ksymtab`**：`{u32 value; u32 name}`，要求 `value` 处的 4 字节像 ARM 指令（排除把 name
+  指针误当 value），恢复 **6393 个导出符号**。
+- 基址 `0xC0008000` 由 `w - 文件偏移` 投票得到，脚本 `_analysis/kmap2.py` + `_analysis/xref.py`
+  （后者实现 `movw/movt` 配对与 `ldr pc` 字面量两种绝对地址加载方式，用来从字符串反查引用代码）。
+
+局限：非导出符号拿不到名字（`br_ieee1905_check_is1905_msg` 的调用者就是这样一段匿名代码）；
+`0xC0617954` 那个 ops 结构的 `pf`/`hooknum` 字段布局未能确证，所以本节只按"钩子 + 丢弃 1905 组播"
+描述行为，不引用具体 hook 点编号。
+
+
+
+## 6. 兼容性原则（做功能时的硬约束）
 
 1. **必须落到线上**：新功能要能指出它用哪个 CMDU/TLV；指不出来的，要么做成本机 UCI 行为，要么不做。
 2. **不在自己节点之间新增控制通道**：角色协商、状态同步走 1905 或本机 UCI，不发明"插件内部协议"。
@@ -81,7 +242,7 @@
    **不要**换成宿主的真实型号 —— 换掉的表现是子路由直接不收（REAL_CHILD 第 2 节）。
    宿主型号只用于页面显示（`state.json` 的 `self`）。
 
-## 6. 下一步（按性价比排序）
+## 7. 下一步（按性价比排序）
 
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
@@ -91,7 +252,7 @@
 | `slave` 角色补 Topology Response 的 BSS/终端 TLV | 现在中兴主控看不到我们下面挂了哪些终端 | Z506 或任意主控做对照 |
 | 纯 OpenWrt 组网（无中兴设备）另开一档 | 想做就复用 prplMesh 当 agent，而不是自己再写一套控制面 | 明确的范围与独立验收 |
 
-## 7. 参考
+## 8. 参考
 
 - IEEE 1905.1 技术报告（CMDU 帧格式、`0x893a`、组地址 `01:80:C2:00:00:13`）：
   <https://www.ieee802.org/1/files/public/docs2012/802-1-phkl-P1095-Tech-Presentation-1207-v01.pdf>

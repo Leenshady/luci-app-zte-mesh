@@ -1,6 +1,6 @@
 # 用 Wireshark 的 ieee1905 dissector 核对我们发出的帧（2026-11-01）
 
-> [MESH_INTEROP](MESH_INTEROP.md) 第 6 节第一条：不用真机先查编码错误。这篇是那次核对的记录：
+> [MESH_INTEROP](MESH_INTEROP.md) 第 7 节第一条：不用真机先查编码错误。这篇是那次核对的记录：
 > 抓了什么、每个字段是什么、跟规范和对端比哪里不一样、改了哪一处、哪一处故意不改。
 
 ## 1. 结论

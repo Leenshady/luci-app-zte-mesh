@@ -71,7 +71,7 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [FINDINGS](docs/FINDINGS.md) | 逆向与真机发现：角色选举、自组网 V2、`VersionMode`、`CurHop`、ACL 等 |
 | [CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md) | 原厂控制器能下发什么、Z506 实际支持什么、本项目覆盖了什么 |
 | [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：状态与证据、做不到的项、推进顺序 |
-| [MESH_INTEROP](docs/research/MESH_INTEROP.md) | 中兴 mesh 的协议归属、外部项目（prplMesh / BBF 1905.1a）能借什么、固件解密的边界、**做功能时的兼容性硬约束** |
+| [MESH_INTEROP](docs/research/MESH_INTEROP.md) | 中兴 mesh 的协议归属、外部项目（prplMesh / BBF 1905.1a）能借什么、固件解密的边界（含**内核读路径无解密代码**的实证）、**原厂内核里 1905 的全部字符串/符号与它只丢弃不解析的事实**、做功能时的兼容性硬约束 |
 | [WIRESHARK_1905](docs/research/WIRESHARK_1905.md) | 用 Wireshark `ieee1905` 逐字段核对线上帧：我们发的 `0x0007`/`0x0008`/`0x8006`、原厂发的 `0x0000`/`0x0001`/`0x0008`/`0x000a`、差异清单与处置 |
 | [VENDOR_MESH_STACK](docs/research/VENDOR_MESH_STACK.md) | 从市售 AX3000（E2631）拿到的**明文原厂 mesh 栈**：cspd 的模块划分、`ASEND`/`SSEND` 内部总线号、和 SR1010 的能力面差异、**D 段（VLAN/绑定/BTM/VBSS）的修订依据** |
 | [research/](docs/research/) | 原厂对照研究（存档）：`FEATURE_MAP`、`GAP_ANALYSIS`、`REPLAY_RESULTS`、`AGENT_PROBE`、`E2633_FIRMWARE` |
