@@ -577,6 +577,9 @@ start_service() {
 	*) al_last=06 ;;
 	esac
 	al_mac="02:00:00:$al_byte3:19:$al_last"
+	# Falling back means every such box ends up on the built-in address, which is the collision this whole
+	# derivation exists to avoid -- so say it once instead of leaving it to a topology that never fills in.
+	[ -n "$al_lan" ] || log "cannot read the LAN MAC of $bridge: the AL MAC falls back to $al_mac, which any other box in this state would share"
 
 	# A previous sandbox's wire can only be left behind by a crash.
 	ip link del zmesh0 >/dev/null 2>&1
