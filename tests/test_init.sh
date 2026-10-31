@@ -815,13 +815,35 @@ al_check ax3600 8c:de:f9:b3:d9:e3 c1
 al_check empty '' 00
 al_check zero 00:00:00:00:00:00 00
 if [ "$(al_hash 00:0c:29:61:f4:03)" != "$(al_hash 00:0c:29:61:f5:03)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL al-hash-spread: byte 4 does not reach byte 3"; fi
-for needle in 'al_byte3=$(al_hash "$al_lan")' '--al-mac "$al_mac"' 'ZTE_MESH_AL_MAC=$al_mac'; do
+for needle in 'al_mac=$(al_mac_resolve "$al_lan")' '--al-mac "$al_mac"' 'ZTE_MESH_AL_MAC=$al_mac'; do
 	if grep -q -- "$needle" "$INIT"; then
 		pass=$((pass + 1))
 	else
 		fail=$((fail + 1)); echo "FAIL al-mac source: $needle"
 	fi
 done
+
+# al_mac_resolve() is what start_service() actually calls, so the cases go through it rather than through the
+# pieces. The two that matter in the field: a whole-address override (the only way out when two routers share a
+# LAN MAC, e.g. a cloned image) and a value the vendor's route adapter would refuse -- it answers ENODEV unless
+# the address is locally administered, so a globally administered one must fall back rather than be used.
+al_mac_case() {
+	local label=$1 want=$2 setup=$3 got
+	unset V_main_al_mac V_main_al_last
+	eval "$setup"
+	if [ $# -ge 4 ]; then got=$(al_mac_resolve "$4"); else got=$(al_mac_resolve 00:0c:29:61:f4:03); fi
+	unset V_main_al_mac V_main_al_last
+	if [ "$got" = "$want" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL al-mac-$label: got '$got', want '$want'"; fi
+}
+al_mac_case derive '02:00:00:8a:19:03' ''
+al_mac_case override '02:aa:bb:cc:dd:ee' 'V_main_al_mac=02:aa:bb:cc:dd:ee'
+al_mac_case upper '02:aa:bb:cc:dd:ee' 'V_main_al_mac=02:AA:BB:CC:DD:EE'
+al_mac_case global '02:00:00:8a:19:03' 'V_main_al_mac=8c:de:f9:b3:d9:e3'
+al_mac_case junk '02:00:00:8a:19:03' 'V_main_al_mac=not-a-mac'
+al_mac_case multicast '02:00:00:8a:19:03' 'V_main_al_mac=03:00:00:00:19:06'
+al_mac_case last '02:00:00:8a:19:0a' 'V_main_al_last=0a'
+al_mac_case both '02:aa:bb:cc:dd:ee' 'V_main_al_mac=02:aa:bb:cc:dd:ee V_main_al_last=0a'
+al_mac_case nolan '02:00:00:00:19:06' '' ''
 
 echo "init test: $pass passed, $fail failed"
 [ "$fail" = 0 ]

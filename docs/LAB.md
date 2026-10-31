@@ -104,7 +104,9 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 AL MAC 是 `02:00:00:HH:19:LL`，`HH` 为 LAN 网桥 MAC 前 5 字节的哈希、`LL` 为其末字节：两台设备的差异
 从 8 bit 变成 16 bit（撞车的后果是 1905 栈把对端当自己，见 [AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
-`zte_mesh.main.al_last` 只覆盖 `LL`。
+`zte_mesh.main.al_mac` 指定整个地址，只在一件事上需要：两台机器的 LAN MAC 相同（同一个镜像克隆出来的），
+派生分不开它们。它必须是本地管理地址（首字节 `02`），否则记一行日志并回落到派生值。`zte_mesh.main.al_last`
+只覆盖 `LL`。
 
 看"线上到底有没有帧"用 `tools/lab/spark.c`：
 
