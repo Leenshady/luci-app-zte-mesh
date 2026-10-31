@@ -1,16 +1,22 @@
-# E2631 配置库实测快照：三张 mesh 表的真身
+# E2631 配置库实测快照：五张 mesh 表的真身
 
-2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑三条**只读**命令得到的原文整理：
+2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。两轮：
 
 ```sh
+# 第一轮
 sendcmd 1 DB p MultiAPMaster     # RowCount=1，55 列
 sendcmd 1 DB p P1905ComCfg       # RowCount=1，8 列
 sendcmd 1 DB p MultiAPDomain     # RowCount=8，每行 106 列
+# 第二轮（§5）
+sendcmd 1 DB p P1905CFGn         # table not find —— 这个表名是错的
+sendcmd 1 DB p MultiAPStaCfg     # RowCount=0（表存在、无实例）
+sendcmd 1 DB p MultiAPCacheMac   # RowCount=0（表存在、无实例）
+sendcmd 1 DB p MultiAPRoamCatonCfg   # RowCount=1，7 列
 ```
 
 这份文件的用途只有一个：**它是 [E2631_ROOTFS](E2631_ROOTFS.md) §6 那些离线推断的对照答案**。
 §6 是从 `cspd` 字符串表按排列顺序切出来的（当时标"中—强"），这里给出实测结果 —
-有两处推断**错了**，错误与成因记在 §4。
+**表归属错了两处、数值注释错了一处**，错误与成因记在 §4 与 §5.1。
 
 > 值都带出处：这一份是出厂状态，机器已组过网（domain 4/8 是自动生成的 `ZMESH-` 专用 SSID）。
 
@@ -219,21 +225,35 @@ Init --(StatusInitTimer)--> Online --(StatusSlowTimer)--> Slow --(StatusPreRoamT
 |---|---|
 | `P1905ComCfg` 有四十多列，含 `SetRoleEnable` / `RoleElect` / `EnMasterOnly` / `MeshName` / `MaxHop` / `CurHop` / `En1905Msg` / `EnSendM1EachBand` / `ACD.*` / `VersionMode` / `SteeringPolicy` / `EnAgentSteer` / `EnAgentBs` / `STAMac` / `TargetBand` 等 | **只有 8 列**（§2），上面这些一个都不在 |
 
-错因：`cspd` 的 schema 字符串表里列名是**连续排放**的，表名夹在中间当分隔。`P1905ComCfg` 只有 8 个
-名字，它后面的表名（`MultiAPMaster`、`MultiAPDomain%d` …）被我漏切，于是把后面整段列名并进了这一张表。
+错因有两层，第二层比第一层严重：
+
+1. `cspd` 的 schema 字符串表里列名是**连续排放**的，表名夹在中间当分隔。`P1905ComCfg` 只有 8 个
+   名字，它后面的表名（`MultiAPCfg`、`MultiAPMaster`、`MultiAPDomain%d` …）被我漏切，于是把后面
+   整段列名并进了这一张表。
+2. **仓库里早有正确答案**：[SCHEMA](../milestones/SCHEMA.md) 的「补充（2026-10-12）」一节写着
+   "`P1905ComCfg`：SR 上有 8 个字段：`Enable`（36）、`EnableIsSync`（68）、`Policy`（100）、
+   `DropNum`（132）、`MarketConfEn`（164）、`MarketSign`（196，字符串）、`DropRoam`（292）、
+   `A1Enable`（324），共 328 字节"——**与 E2631 实测逐字一致**。我重新从字符串表推断时没先查它，
+   等于把 B.2.1 已经干过的活重做了一遍还做错了。
 
 已经能确认归属的：`TopoSortTimer`、`EnBSFilter` 实测在 **`MultiAPMaster`**（§1），
 `MarketSign`、`MarketConfEn` 确实在 `P1905ComCfg`（§2）。
 
-还没定位的（`SetRoleEnable` / `RoleElect` / `EnMasterOnly` / `En1905Msg` / `MaxHop` / `CurHop` /
-`ACD.*` / `STAMac` / `TargetBand`）：**不在本轮这三张表里**。下一个候选是 `IGD.P1905CFGn`
-（D5 已经在用的实例表，见 [FEATURE_STATUS](../FEATURE_STATUS.md) D 段），验证命令：
+还没定位的那些（`SetRoleEnable` / `RoleElect` / `EnMasterOnly` / `En1905Msg` / `MaxHop` / `CurHop` /
+`ACD.*` / `STAMac` / `TargetBand`）**不在本轮 dump 的表里**，但角色开关这一组现在已经有了确定答案：
+**它们在 `MultiAPCfg`**，不是任何 `P1905*` 表。依据是本地 B.2.1 的还原（`MultiAPCfg` 50 字段，
+`Mode` 偏移 36、`SetRoleEnable`、`RoleElect`、`WANForward`、`MaxHop` 偏移 228、`CurHop` 偏移 260、
+`VersionMode` 偏移 356、`P1905DevNum` 偏移 388、`EnMasterOnly` 偏移 804、`MeshName` 偏移 868、
+`IFLink` 偏移 1444、`NoSteeringOUIs` 偏移 1540），以及 `multiapd` 里 `MapGetMultiAPCfgDB` 的调用链。
+
+**`P1905CFGn` 不存在**——那个表名是我上一轮凭空造的（§6）。验证命令改成：
 
 ```sh
-sendcmd 1 DB p P1905CFGn      # 若报无此表，再试 sendcmd 1 DB l 2020 0 0 找表名
+sendcmd 1 DB p MultiAPCfg     # 50 字段；角色开关 / 跳数 / MeshName / IFLink 一次看全
+sendcmd 1 DB l                # 列全部表名，别再猜
 ```
 
-这条没跑之前，别再引用"`P1905ComCfg.SetRoleEnable`"这种写法。
+这条没跑之前，别再引用"`P1905ComCfg.SetRoleEnable`"或"`IGD.P1905CFGn`"这种写法。
 
 ### 4.2 `MultiAPMaster` —— 切对了，但少了 12 列
 
@@ -252,13 +272,77 @@ sendcmd 1 DB p P1905CFGn      # 若报无此表，再试 sendcmd 1 DB l 2020 0 0
 
 ---
 
-## 5. 还没 dump 的表
+## 5. 第二轮 dump：一个不存在的表名 + 第二处表归属错
+
+第二轮跑了 `sendcmd 1 DB p P1905CFGn`，返回 **`table(P1905CFGn) not find`**，随后列出几张相近的表。
+逐张 dump 的结果：
+
+| 表 | `RowCount` | 说明 |
+|---|---|---|
+| `MultiAPStaCfg` | **0** | 表**存在**，但当前没有实例 |
+| `MultiAPCacheMac` | **0** | 表**存在**，但当前没有实例 |
+| `MultiAPRoamCatonCfg` | 1 | 7 列，见下 |
+
+`MultiAPRoamCatonCfg`（`RowCount=1`）实测 7 列：
+
+| 列 | 值 |
+|---|---|
+| `OfflineRetrieveEn` | 0 |
+| `TxDataAfterBaEn` | 0 |
+| `TxBaDelayMs` | 10 |
+| `ZeroDropCfgEn` | 0 |
+| `BtmCacheEn` | **0** |
+| `TxConDelayMs` | 100 |
+| `TxDropCnt` | 0 |
+
+### 5.1 第二处表归属错：这 7 列原先被我记在 `MultiAPCacheMac` 名下
+
+| 我原来写的 | 实测 |
+|---|---|
+| `MultiAPCacheMac`：`OfflineRetrieveEn, TxDataAfterBaEn, TxBaDelayMs, ZeroDropCfgEn, tBtmCacheEn, tTxConDelayMs, tTxDropCnt` | 这 7 列在 **`MultiAPRoamCatonCfg`**；`MultiAPCacheMac` 是**空表**。而且列名**没有 `t` 前缀**：`BtmCacheEn` 不是 `tBtmCacheEn`，`TxConDelayMs` 不是 `tTxConDelayMs` |
+| `MultiAPRoamCatonCfg`：只有 `RoamFilter` 一列 | 实测没有 `RoamFilter`，是上面 7 列 |
+
+同一个错因（字符串表里切错表边界）第二次犯。§4.1 那两层原因同样适用，第二层——**不先查本地
+已还原的 schema**——是主因。
+
+### 5.2 `RowCount=0` 说明什么（不是"表不存在"）
+
+`MultiAPStaCfg` 和 `MultiAPCacheMac` 都是**表在、行空**，和 `table not find` 是两件不同的事：
+
+- `MultiAPStaCfg` 空 ⇒ 这台机器**没配过** STA 绑定。对 D6 是**正面证据**：入口存在，
+  只要有人配一条绑定就会有行；我们不是在对着一张不存在的表做规划。
+- `MultiAPCacheMac` 空 ⇒ 离线 STA 的帧缓存表是**运行时按需填充**的，出厂没有静态行。
+
+所以 D6 / D7 的库侧入口从"候选"升级为"确认存在"，剩下的是**列语义**没实测（因为拿不到行）。
+
+### 5.3 两张表的关系：一张是全局参数，一张是 per-MAC 实例
+
+把 `MultiAPRoamCatonCfg`（1 行 7 列）与 `MultiAPCacheMac`（0 行）放在一起看，再加上
+`cspd` 的内部命令 [CONTROLLER_CAPABILITIES](../CONTROLLER_CAPABILITIES.md) 里那组
+`AddCacheMac` / `DelCacheMac` / `AddRoamFilter` / `DelRoamFilter`，结构就清楚了：
+
+| 表 | 角色 | 行数 |
+|---|---|---|
+| `MultiAPRoamCatonCfg` | 漫游期间帧缓存的**全局参数**（是否缓存、延时多少毫秒、丢几个包） | 恒 1 行 |
+| `MultiAPCacheMac` | **每个待缓存 STA 一行**的实例表，由 `AddCacheMac` 在漫游开始/结束时增删 | 出厂 0，运行时浮动 |
+
+这解释了 `RowCount=0` 为什么不是"表坏了"：它本来就该是空的，只有在某个 STA 正在漫游的瞬间才会有行。
+
+出厂这 7 个参数**全是关的**（`OfflineRetrieveEn=0`、`TxDataAfterBaEn=0`、`ZeroDropCfgEn=0`、
+**`BtmCacheEn=0`**、`TxDropCnt=0`，只有两个延时 `TxBaDelayMs=10`、`TxConDelayMs=100` 非零）：
+**厂商默认不做漫游缓存**，漫游期间丢帧就丢了。`BtmCacheEn=0` 具体含义应是"BTM 触发的漫游是否走
+这套缓存"，与 §1.1 那个"出厂不走 BTM"是一致的——两条独立证据指向同一个出厂行为。
+
+---
+
+## 6. 还没 dump 的表
 
 | 表 | 为什么要它 | D 段哪一项 |
 |---|---|---|
-| `IGD.P1905CFGn` | 角色开关、1905 接口名（§4.1 那些没定位的列很可能在这里） | D5 / D6 |
-| `MultiAPStaCfg` | `devMac/bssMac/staMac` 三地址绑定实例 | D6 |
-| `MultiAPCacheMac` | `tBtmCacheEn` 等七个帧缓存参数 | D7 |
-| `MultiAPRoamCatonCfg` | `RoamFilter` | D7 |
+| `MultiAPCfg` | **角色开关真正的落点**：`Mode` / `SetRoleEnable` / `RoleElect` / `EnMasterOnly` / `MaxHop` / `CurHop` / `MeshName` / `IFLink` / `VersionMode` / `P1905DevNum` | 角色、`CurHop`（B16） |
+| 其余表名 | `sendcmd 1 DB l` 一次列全，避免再猜（`P1905CFGn` 就是猜错的产物） | — |
 
-四条都是只读、不用停机。连同本文三张表，`sendcmd 1 DB p` 一类型的取证就齐了。
+两条都只读、不用停机。`MultiAPCfg` 的 50 个字段与偏移见 [SCHEMA](../milestones/SCHEMA.md) 补充节。
+
+`MultiAPCacheMac` / `MultiAPStaCfg` 已 dump 完但行空（§5），要看到行得先在网页上配一条绑定，
+属于**改配置**，不再是只读取证。

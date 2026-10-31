@@ -194,15 +194,25 @@ D7 的"固件不支持 FT"是同一件事的两面，现在有编译期证据，
 
 **自纠**：本文初版把 `SetRoleEnable` / `RoleElect` / `EnMasterOnly` / `MeshName` / `MaxHop` / `CurHop` /
 `En1905Msg` / `EnSendM1EachBand` / `ACD.*` / `VersionMode` / `SteeringPolicy` / `EnAgentSteer` /
-`STAMac` / `TargetBand` 等四十多个列名都切给了这张表，**全部不在这张表里**。错因是字符串表里
-列名连续排列、表名夹在中间当分隔，而这八个名字后面紧跟的表名被漏切，于是把后面整段并了进来。
+`STAMac` / `TargetBand` 等四十多个列名都切给了这张表，**全部不在这张表里**。错因有两层，
+第二层比第一层严重：
+
+1. 字符串表里列名连续排列、表名夹在中间当分隔，而这八个名字后面紧跟的表名被我漏切，于是把后面整段并了进来；
+2. **仓库里早有正确答案**：[SCHEMA](../milestones/SCHEMA.md) 的「补充（2026-10-12）」一节写着
+   "`P1905ComCfg`：SR 上有 8 个字段：`Enable`（36）、`EnableIsSync`（68）、`Policy`（100）、`DropNum`（132）、
+   `MarketConfEn`（164）、`MarketSign`（196）、`DropRoam`（292）、`A1Enable`（324），共 328 字节"，
+   **与 E2631 实测逐字一致**。我重新从字符串表推断时没先查它，等于把 B.2.1 干过的活重做一遍还做错了。
 
 已经能落地归位的两列：`TopoSortTimer`、`EnBSFilter` 实测在 **`MultiAPMaster`**（§6.2）；
 `MarketSign` / `MarketConfEn` 确实在这里。
 
-还没定位的那些（角色/跳数/1905 报文开关/ACD 密钥族/绑定目标）**不在本轮 dump 的三张表内**，
-下一个候选是 `IGD.P1905CFGn`（D5 已在用的实例表）。验证命令：`sendcmd 1 DB p P1905CFGn`。
-**这条没跑之前，不要再引用"`P1905ComCfg.SetRoleEnable`"这种写法。**
+还没定位的那些（角色/跳数/1905 报文开关/ACD 密钥族/绑定目标）**不在已 dump 的表里**，但角色这一组
+已经有确定答案：**在 `MultiAPCfg`**（50 字段，`Mode` 偏移 36、`MaxHop` 228、`CurHop` 260、
+`VersionMode` 356、`P1905DevNum` 388、`EnMasterOnly` 804、`MeshName` 868、`IFLink` 1444，
+见 [SCHEMA](../milestones/SCHEMA.md)）。我自己上一轮猜的 `IGD.P1905CFGn` **实测不存在**
+（`table(P1905CFGn) not find`），那个表名是凭空造的，已从各处删除。验证命令改成
+`sendcmd 1 DB p MultiAPCfg`；**在这条跑出来之前，不要再引用"`P1905ComCfg.SetRoleEnable`"或
+"`IGD.P1905CFGn`"这种写法。**
 
 ### 6.2 `MultiAPMaster` —— 漫游/踢人/VBSS/BTM 全在这张表（实测 55 列）
 
@@ -239,25 +249,30 @@ deauth/disassoc，而不是 11v 的 BTM Request。详见快照 §1.1。
 `EnBtmKickoff=1` 只打开开关，还要 `ToSlowLmt`/`RoamingLmt`/`StatusPreRoamTimer` 这一整套状态机
 参数配合（`InitLmt/PreRoamLmt/RoamingLmt/OfflineLmt/ForbidLmt` 配 `Status*Timer`）。
 
-### 6.4 其余四张（**未实测**）
+### 6.4 其余几张：两处归属被实测推翻
 
-| 表 | 列 | 用途 |
+| 表 | 实测 | 用途 |
 |---|---|---|
-| `MultiAPRoamCatonCfg` | `RoamFilter` | 漫游过滤（对应内部总线 `0xa971`/`0xa972`） |
-| `MultiAPCacheMac` | `OfflineRetrieveEn, TxDataAfterBaEn, TxBaDelayMs, ZeroDropCfgEn, tBtmCacheEn, tTxConDelayMs, tTxDropCnt` | 离线 STA 的帧缓存（**`tBtmCacheEn` 又一次指向 BTM**） |
-| `MultiAPStaCfg` | `devMac, bssMac, staMac` | 三地址映射（D6 的落点） |
-| `MultiAPALLSta` / `MultiAPTopo` / `MultiAPDualBand` | `bSTA, localmac, uplinkDev, uplinkBSS` | 拓扑视图 |
+| `MultiAPRoamCatonCfg` | `RowCount=1`，7 列：`OfflineRetrieveEn=0`、`TxDataAfterBaEn=0`、`TxBaDelayMs=10`、`ZeroDropCfgEn=0`、**`BtmCacheEn=0`**、`TxConDelayMs=100`、`TxDropCnt=0` | 我原先只给了它一个 `RoamFilter`——**错**，实测没有这一列 |
+| `MultiAPCacheMac` | **`RowCount=0`**（表在、无实例） | 我原先把上面那 7 列记在它名下——**错**，而且列名没有 `t` 前缀 |
+| `MultiAPStaCfg` | **`RowCount=0`**（表在、无实例） | 三地址映射（D6 的落点）：入口存在，只是这台机器没配过绑定 |
+| `MultiAPALLSta` / `MultiAPTopo` / `MultiAPDualBand` | 未 dump | 拓扑视图（`bSTA, localmac, uplinkDev, uplinkBSS`） |
+
+`RowCount=0` 与 `table not find` 是两件事：前者说明**表存在、入口是真的**，只是没有行
+（`MultiAPCacheMac` 的帧缓存行是运行时按需填的）；后者才说明表名写错——`IGD.P1905CFGn` 就是后者。
 
 另有视图别名：`MESH`→`Netsphere`→`EASYMESH`（`dbMAPPersonBHBSSIndex` 一类的 person 层函数）。
 
 ### 6.5 方法说明与强度
 
 - **两段法**：先离线切（字符串表连续排列 → 列名清单，`httpd` 字段表与 web lua 写入顺序交叉印证），
-  再上机 `sendcmd 1 DB p` 逐表核对。这一次证明**第一段会切错表边界**，所以第二段不能省。
+  再上机 `sendcmd 1 DB p` 逐表核对。这一次证明**第一段会切错表边界**（错了两处），所以第二段不能省；
+  而且**上机前应先查 [SCHEMA](../milestones/SCHEMA.md) / [POLICIES](../milestones/POLICIES.md) 里已有的还原**。
 - 强度（实测后）：
-  - `MultiAPMaster`、`MultiAPDomain`、`P1905ComCfg` 三张表的**列名与列归属 = 强**（真机 dump）；
-  - 这些列的**含义**仍是弱—中：只有列名、出厂值和命名规律，没有反汇编或协议字段级的对应；
-  - `MultiAPCacheMac` / `MultiAPStaCfg` / `IGD.P1905CFGn` 等**没 dump 的表仍是中**。
+  - `MultiAPMaster`、`MultiAPDomain`、`P1905ComCfg`、`MultiAPRoamCatonCfg` 的**列名与列归属 = 强**；
+  - `MultiAPStaCfg` / `MultiAPCacheMac` 的**表存在 = 强**，但列名与列语义 = 中（行空，只能靠名字）；
+  - 所有列的**含义**仍是弱—中：只有列名、出厂值和命名规律，没有反汇编或协议字段级的对应；
+  - `MultiAPCfg`（角色开关）本仓已有 B.2.1 的字段级还原，属"已知但未在本机 dump"。
 - 局限：`cspd` 已 strip，拿不到函数名；列名与代码的对应关系只能靠名字。
 
 ## 7. `/kmodule` 里有什么：squashfs 解开后的地图
@@ -330,28 +345,30 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 | `EnVbss` / `ToVbssMode` 在哪个视图 | 未知，要上机翻 | **`MultiAPMaster`**，与 `EnBtmKickoff`/`EnRoamKick` 同表（实测，`0`/`1`） |
 | D3 信道扫描 / CAC | 只有 `SendCAC` 反汇编推断 | `MultiAPMaster.InChannelScanRptFlag`（实测 `0`）；`EnReportCenterChannel` **不在 `P1905ComCfg`**，未定位 |
 | D4 VBSS | 猜测 | `MultiAPMaster.EnVbss=0` / `ToVbssMode=1`（实测，出厂关） |
-| D5 VLAN / 流量分离 | 靠 `0xa94e` 反推 | `CONFIG_CSP_WLAN_VLAN` + `CONFIG_CSPCORE_EBTABLES_{VLAN,FFE_T}` + `OBJ_PORTVLAN_ID`；库侧候选 `IGD.P1905CFGn`（待取证） |
-| D6 STA 绑定 | 猜测 | `MultiAPStaCfg{devMac,bssMac,staMac}`（待取证）；**`P1905ComCfg.STAMac/TargetBand` 不存在**，此前的写法作废 |
-| D7 BTM 踢人 | 只知字符串在 | `MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1}`（实测）+ `MultiAPDomain` 五组状态机参数（实测）+ `MultiAPCacheMac.tBtmCacheEn`（待取证） |
-| 角色开关（不在 D 段） | 只有 `libzte_agent_mm.so` 三个导出 | `SetRoleEnable/RoleElect/EnMasterOnly` **不在这三张表里**，下一步查 `IGD.P1905CFGn` |
+| D5 VLAN / 流量分离 | 靠 `0xa94e` 反推 | `CONFIG_CSP_WLAN_VLAN` + `CONFIG_CSPCORE_EBTABLES_{VLAN,FFE_T}` + `OBJ_PORTVLAN_ID`；**库侧入口仍未定位**（我猜的 `IGD.P1905CFGn` 不存在） |
+| D6 STA 绑定 | 猜测 | `MultiAPStaCfg` **表存在、`RowCount=0`**（没配过绑定）；**`P1905ComCfg.STAMac/TargetBand` 不存在**，此前的写法作废 |
+| D7 BTM 踢人 | 只知字符串在 | `MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1}`（实测）+ `MultiAPDomain` 五组状态机参数（实测）+ **`MultiAPRoamCatonCfg.BtmCacheEn=0`**（实测；原先记成 `MultiAPCacheMac.tBtmCacheEn` 是错的） |
+| 角色开关（不在 D 段） | 只有 `libzte_agent_mm.so` 三个导出 | **`MultiAPCfg`**（50 字段，本仓 B.2.1 已还原：`Mode`、`SetRoleEnable`、`RoleElect`、`EnMasterOnly`、`MaxHop`、`CurHop`），只差在本机 dump 一次 |
 | 11r/FT 支持 | "固件不支持"（推断） | **`CONFIG_CSP_WLAN_SUPPORT_80211KV`，无 11r**（编译期证据）+ `En11rSteer=0`、`SupportRrm=1` |
 | 1905 报文取证 | 只有 multiapd 的 `pktdump` | `En1905Msg` 不在 `P1905ComCfg`（8 列里没有），这条取证路径**暂时落空**，仍靠 `pktdump` |
 
-**已执行的三条只读命令**（2026-11-01，结果见快照）：
+**已执行的两轮只读命令**（2026-11-01，结果见快照）：
 
 ```sh
 sendcmd 1 DB p MultiAPMaster        # 55 列，EnVbss/EnBtmKickoff/En11rSteer 落地
 sendcmd 1 DB p P1905ComCfg          # 只有 8 列 —— 切错表的证据
 sendcmd 1 DB p MultiAPDomain        # 8 实例 × 106 列，DomainUsed 指认生效的 4 个
+sendcmd 1 DB p P1905CFGn            # table not find —— 这个表名是我编的
+sendcmd 1 DB p MultiAPStaCfg        # RowCount=0，表在、无实例
+sendcmd 1 DB p MultiAPCacheMac      # RowCount=0，表在、无实例
+sendcmd 1 DB p MultiAPRoamCatonCfg  # 7 列，BtmCacheEn=0 在这里
 ```
 
-**还没跑的四条**（同样只读、不用停机）：
+**还没跑的**（同样只读、不用停机）：
 
 ```sh
-sendcmd 1 DB p P1905CFGn            # 角色/跳数/1905 报文开关的候选落点
-sendcmd 1 DB p MultiAPStaCfg        # D6 的三地址绑定实例
-sendcmd 1 DB p MultiAPCacheMac      # tBtmCacheEn 等七个帧缓存参数
-sendcmd 1 DB p MultiAPRoamCatonCfg  # RoamFilter
+sendcmd 1 DB p MultiAPCfg           # 角色开关/跳数/MeshName/IFLink 的真身（50 字段）
+sendcmd 1 DB l                      # 列全部表名，别再猜表名
 ```
 
 ## 10. 局限
@@ -359,8 +376,11 @@ sendcmd 1 DB p MultiAPRoamCatonCfg  # RoamFilter
 - **实测只覆盖"存在与出厂值"**：表名、列名、列归属现在是硬的（真机 dump），但每一列的**语义**
   仍只有命名和出厂值可依，没有协议字段级或反汇编级对应。特别是 `EnRoamModes=19`、
   `SupportStrategies=251` 这两个位图，位的含义没解。
-- **四张表没 dump**（`IGD.P1905CFGn`、`MultiAPStaCfg`、`MultiAPCacheMac`、`MultiAPRoamCatonCfg`），
-  所以 D5/D6/D7 的库侧入口还有三分之一是"候选"而不是"确认"。
+- **两个入口仍缺**：D5 的库侧 VLAN 入口（`IGD.P1905CFGn` 不存在，得另找）、D3 的
+  `EnReportCenterChannel`。另外 `MultiAPStaCfg` / `MultiAPCacheMac` 虽然表存在，但**行是空的**，
+  列语义只能靠名字推——要看到行得先在网页上配一条绑定，那是改配置不是取证。
+- **`MultiAPCfg` 还没在本机 dump**：它的 50 字段是 Z506（SR1010）上还原的，E2631 上大概率同名同构，
+  但没验。
 - **`/etc/init.debug` 判定为废文件**，依据是它引用的驱动/脚本在本机全不存在；**没有实机验证**
   （也不建议验证，改 `loadtype` 有变砖风险）。
 - **未知 4 字节**（§1.2 的 0x40）含义未定。已排除：压缩块 CRC、解压后 CRC、CRC-32C、
