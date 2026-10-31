@@ -584,9 +584,10 @@ static int verify_route_adapter(void)
     if (!getter || !binder)
         goto done;
     memset(&guarded, 0xa5, sizeof(guarded));
+    /* AL MAC shape only: byte 3 is the LAN hash and byte 5 the LAN MAC tail (controller-net.c) */
     if (getter("DEV.IP.IF1", guarded.data) || strcmp((char *)guarded.data, "DEV.IP.IF1") ||
         strcmp((char *)guarded.data + 32, "br0") ||
-        memcmp(guarded.data + 172, "\x02\x00\x00\x00\x19", 5)) /* AL MAC prefix only: the last byte is ZTE_MESH_AL_LAST */
+        memcmp(guarded.data + 172, "\x02\x00\x00", 3) || guarded.data[176] != 0x19)
         goto done;
     for (i = 0; i < 4; i++)
         if (guarded.pre[i] != 0xa5a5a5a5 || guarded.post[i] != 0xa5a5a5a5)

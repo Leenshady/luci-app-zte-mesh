@@ -83,8 +83,10 @@
   `multiapd.map.master`，消息号 `0x10206`（域/漫游阈值）、`0x10205`（主控策略）。直接 `sendcmd 1 DB set` 写库不会发它，
   daemon 既不重读也不推送；工厂调试通道 `/var/tmp/<进程>_asy` 也没有效果。见 [REPLAY_RESULTS](research/REPLAY_RESULTS.md)
   第 11 节与 [SERVICE.md](SERVICE.md)。
-- 控制器的 `AL MAC` 默认 `02:00:00:00:19:06`；启动器的 `ZTE_MESH_AL_LAST` 改最后一个字节（实验时用来让子节点当成新控制器）。
-  OpenWrt 包用 UCI `al_last`，默认取 LAN 桥 MAC 末字节。
+- 控制器的 `AL MAC` 是 `02:00:00:HH:19:LL`：`LL` 取 LAN 网桥 MAC 的末字节，`HH` 是其余 5 字节的哈希，两台设备
+  差异 16 bit 而不是 8 bit。撞车是静默的——1905 栈丢弃源地址等于自己的帧，两端都像同一台设备，拓扑只剩一项、
+  日志干净。整串由 `ZTE_MESH_AL_MAC` 传入，`ZTE_MESH_AL_LAST` 只改 `LL`（实验时让子节点当成新控制器），
+  UCI `al_last` 覆盖 `LL`；内建默认仍是 `02:00:00:00:19:06`。
 
 ## 5. 自组网 V2（`P1905ComCfg`）
 

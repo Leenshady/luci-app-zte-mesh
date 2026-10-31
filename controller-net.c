@@ -70,45 +70,89 @@ static void start(struct request *q, unsigned int sequence, int create)
     q->n.nlmsg_seq = sequence;
     q->i.ifi_family = AF_UNSPEC; q->i.ifi_flags = IFF_UP; q->i.ifi_change = IFF_UP;
 }
-/* The AL MAC is the identity bridge br0 (and the veth-lab ingress, which must match). ZTE_MESH_AL_LAST (hex byte,
- * default 06) lets a test run present itself as a new controller: a real child remembers a controller by its AL MAC
- * and skips the whole AP-autoconfiguration when it sees the same one again after a link-up. */
-static unsigned char al_last_byte(void)
+/* The AL MAC is the identity bridge br0 (and the veth-lab ingress, which must match): 02:00:00:HH:19:LL.
+ * LL is the router's LAN MAC last byte and HH a hash of its other five, which the init script computes; two
+ * boxes on one segment then differ in sixteen bits instead of eight. A collision here is silent -- a 1905
+ * stack drops frames whose source AL MAC is its own, so both boxes act as a single node, the topology stays
+ * at one entry and nothing is logged.
+ *
+ * ZTE_MESH_AL_MAC carries the whole address. ZTE_MESH_AL_LAST (hex byte) still overrides LL alone, which is
+ * what a test run wants when it presents itself as a new controller: a real child remembers a controller by
+ * its AL MAC and skips the whole AP-autoconfiguration when it sees the same one again after a link-up.
+ * Anything unparsable, or with the locally-administered bit clear (the vendor's route adapter refuses those
+ * with ENODEV), falls back to the built-in 02:00:00:00:19:06. */
+static int parse_mac(const char *text, uint8_t out[6])
 {
-    const char *text = getenv("ZTE_MESH_AL_LAST");
-    return (text && *text) ? (unsigned char)(strtoul(text, NULL, 16) & 0xff) : 6;
+    int at;
+    for (at = 0; at < 6; at++) {
+        char *end = NULL;
+        unsigned long value = strtoul(text, &end, 16);
+        if (end == text || value > 0xff) return -1;
+        out[at] = (uint8_t)value;
+        if (at < 5) {
+            if (*end != ':') return -1;
+            text = end + 1;
+        } else if (*end) {
+            return -1;
+        }
+    }
+    return 0;
 }
-static int create_bridge(const char *name, unsigned int sequence, unsigned char last)
+static void al_mac_bytes(uint8_t out[6])
+{
+    static const uint8_t builtin[6] = {2, 0, 0, 0, 0x19, 6};
+    const char *text = getenv("ZTE_MESH_AL_MAC");
+    uint8_t candidate[6];
+    if (text && *text) {
+        if (!parse_mac(text, candidate) && (candidate[0] & 2)) {
+            memcpy(out, candidate, sizeof(candidate));
+            return;
+        }
+        fprintf(stderr, "ZTE_CONTROLLER_NET al_mac=rejected value=%s\n", text);
+    }
+    memcpy(out, builtin, sizeof(builtin));
+    if ((text = getenv("ZTE_MESH_AL_LAST")) && *text)
+        out[5] = (uint8_t)(strtoul(text, NULL, 16) & 0xff);
+}
+/* The two placeholder ends the daemon never uses as its identity: the sandbox LAN bridge and the veth peer.
+ * They must differ from the AL MAC, and from each other, or the namespace ends up with two devices on one
+ * address -- the very confusion the split into br0/veth-lab exists to avoid. An odd tag in the high bit of
+ * byte 3 keeps all three apart while leaving bytes 0-2 and 4-5 recognisable. */
+static void sibling_mac(const uint8_t al[6], uint8_t out[6], unsigned char tag)
+{
+    memcpy(out, al, 6);
+    out[3] ^= (uint8_t)(tag | 0x80);
+}
+static int create_bridge(const char *name, unsigned int sequence, const uint8_t mac[6])
 {
     struct request q;
-    uint8_t mac[6] = {2, 0, 0, 0, 0x19, last};
     size_t at;
     start(&q, sequence, 1);
-    if (attr(&q, IFLA_IFNAME, name, strlen(name) + 1) || attr(&q, IFLA_ADDRESS, mac, sizeof(mac))) return -1;
+    if (attr(&q, IFLA_IFNAME, name, strlen(name) + 1) || attr(&q, IFLA_ADDRESS, mac, 6)) return -1;
     at = NLMSG_ALIGN(q.n.nlmsg_len);
     if (attr(&q, IFLA_LINKINFO | NLA_F_NESTED, NULL, 0) || attr(&q, IFLA_INFO_KIND, "bridge", 7)) return -1;
     end_attr(&q, at);
     return exchange(&q);
 }
-static int create_private_wire(void)
+static int create_private_wire(const uint8_t al[6])
 {
     struct request q;
     struct ifinfomsg peer = { .ifi_family = AF_UNSPEC };
     struct stat prerequisite;
     size_t link, data, endpoint;
-    uint8_t mac[6] = {2, 0, 0, 0, 0x19, 0x0a};
+    uint8_t peer_mac[6];
     /* Refuse a test requiring module autoload. This prerequisite is present
      * on the current device; no module is installed/loaded by the harness.
      */
     if (stat("/sys/module/veth", &prerequisite)) return -1;
+    sibling_mac(al, peer_mac, 2);
     start(&q, 3, 1);
     q.i.ifi_flags = q.i.ifi_change = 0; /* Both ends must exist before IFF_UP. */
     {
-        const uint8_t ingress_mac[6] = {2, 0, 0, 0, 0x19, al_last_byte()};
         /* Private identity bridge and standalone ingress share their actual
          * AL MAC, including unicast query destinations. No host links. */
         if (attr(&q, IFLA_IFNAME, "veth-lab", 9) ||
-            attr(&q, IFLA_ADDRESS, ingress_mac, sizeof(ingress_mac))) return -1;
+            attr(&q, IFLA_ADDRESS, al, 6)) return -1;
     }
     link = NLMSG_ALIGN(q.n.nlmsg_len);
     if (attr(&q, IFLA_LINKINFO | NLA_F_NESTED, NULL, 0) || attr(&q, IFLA_INFO_KIND, "veth", 5)) return -1;
@@ -116,7 +160,7 @@ static int create_private_wire(void)
     if (attr(&q, IFLA_INFO_DATA | NLA_F_NESTED, NULL, 0)) return -1;
     endpoint = NLMSG_ALIGN(q.n.nlmsg_len);
     if (attr(&q, VETH_INFO_PEER | NLA_F_NESTED, &peer, sizeof(peer)) ||
-        attr(&q, IFLA_IFNAME, "lab-peer", 9) || attr(&q, IFLA_ADDRESS, mac, sizeof(mac))) return -1;
+        attr(&q, IFLA_IFNAME, "lab-peer", 9) || attr(&q, IFLA_ADDRESS, peer_mac, 6)) return -1;
     end_attr(&q, endpoint); end_attr(&q, data); end_attr(&q, link);
     if (exchange(&q)) return -1;
     start(&q, 4, 0);
@@ -132,7 +176,10 @@ static int create_private_wire(void)
 }
 int controller_private_network(void)
 {
-    return create_bridge("br-lan", 1, 5) || create_bridge("br0", 2, al_last_byte()) || create_private_wire() ? -1 : 0;
+    uint8_t al[6], lan[6];
+    al_mac_bytes(al);
+    sibling_mac(al, lan, 1);
+    return create_bridge("br-lan", 1, lan) || create_bridge("br0", 2, al) || create_private_wire(al) ? -1 : 0;
 }
 /* Production wire: identical private identity bridge and ingress, but the
  * peer end is handed to the host namespace, where the init script enslaves it

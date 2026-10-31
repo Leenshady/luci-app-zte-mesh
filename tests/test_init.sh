@@ -800,5 +800,28 @@ for needle in 'CONFIG_COMPAT=y' 'ld-linux.so.3' 'sage:' 'qemu-arm-static' 'no qe
 	fi
 done
 
+# The AL MAC is 02:00:00:HH:19:LL: LL is this router's LAN MAC last byte and HH is al_hash() of its other
+# five, which is the only thing keeping two boxes on one segment from presenting the same identity -- a
+# collision is silent, both look like one node with a single-entry topology and a clean log. Pin the
+# function, then pin the way start_service builds and passes the address: those three lines were the whole
+# fix, and they live outside write_config(), which is all the rest of this file exercises.
+al_check() {
+	local got
+	got=$(al_hash "$2")
+	if [ "$got" = "$3" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL al-hash-$1: $2 -> $got, want $3"; fi
+}
+al_check vm 00:0c:29:61:f4:03 8a
+al_check ax3600 8c:de:f9:b3:d9:e3 c1
+al_check empty '' 00
+al_check zero 00:00:00:00:00:00 00
+if [ "$(al_hash 00:0c:29:61:f4:03)" != "$(al_hash 00:0c:29:61:f5:03)" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL al-hash-spread: byte 4 does not reach byte 3"; fi
+for needle in 'al_byte3=$(al_hash "$al_lan")' '--al-mac "$al_mac"' 'ZTE_MESH_AL_MAC=$al_mac'; do
+	if grep -q -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL al-mac source: $needle"
+	fi
+done
+
 echo "init test: $pass passed, $fail failed"
 [ "$fail" = 0 ]
