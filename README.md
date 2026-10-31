@@ -11,6 +11,15 @@ ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、两
 | `main` | 主控 + 自己发 Wi-Fi：同一份档案既下发，也落到本机 `/etc/config/wireless`。即原厂的"主路由 / 自适应"，线上仍发 `mesh.role=auto`，旧值 `auto` 同义 |
 | `slave` | 本机当子节点：收 M2 并把名称/密码/加密写到本机；`backhaul=multi_ap` 时把隐藏回程落成 4 地址 BSS。需要完整 `wpad`，真机数据还没有（[AGENT_PROBE](docs/research/AGENT_PROBE.md) 第 11 节） |
 
+## 兼容范围
+
+设计上不绑定型号：主控可以是任意刷 OpenWrt/ImmortalWrt 的设备，子节点可以是中兴原厂固件的路由器，也可以是另一台 OpenWrt 路由器。
+但**实际打包出来的只有 aarch64 目标**（由 `zte-mesh-launcher` 的 `PKGARCH` 与 `DEPENDS` 决定），其他架构要自己把 `qemu-arm-static`
+放进私有根，让原厂 32 位 ARM 程序跑起来（见下面"启用前"那段与 [docs/LAB.md](docs/LAB.md) 第 4.2 节）。
+
+端到端组网目前**只用非中兴设备做过**：主控是 x86_64 虚拟机，子节点是小米 AX3600 刷 ImmortalWrt（有线回程）。中兴 Z506 只做过
+主控侧联调（入网、SSID/密码、多 BSS、BeaconInterval、ACL、节点动作等），没有用它跑过 `slave` 角色。
+
 ## 当前状态
 
 **功能总账只有一份**：[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)（逐项状态与证据、做不到的项、按难度排的推进顺序）。
