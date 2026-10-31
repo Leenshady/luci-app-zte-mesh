@@ -1,0 +1,10 @@
+compiler: /usr/bin/aarch64-linux-gnu-gcc
+sysroot: /
+a.out.h
+aio.h
+aliases.h
+alloca.h
+ar.h
+=== aarch64-linux-gnu-gcc --sysroot=/ ===
+rc=0
+prebuilt/ns-run-aarch64: ELF 64-bit LSB executable, ARM aarch64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=3669b2fcbea981643529b8b7d1a7b9dbed985400, for GNU/Linux 3.7.0, not stripped
