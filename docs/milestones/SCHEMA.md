@@ -138,3 +138,32 @@ B.2 仍未完成：产品/节点身份、远端 WLAN profile、配置 helper/RPC
 - **`AclCfg`：** `ViewName`（主键）、`Name`、`Interface`、`MACAddress`（6 字节）、`ACLCfgPolicy`，268 字节、最多 256 行（`cspd` 构造函数 `dbCreateAclCfgTbl`，0x1cd334 到 0x1cd41c，
   `startup-schema.py` 的 `SPECS` 可复现）。
 - **`MapCooperatorCfg`（子路由 `cspd`）：** `AutoSetup`、`WpsActiveDelayTime`、`Addr4EffectDelayTime`、`EnRebootElect`、`WpsLongPress`；`AutoSetup` 影响角色选举的触发分支。
+
+## 补充（2026-11-01）：真机 `sendcmd 1 DB p MultiAPCfg` 验证 `36 + 32n`
+
+E2631 真机 dump 出 `MultiAPCfg` 的 **50 列**（原文见
+[E2631_DB_SNAPSHOT](../research/E2631_DB_SNAPSHOT.md) §6），实测列序与本文还原的字段序
+**逐字段一致**，`偏移 = 36 + 32 × 序号` 六个锚点全中：
+
+| 字段 | 序号 | `36+32n` | 本文记的 |
+|---|---|---|---|
+| `MaxHop` | 6 | 228 | 228 |
+| `CurHop` | 7 | 260 | 260 |
+| `VersionMode` | 10 | 356 | 356 |
+| `P1905DevNum` | 11 | 388 | 388 |
+| `EnMasterOnly` | 24 | 804 | 804 |
+| `MeshName` | 26 | 868 | 868 |
+
+两处精确化：
+
+1. 上文"前 25 个字段（序号 0 到 24）都是 32 字节"应改成**前 27 个（序号 0–26）都是 32 字节**——
+   `PluginLimit`(25)=836、`MeshName`(26)=868 也落在这个区里；
+2. 序号 27 起进入变长区：`IFLink`(36) 实测在 **1444**、`NoSteeringOUIs`(37) 在 **1540**，
+   不服从 `36+32n`。`1540 - 1444 = 96`，暗示 `IFLink` 是 96 字节的路径字符串槽；
+   这一段要算宽度得读 `dbDefMultiAPCfg` 的初始化。
+
+另外验证了本文那句"`EnMasterOnly` 为 1 时 `CurHop` 不会被设成 `MaxHop`"的**反面情形**：
+该机 `EnMasterOnly=0`、`CurHop=2`、`MaxHop=2`，三者自洽（`Mode=1` 即 Slave）。
+
+**教训**：`P1905ComCfg` 那 8 个字段的偏移本文早就写对了，后来却从 `cspd` 字符串表重新推断并切错了表。
+凡要动配置库 schema，**先查本文再上机**。

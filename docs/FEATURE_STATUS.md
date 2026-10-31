@@ -103,11 +103,11 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 |---|---|---|---|---|
 | D1 | 带宽 20/40/80/160 | 不写 `BandWidth`，也不关"自动信道" | 未找到新证据，不变 | — |
 | D2 | 访客限速 | 1905 里没有这个字段 | 协议外的东西，不变 | — |
-| D3 | 信道扫描 / CAC | 无接收代码 | 有 `SendCAC` / `ChannelScan` **发送**入口，接收侧没查（弱） | `MultiAPMaster.InChannelScanRptFlag`（**实测 0**，出厂关） |
+| D3 | 信道扫描 / CAC | 无接收代码 | 有 `SendCAC` / `ChannelScan` **发送**入口，接收侧没查（弱） | `MultiAPMaster.InChannelScanRptFlag=0` + **`MultiAPCfg.EnReportCenterChannel=1`**（均实测）。**上报本来就是开的**，缺口在接收侧 |
 | D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | 无 | `cspd` 有 `EnVbss` / `ToVbssMode` 配置位，但**没有任何 CM/CF 导出**（中） | **`MultiAPMaster.EnVbss=0` / `.ToVbssMode=1`**（实测，与 `EnBtmKickoff` 同表） |
-| D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） | 编译期 `CONFIG_CSP_WLAN_VLAN` + `EBTABLES_{VLAN,FFE_T}`；**库侧入口仍未定位**（`P1905CFGn` 实测不存在） |
-| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） | `MultiAPStaCfg` **表存在、`RowCount=0`**（没配过绑定，入口是真的） |
-| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**）。内核侧 `br_ieee1905_local_in_handle` 放行本地投递（§5.5），帧能到 `multiapd`；而它自带 `pktdump`，线上取证不必再自带抓包程序 | **`MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1,EnActiveDeauth=1}`**（实测）+ `MultiAPDomain` 的 106 列状态机参数（实测）+ **`MultiAPRoamCatonCfg.BtmCacheEn=0`**（实测） |
+| D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） | 编译期 `CONFIG_CSP_WLAN_VLAN` + `EBTABLES_{VLAN,FFE_T}`；库侧候选 **`P1905Cfg`(#164，未 dump)**（`IGD.P1905CFGn` 与 `IGD` 均不存在） |
+| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） | **`P1905StaBind`(#168，未 dump，名字最对口)** 与 `MultiAPStaCfg`（表在、`RowCount=0`）两张候选 |
+| D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**）。内核侧 `br_ieee1905_local_in_handle` 放行本地投递（§5.5），帧能到 `multiapd`；而它自带 `pktdump`，线上取证不必再自带抓包程序 | **`MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1,EnActiveDeauth=1}`** + `MultiAPDomain` 的 106 列状态机参数 + **`MultiAPRoamCatonCfg.BtmCacheEn=0`**（全部实测）+ 新线索 **`WlanRoamingCfg`(#270，未 dump)** |
 
 这一节的判据原来只有 Z506（Wi-Fi 5 老固件）。2026-11-01 从一台市售 AX3000（E2631，2026-08 固件）
 拿出明文用户态之后，D5/D6/D7 从"没有通道"变成"厂商有入口"，其中 **D7 的接收侧处理路径是齐的**。
@@ -117,19 +117,34 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 从 `cspd` 的 schema 字符串表 + web 模块 `.lua` 两条独立路径交叉得到 mesh 配置库的表名与列名，
 **D3–D7 各自"该改哪个字段"不再是猜测**。
 
-当晚又用两轮只读 `sendcmd 1 DB p` 把推断核对了一遍（原文整理在
-[E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md)），结局是**表归属错了三处**：
+当晚又用三轮只读命令把推断核对了一遍（原文整理在
+[E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md) 与 [E2631_DB_TABLES](research/E2631_DB_TABLES.md)），
+结局是**表归属错了三处**：
 
-- `MultiAPMaster`（55 列）、`MultiAPDomain`（8 实例 × 106 列）、`MultiAPRoamCatonCfg`（7 列）**切对了**，
-  `MultiAPMaster` 实测还补上 12 个原先漏掉的列；
+- `MultiAPMaster`（55 列）、`MultiAPDomain`（8 实例 × 106 列）、`MultiAPRoamCatonCfg`（7 列）、
+  `MultiAPCfg`（50 列）**切对了**，`MultiAPMaster` 实测还补上 12 个原先漏掉的列；
 - `P1905ComCfg` **切错了表**——它其实只有 8 列（`Enable/EnableIsSync/Policy/DropNum/MarketConfEn/MarketSign/DropRoam/A1Enable`），
   `SetRoleEnable`/`En1905Msg`/`STAMac` 那些名字属于别的表，**上一版右列里引用过它们的写法已作废**；
   更糟的是本仓 [SCHEMA](milestones/SCHEMA.md) 2026-10-12 的补充节早就写了这 8 个字段的偏移与字节数，
   重新推断时没先查；
 - `MultiAPCacheMac` **也是切错的**：那 7 个帧缓存列实际在 `MultiAPRoamCatonCfg`，且列名没有 `t` 前缀
   （`BtmCacheEn`，不是 `tBtmCacheEn`）；`MultiAPCacheMac` 本身是空表；
-- 我上轮猜的 `IGD.P1905CFGn` **不存在**（`table not find`），角色开关的正解是 **`MultiAPCfg`**
-  （本仓 B.2.1 已还原 50 字段）。
+- 我上轮猜的 `IGD.P1905CFGn` **不是表名**（`table not find`），角色开关的正解是 **`MultiAPCfg`**。
+
+第三轮 `sendcmd 1 DB all` 拿到 **276 张表名全集**，把上面错误的根源（从字符串表推断表名）彻底堵上：
+
+- 又有三个"列名"其实是**表名**：`MultiAPPTK`(#147)、`P1905StaBind`(#168)、`P1905Cfg`(#164)；
+- 库里**没有 `IGD` 这张表**，但 `IGD.` 是**行名前缀**（`TimePolicy` 的行名就叫 `IGD.TpCfg0..2`，见
+  [FEATURE_MAP](research/FEATURE_MAP.md) §15）。所以 `IGD.P1905CFGn` 的正确读法是"某表第 n 行"，
+  不是表名——`DB p` 只收表名，报 not find 只证明它不是表；
+- `MESH`/`Netsphere`/`EASYMESH` 也**不在 276 张表里**，[E2631_ROOTFS](research/E2631_ROOTFS.md) §6.4
+  把它们写成"DB 视图别名"没有依据，已降级为 web 层名称映射；
+- mesh 相关的表不是 5 张而是 **19 张**（10 `MultiAP*` + 9 `P1905*`），
+  另有此前没在视野里的 `WlanRoamingCfg`(#270)。
+
+`MultiAPCfg` 实测还结掉两条待办：**`CurHop=2=MaxHop` 且 `EnMasterOnly=0`**（B16 结案，与 SCHEMA 的
+条件句三者自洽）；**`En1905Msg=1`、`EnReportCenterChannel=1`** 都是开的——所以 1905 报文取证那条路
+没有落空，D3 的缺口也不在"要不要上报"。
 
 实测顺带纠了一个方向性判断：**出厂踢人走 `EnActiveDeauth=1`，BTM 那条（`EnBtmKickoff`）是关的**。
 所以 D7 与厂商线上行为比对时，该预期看到 deauth/disassoc，而不是 11v 的 BTM Request。
@@ -137,6 +152,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 另外两条编译期证据（`/etc/autouserconf`，612 个开关）：`CONFIG_CSP_WLAN_SUPPORT_80211KV`
 **只有 11k/11v、没有 11r**——与 D7"固件不支持 FT"是同一件事的两面，实测 `En11rSteer=0`、`SupportRrm=1` 与之吻合；
 `CONFIG_CSP_WLAN_VLAN` + `CONFIG_CSPCORE_EBTABLES_{VLAN,FFE_T}` 说明 WLAN 侧 VLAN 是编进去的。
+不过 `WlanRoamingCfg`(#270) 没 dump，若它含 11r 开关，上面的"固件不支持"要改成"配置层没开"。
 
 **七项的"入口位置"现在是实测级，但"功能本身"一项都没实测**，所以仍然没有一项改成 ✅。
 
@@ -145,15 +161,18 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 顺序 | 项 | 难度 | 说明 |
 |---|---|---|---|
 | — | B8 / B9 / B10 / B12 / A20 / B5 / B7 / B17 / C4 / C5 / C6 / C7 | — | **已完成**（2026-10-31） |
-| — | `sendcmd 1 DB p` 配置库 schema 取证（两轮、七张表） | — | **已完成**（2026-11-01）：`MultiAPMaster` 55 列、`MultiAPDomain` 8×106 列、`MultiAPRoamCatonCfg` 7 列切对；`P1905ComCfg` 只有 8 列、`MultiAPCacheMac` 那 7 列其实在前者，两处切错已自纠；`MultiAPStaCfg`/`MultiAPCacheMac` 表在行空；`P1905CFGn` 不存在。见 [E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md) |
+| — | `sendcmd 1 DB p` 配置库 schema 取证（三轮、八张表 + 表名全集） | — | **已完成**（2026-11-01）：`MultiAPMaster` 55 列、`MultiAPDomain` 8×106 列、`MultiAPRoamCatonCfg` 7 列、`MultiAPCfg` 50 列切对；`P1905ComCfg` 只有 8 列、`MultiAPCacheMac` 那 7 列其实在 `MultiAPRoamCatonCfg`，两处切错已自纠；`MultiAPStaCfg`/`MultiAPCacheMac` 表在行空；`P1905CFGn` 不存在；`DB all` 拿到 276 张表名全集。见 [E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md)、[E2631_DB_TABLES](research/E2631_DB_TABLES.md) |
 | 1 | r10 四包装机验收 | 0 | 产物已在手，两台换上即可 |
 | 2 | ax3600 刷 `CONFIG_COMPAT=y` 固件 | 1 | 彻底摆脱手工模拟器，`.github/workflows/build-firmware.yml` |
 | 3 | C3 统一行尾 | 1 | 影响整个仓库，**需要单独确认** |
-| 4 | `sendcmd 1 DB p MultiAPCfg` + `sendcmd 1 DB l` | 0 | **只读、不用停机**：`MultiAPCfg` 是角色开关的正解（本仓已有 50 字段还原，只差本机核对）；`DB l` 列全部表名，从此不再猜表名 |
-| 5 | B16 `CurHop` 真机确认 | 2 | 需要真机；注意 `CurHop` 不在 `P1905ComCfg`，别再按旧写法找 |
-| 6 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
-| 7 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
-| 8 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
-| 9 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
-| 10 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 9 项都过了才值得动 |
-| 11 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；取证改用它自带的 `pktdump 1`（落 `/var/tmp`）或 `logcat | grep "AGENT RECV"`，**不必再自带抓包程序**。停机前先做零成本只读项：`sendcmd 1 DB p`（读 mesh 配置库）、`cat /proc/kallsyms | grep 1905`、取 `/kmodule/bin/multiapd` 原件。见 [MULTIAPD](research/MULTIAPD.md) §5 与 [E2633_TELNET_BOOT](research/E2633_TELNET_BOOT.md) §11 |
+| 4 | 补 dump 五张表：`P1905StaBind` / `P1905Cfg` / `WlanRoamingCfg` / `MultiapCapability` / `MapCooperatorCfg` | 0 | **只读、不用停机**。第一条定 D6，第二条定 D5；`WlanRoamingCfg` 若含 11r 开关会改写 D7 的判据 |
+| 5 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
+| 6 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
+| 7 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
+| 8 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
+| 9 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 8 项都过了才值得动 |
+| 10 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；取证改用它自带的 `pktdump 1`（落 `/var/tmp`）或 `logcat | grep "AGENT RECV"`，**不必再自带抓包程序**。停机前先做零成本只读项：`sendcmd 1 DB p`（读 mesh 配置库）、`cat /proc/kallsyms | grep 1905`、取 `/kmodule/bin/multiapd` 原件。见 [MULTIAPD](research/MULTIAPD.md) §5 与 [E2633_TELNET_BOOT](research/E2633_TELNET_BOOT.md) §11 |
+
+> **B16 `CurHop` 已结案**（原第 5 项）：`MultiAPCfg.CurHop=2=MaxHop`，且 `EnMasterOnly=0`，
+> 与 [SCHEMA](milestones/SCHEMA.md) "`EnMasterOnly=1` 时 `slave_init` 跳过、`CurHop` 不会被设成 `MaxHop`"
+> 的条件句三者自洽。不是"读到一个值"式的结案。原表 5–11 项已顺次前移。
