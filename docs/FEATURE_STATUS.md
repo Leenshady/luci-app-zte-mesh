@@ -39,6 +39,7 @@
 | A17 | 引导（BTM）/ 封锁 / 踢终端 | ⬜ | `0x8014` 等，接口已在 libcmapi | 3 |
 | A18 | 拓扑页：回程 RSSI、树状图、每 AP 终端列表、固件版本 | ⬜ | 现在只有节点清单与动作 | 3 |
 | A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性的错误定位 | ☑️ | init 69 项 | — |
+| A20 | **界面中英双语**：全部文案走 `_()`，`po/zh_Hans` 与源码逐条对齐，菜单标题也在目录里 | ☑️ | i18n 12 项；两台设备 `ucode` 直接查表为中文 | — |
 
 ## B. 子路由（Agent，本机是子节点）
 
@@ -48,14 +49,15 @@
 | B2 | 发 M1、收 M2、凭据落 `WLANCfg` / `WLANPSK` | ☑️ | 两个频段各一份，`m2_match=1` | — |
 | B3 | setter 兜底（配置管理器返回 -3 时读回校验再报 0） | ☑️ | `libzte_agent_mm.so`，沙箱专用 | — |
 | B4 | 库 → 计划的发布（`agent-sync` → `/run/zte-mesh/wlan-plan`） | ☑️ | `published=1 rows=2` | — |
-| B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化） | ☑️ | 53 项测试 | — |
-| B6 | 回程 BSS：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 53 项测试含开关双向复原 | — |
-| B7 | UCI / init / LuCI 暴露 `mesh_role` + `backhaul` | ☑️ | init 69、rpcd 16 | — |
+| B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化；plan 启用某 band 时把关着的 radio 设备打开，只写 0） | ☑️ | 86 项测试 | — |
+| B6 | 回程 BSS：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 86 项测试含开关双向复原 | — |
+| B7 | UCI / init / LuCI 暴露 `mesh_role` + `backhaul` | ☑️ | init 74、rpcd 18 | — |
 | B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | 本轮；init `role-slave-borrow` | — |
 | B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | 本轮；`test_luci.js`（主控 31 项 / 子路由 4 项） | — |
 | B10 | rpcd `status` 返回角色 | ☑️ | 本轮；rpcd 18 项 | — |
 | B11 | 子路由侧应用额外槽位（slot 1–3 现在只记日志） | ⬜ | `wlan-sync` 明确跳过 | 3 |
-| B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | 本轮；wlan-sync 60 项、rpcd 18 项 | — |
+| B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | 本轮；wlan-sync 86 项、rpcd 18 项 | — |
+| B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ☑️ | init 74（`role-main` / `role-main-sync` / `role-master` / `role-auto-legacy`）；LuCI 角色表 3 项断言 | — |
 | B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | ⬜ | 只做了 AP 侧 | 4 |
 | B14 | 真机：本机当子路由，接真主控（有线回程） | ⬜ | 只在合成主控下验过 | 2 |
 | B15 | `CmWLANMapSsidCfgSync2Repeater` 对齐（libcmapi 内部调用，替身命中不到） | ⬜ | 沙箱里是 no-op | 5 |
@@ -68,6 +70,7 @@
 | C1 | 单个 apk（runtime + init + wlan-sync + rpcd + LuCI），4.1 MB | ✅ | 装在真路由器上，procd/rpcd 全通 | — |
 | C2 | 拆包：`zte-mesh-runtime` + `zte-mesh-controller` + `zte-mesh-agent` | ⬜ | 方案已定（见 AGENT_PROBE §11.7），未动手 | 2 |
 | C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ⬜ | 现在工作区 CRLF，测试要转 LF 才能跑 | 1 |
+| C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配了 `=m`、没编译，中文目录从不产出 | ☑️ | 本轮；CI 断言三个 apk 都在 | — |
 
 ## D. 没有通道的（换子路由固件才谈得上）
 

@@ -1,13 +1,19 @@
 #!/bin/sh
-# Apply the child (agent) role's Wi-Fi plan to the host's own Wi-Fi configuration.
+# Apply a Wi-Fi plan to the host's own Wi-Fi configuration.
 #
 #   wlan-sync [PLAN] [--once]
 #
-# The mesh service runs inside a private sandbox: it can write /run/zte-mesh, and nothing else. When it runs as a
-# child, the profile the controller sent arrives as an M2, the vendor daemon writes it into its configuration
-# database, and the service turns those rows into PLAN (see agent-sync.c). This script is the other half: it
-# maps the plan onto /etc/config/wireless and reloads the radios, which is the step the factory image leaves to
-# cspd and its driver layer.
+# The mesh service runs inside a private sandbox: it can write /run/zte-mesh, and nothing else. Two roles publish a
+# plan there, and this script does not care which:
+#
+#   child router   the profile the controller sent arrives as an M2, the vendor daemon writes it into its
+#                  configuration database, and the service turns those rows into PLAN (agent-sync.c).
+#   main router    this router is the controller, so there is no M2 to wait for: the service writes PLAN from the
+#                  profile it hands to the child routers (write_local_plan in zte-mesh.init).
+#
+# Either way this script is the other half: it maps the plan onto /etc/config/wireless and reloads the radios, which
+# is the step the factory image leaves to cspd and its driver layer. A controller-only router has no plan and no
+# instance of this script -- its own radios are not its business.
 #
 # Only the main BSS of each band is applied (slot 0). The extra SSID slots (1..3) are reported and skipped: the
 # factory daemon drives them through its own driver interface, and inventing hostapd sections for them here
@@ -26,6 +32,12 @@
 #
 # Nothing is applied that the plan does not change: the script compares every value first and only commits and
 # reloads when at least one differs.
+#
+# One thing beyond the plan's own fields: a wifi-device that is switched off is switched on when the plan enables
+# the main BSS of its band (see enable_radio). A radio cannot broadcast while its device is disabled, and routers
+# arrive that way -- the factory image and the lab's ax3600 ship every wifi-device disabled -- so without it the
+# child holds the controller's SSID in /etc/config/wireless and puts nothing on the air. It only ever writes 0, so
+# a band the plan disables keeps its device and with it the backhaul BSS of that band.
 set -u
 
 PLAN=${1:-/run/zte-mesh/wlan-plan}
@@ -62,19 +74,75 @@ encryption_of() {
 	esac
 }
 
-# radio_section BAND -> the UCI section of the radio device for that band (2g / 5g)
+# uci_true VALUE -> 1 when the value is a true-ish UCI boolean, 0 otherwise. UCI accepts the word forms as well as
+# 1/0, and a config edited by hand (or written by another tool) may well say `true`.
+uci_true() {
+	case "$1" in 1|[Tt][Rr][Uu][Ee]|on|yes) echo 1 ;; *) echo 0 ;; esac
+}
+
+# radio_off SECTION -> 1 when that wifi-device is switched off. A missing `disabled` means the radio is on, which
+# is also what "no wifi-device at all" answers -- callers only ask about a device they already resolved.
+radio_off() {
+	uci_true "$(uci -q get "wireless.$1.disabled" 2>/dev/null)"
+}
+
+# enable_radio DEVICE BAND -> switch a switched-off wifi-device on, because the controller says its band should be
+# on the air. Only 0 is ever written: a band the plan disables keeps its device, since switching the device off
+# would take that band's backhaul BSS down with it, and that BSS is the control path. This is not a watchdog
+# either: it runs when the plan changes, so a radio switched off by hand afterwards stays off until the controller
+# publishes a different profile.
+#
+# It exists because a router can arrive with its radios off -- the factory image and the lab's ax3600 ship every
+# wifi-device disabled -- and then the child has the controller's SSID in /etc/config/wireless and nothing on the
+# air, which looks like "the plan is not applied" while it is applied perfectly.
+enable_radio() {
+	local device="$1" band="$2"
+	[ "$(radio_off "$device")" = 1 ] || return 0
+	uci -q set "wireless.$device.disabled=0"
+	changed
+	log "radio $device ($band) was switched off; switched on so the controller's network can go on the air"
+	return 0
+}
+
+# radio_section_of BAND -> the wifi-device that serves that band (2g / 5g)
+#
+# The band is a name, not a section, and a board may carry two devices on one band: the xiaomi,ax3600 in the lab
+# does, an unused PCIe 5 GHz card (radio0, ath10k) next to the SoC's 5 GHz radio (radio1, ath11k), and both say
+# band '5g'. Returning the first match wrote the controller's name into the spare device while the radio on the
+# air kept its old SSID, which on the child looks exactly like "the 5 GHz row is not applied at all".
+#
+# So, in order: an explicit pin wins (zte_mesh.main.wifi_2g / wifi_5g, the wifi-device section name); a band with
+# a single device needs no guess; with several, the only device that is not switched off (older images leave a
+# spare radio disabled). Two live candidates and no pin is ambiguous, and guessing there is worse than leaving
+# the band alone: the caller reports it, and the user pins it -- the name of the option is in the message.
 radio_section_of() {
-	local want="$1" section band hwmode
+	local want="$1" pin section band hwmode candidates="" live=""
+	pin=$(uci -q get "zte_mesh.main.wifi_$want" 2>/dev/null)
 	for section in $(uci -q show wireless | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
-		band=$(uci -q get "wireless.$section.band")
-		hwmode=$(uci -q get "wireless.$section.hwmode")
+		band=$(uci -q get "wireless.$section.band" 2>/dev/null)
+		hwmode=$(uci -q get "wireless.$section.hwmode" 2>/dev/null)
 		case "$band:$hwmode" in
-		2g:*) [ "$want" = 2g ] && { echo "$section"; return 0; } ;;
-		5g:*) [ "$want" = 5g ] && { echo "$section"; return 0; } ;;
-		*:11g) [ "$want" = 2g ] && { echo "$section"; return 0; } ;;
-		*:11a) [ "$want" = 5g ] && { echo "$section"; return 0; } ;;
+		2g:*) [ "$want" = 2g ] || continue ;;
+		5g:*) [ "$want" = 5g ] || continue ;;
+		*:11g) [ "$want" = 2g ] || continue ;;
+		*:11a) [ "$want" = 5g ] || continue ;;
+		*) continue ;;
 		esac
+		candidates="$candidates $section"
+		[ "$(radio_off "$section")" = 1 ] || live="$live $section"
 	done
+	[ -n "$candidates" ] || return 1
+	if [ -n "$pin" ]; then
+		case " $candidates " in
+		*" $pin "*) echo "$pin"; return 0 ;;
+		esac
+		log "zte_mesh.main.wifi_$want names '$pin', which is not a $want device on this router (${candidates# }); ignored"
+	fi
+	set -- $candidates
+	[ $# -eq 1 ] && { echo "$1"; return 0; }
+	set -- $live
+	[ $# -eq 1 ] && { echo "$1"; return 0; }
+	log "several $want radios (${candidates# }) and no way to tell which one carries the mesh; set zte_mesh.main.wifi_$want to one of them, this band is left alone until then"
 	return 1
 }
 
@@ -132,8 +200,9 @@ apply_key() {
 apply_backhaul() {
 	local band="$1" ssid="$2" key="$3" enabled="$4" hidden="$5" beacon="$6"
 	local device iface main main_network enc
-	device=$(radio_section_of "$band") || { log "no radio device for $band; backhaul left alone"; return 1; }
+	device=$(radio_section_of "$band") || { log "no usable $band radio; backhaul left alone"; return 1; }
 	enc=$(encryption_of "${beacon:-3}") || { log "backhaul on $band: unknown security mode ${beacon:-?}; left alone"; return 1; }
+	[ "$enabled" = 1 ] && enable_radio "$device" "$band"
 	iface=zte_backhaul_$band
 	if [ "$(uci -q get "wireless.$iface" 2>/dev/null)" != wifi-iface ]; then
 		uci -q set "wireless.$iface=wifi-iface"
@@ -224,8 +293,9 @@ apply_plan() {
 		fi
 		[ -n "$ssid" ] || { log "radio $radio has no name in the plan; left alone"; continue; }
 		enc=$(encryption_of "${beacon:-3}") || { log "radio $radio: unknown security mode ${beacon:-?}; left alone"; continue; }
-		device=$(radio_section_of "$band") || { log "no radio device for $band; left alone"; continue; }
+		device=$(radio_section_of "$band") || { log "no usable $band radio; left alone"; continue; }
 		iface=$(ap_iface_of "$device") || { log "no AP interface on $device ($band); left alone"; continue; }
+		[ "$enabled" = 1 ] && enable_radio "$device" "$band"
 		set_opt "$iface" disabled "$([ "$enabled" = 1 ] && echo 0 || echo 1)"
 		set_opt "$iface" ssid "$ssid"
 		[ -n "$hidden" ] && set_opt "$iface" hidden "$hidden"
@@ -241,8 +311,23 @@ apply_plan() {
 	return 0
 }
 
-# BusyBox-aware change detector: mtime and size of the plan.
-stamp() { stat -c '%Y:%s' "$1" 2>/dev/null || echo missing; }
+# Change detector for the plan. The first version asked stat(1) for mtime:size, and this `stat` is not in
+# every OpenWrt image (it is missing from the xiaomi,ax3600 one), so the stamp degraded to the constant
+# "missing" -- equal on every pass, which means the loop applied the plan once at start and then never
+# again. On a child that is configured by an M2 that is exactly backwards: the plan appears after the
+# enrolment and nobody applies it. Content is what the loop reacts to anyway, and the file is small.
+stamp() {
+	local value
+	[ -r "$1" ] || { echo missing; return 0; }
+	if command -v md5sum >/dev/null 2>&1; then
+		value=$(md5sum "$1" 2>/dev/null | awk '{print $1; exit}')
+	elif command -v stat >/dev/null 2>&1; then
+		value=$(stat -c '%Y:%s' "$1" 2>/dev/null)
+	else
+		value=$(ls -ln "$1" 2>/dev/null)
+	fi
+	echo "${value:-unreadable}"
+}
 
 # One line per run, next to the plan: when it last ran, what it did, and which bands it touched. Without it the only
 # trace of a failed apply is a log line the page cannot read. Fields are plain text on purpose (no quoting game).

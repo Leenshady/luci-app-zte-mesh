@@ -435,9 +435,15 @@ jobs:
           build package/feeds/zte_mesh/zte-mesh/compile
           build package/feeds/zte_mesh/luci-app-zte-mesh/compile
 
+          # The translations are their own package (luci.mk turns every po/ dir
+          # into luci-i18n-<app>-<lang>); compiling the app does not build it,
+          # so without this line the Chinese catalog never ships and the page
+          # comes up in English even when the firmware is set to Chinese.
+          build package/feeds/zte_mesh/luci-i18n-zte-mesh-zh-cn/compile
+
           # A green build with no artifact is the worst outcome: assert the
           # packages are really there instead of trusting exit codes.
-          for stem in zte-mesh luci-app-zte-mesh; do
+          for stem in zte-mesh luci-app-zte-mesh luci-i18n-zte-mesh-zh-cn; do
             test -n "$(find bin -name "$stem-*.apk" -print -quit)" || {
               echo "build reported success but produced no $stem apk" >&2; exit 1; }
           done

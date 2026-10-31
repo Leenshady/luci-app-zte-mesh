@@ -109,6 +109,60 @@ EXPORT void *shmat(int shmid, const void *shmaddr, int shmflg)
     return result;
 }
 
+/* qemu-user performs the guest's execve() as a HOST execve() of the same path,
+ * which only lands back in the emulator when binfmt_misc is registered. A lab
+ * host without it (ImmortalWrt x86_64 has no CONFIG_BINFMT_MISC at all) gets
+ * ENOEXEC there, and the controller's daemon spawn dies on it (exit 82). Start
+ * the emulator directly instead, handing it the guest loader as its program.
+ * Opt-in through the two variables the launcher already sets, so a device run
+ * keeps exactly the exec chain the daemon expects.
+ */
+static int emulated_exec(const char *path, char *const argv[])
+{
+    int (*real_execv)(const char *, char *const *) =
+        (int (*)(const char *, char *const *))next_symbol("execv");
+    const char *emulator = emulated_lab ? getenv("ZTE_MESH_QEMU") : NULL;
+    if (emulator && *emulator && path && !strcmp(path, "/lib/ld-linux.so.3")) {
+        char *qemu_argv[32];
+        int i = 0, j;
+        qemu_argv[i++] = (char *)emulator;
+        qemu_argv[i++] = (char *)path;
+        for (j = 1; argv[j] && i < 31; ++j)
+            qemu_argv[i++] = argv[j];
+        qemu_argv[i] = NULL;
+        log_record("ZTE_MESH_SHIM emulated=exec-through-emulator\n");
+        return real_execv(emulator, qemu_argv);
+    }
+    return real_execv(path, argv);
+}
+
+EXPORT int execl(const char *path, const char *arg, ...)
+{
+    char *argv[32];
+    va_list args;
+    int n = 0;
+    argv[n++] = (char *)arg;
+    va_start(args, arg);
+    while (n < 31) {
+        argv[n] = va_arg(args, char *);
+        if (!argv[n])
+            break;
+        ++n;
+    }
+    va_end(args);
+    if (n >= 31) {
+        errno = E2BIG;
+        return -1;
+    }
+    argv[n] = NULL;
+    return emulated_exec(path, argv);
+}
+
+EXPORT int execv(const char *path, char *const argv[])
+{
+    return emulated_exec(path, argv);
+}
+
 EXPORT int DBShmCliInit(void)
 {
     int (*real_init)(void);

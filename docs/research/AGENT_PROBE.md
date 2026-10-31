@@ -603,3 +603,230 @@ cooperator 推一把，而沙箱里没有 cspd。
 > 复现：`tools/lab/spark.c` 编出两个静态二进制，放到设备 `/tmp/spark`，
 > `spark <iface> listen|discovery [秒]`。注意网桥端口的 ingress 帧对绑定在该端口的套接字不可见，
 > 要抓"从线上进来的帧"请用 `tcpdump -i eth0`，要抓"daemon 发了什么"请用 `br-lan`。
+
+## 13. 2026-10-31 第二轮：枚举跑通了，M2 落到子路由的库
+
+第 12.5 节判定的"M1 生成但没发出"是**测量假象**，它后面还藏着三个真 bug。这一节按发现顺序记。
+
+### 13.1 先修测量：协议套接字看不到网桥端口的 ingress 单播
+
+`bind(AF_PACKET, ..., htons(0x893a))` 的套接字挂在协议链表上，投递点在 bridge 的 `rx_handler` **之后**；
+`ETH_P_ALL`（`tcpdump` 用的那个）在 `rx_handler` 之**前**分发。所以绑在网桥端口或 `br-lan` 上、按
+ethertype 绑定的套接字，看不见从线上进来、被网桥接走的单播帧——`tcpdump` 看得见，自编的工具看不见。
+
+"一帧 `0x0009` 都抓不到"就是这么来的。`tools/lab/enroller.c` 现在用 `ETH_P_ALL` 收帧、自己按 ethertype
+过滤，`bind()` 与 `sendto()` 的 `sll_protocol` 也都是 `ETH_P_ALL`。改完第一次跑，M1 就在那儿：
+
+```
+tx1905 cmdu=9 bytes=771 sent=771 errno=0     # 2.4G
+tx1905 cmdu=9 bytes=801 sent=801 errno=0     # 5G
+```
+
+> 方法论：在网桥上探 1905，"收不到"这个结论只有用 `ETH_P_ALL` 复核过才成立。
+
+### 13.2 M1 是被动的：Search 第二段计时器或 `0x0008` 才能触发它
+
+`tools/lab/elfx.py`（自带 ELF32 解析 + capstone；multiapd 没 strip，符号表就够）静态确认：
+
+| 入口 | 事件号 | 行为 |
+|---|---|---|
+| `_acdcSearchHandler` | 2（Search 第二段计时器到期） | 调 `_acdcSendApAutoConfigWSCM1` |
+| `_acdcConfigHandler` | 8（收到 `0x0008` AP-Autoconfiguration Response） | 调 `_acdcSendApAutoConfigWSCM1` |
+
+而控制器自己发 Search 是**被门控**的：`acdsTimerMsg` 里 `[acdGetBasicInfo() + 0x114 + radio*12]` 为 0
+就直接跳过，这个标志只有 cspd 在配置完 AP 之后才置位（沙箱里没有 cspd）。于是两头都在等对方：
+agent 等 Search/Response，控制器等 cspd，`0x0007` 在控制器出现之后一条都不发。
+
+### 13.3 补上控制器缺的那一步：`tools/lab/enroller.c`
+
+一个静态二进制，监听子节点的 `0x0007`，用 `0x0008` 回它；`--al-mac` 可以冒充控制器的 AL MAC，让 M1
+单播回沙箱控制器，由它跑真正的 M2。帧形状与 `controller-packet.c:controller_autoconfig_response()`
+逐字节一致（35 B：`0x0f` searched role=registrar、`0x10` frequency band、`0x80` service=controller）。
+
+线上时序（`tools/lab/enroller.c` + `libzte_controller_trace.so` 双端）：
+
+```
+agent   → 01:80:c2:00:00:13   0x0007  Search        240 B   TLV 0x0e band / 0x80 0x81 service / 0xb3 profile
+enroller→ agent               0x0008  Response       35 B
+agent   → enroller            0x0009  WSC M1        771 B（2.4G）/ 801 B（5G）
+controller → agent            0x0009  WSC M2        911 B   TLV 0x11 len=656，内含 0x1022=5；另 0x82 "MAP24G"、0xe0、0x0b
+agent   → controller          0x0009  WSC           218 B
+```
+
+### 13.4 第二个 bug：运行包从来没打包 `libzte_agent_mm.so`
+
+M2 到了，`acdcConfigM2EncryptedSettings()` 却每次都在第一行就 `-3` 中断：
+
+```
+0x75e18  cmn r0,#9          ; 返回非 0 且非 -9 一律当致命错误
+         beq  ...
+```
+
+第 11.1 节做的替身一直在 `zte-mesh.init` 的 `LD_PRELOAD` 里，但 `zte-mesh-runtime.tar.gz` 里没有这个库
+（`tar -tzf` 对照 Makefile：`libzte_controller_profile/route/trace` + `libzte_mesh_shim` 都在，就缺它）。
+所以"库里写了、包里没有"——任何人装一遍包，enroll 都会回到第 8 节之前的样子。
+
+修：CI 加 `libzte_agent_mm.so` 的构建（原厂 glibc、`-nostdlib` 链接，`nm -D --defined-only` 记录导出符号，
+只有 `CmWLANSetAPConfig` / `CmWLANSetPsk` / `zte_agent_mm_layout`），再用 `openwrt/repack-runtime.py`
+重打运行包：逐成员逐字节不变，只替换/新增一个库并重写 `SHA256SUMS`。
+
+```
+old members 48  new members 49
+changed bytes: ['root/lib/libzte_mesh_shim.so', 'SHA256SUMS']
+added: ['root/lib/libzte_agent_mm.so']   removed: []   mode diffs: []
+sha256 mismatches: []  entries: 38
+```
+
+装上之后（不再需要任何 flag 文件）：
+
+```
+ZTE_AGENT_MM setter=CmWLANSetAPConfig instid=DEV.WIFI.AP1 status=-3 row_applied=1 report=0 errno=9
+ZTE_AGENT_MM setter=CmWLANSetAPConfig instid=DEV.WIFI.AP5 status=-3 row_applied=1 report=0 errno=9
+```
+
+`row_applied=1` 是"库里已经是调用方要的值"。可见证据：子节点 `/run/zte-mesh/wlan-plan` 里
+`0.ssid` / `1.ssid` 从 `ImmortalWrt` 变成控制器上改的 `ZTEMESHCTRL`。`CmWLANSetPsk` 返回 `-9`
+（`row_applied=0`）是 `acdcConfigM2EncryptedSettings` 的"已配置，跳过"语义，属预期，不是失败。
+
+### 13.5 第三个 bug：`wlan-sync` 的 `stamp()` 在没 `stat` 的镜像上恒为 `missing`
+
+`stamp()` 原来用 `stat -c '%Y:%s'` 做变更检测，而该镜像没有 `stat`（`which stat` 空），`|| echo missing`
+把 stamp 变成常量：主循环 `if [ "$current" != "$last" ]` 只成立一次，于是**启动那一遍之后再也不会应用
+plan**。对一个被 M2 现场配置的子路由来说这正好是反的：plan 是入网之后才出现的，而没人去应用它。
+
+改成 content 摘要（`md5sum` 优先，`stat` 次之，`ls -ln` 兜底）。之后日志出现
+`applied; wireless committed and reloaded`，`uci show wireless` 里 `ssid='ZTEMESHCTRL'` 落地。
+
+### 13.6 第四个 bug：band 是名字，不是 section
+
+`radio_section_of 5g` 原来取"第一个 band 为 5g 的 wifi-device"。实验室这台 ax3600 有**两个**：
+`radio0`（PCIe 5G 卡，ath10k，`disabled=1`）与 `radio1`（SoC 的 5G，ath11k）。于是控制器下发的 5G 行
+写进了那张空卡的 `default_radio0`，真正在空中的 `default_radio1` 一直是 `ImmortalWrt`——看起来就像
+"5G 行没被应用"。
+
+现在按顺序判定：`zte_mesh.main.wifi_2g` / `wifi_5g` 明确指定 > 该 band 只有一个设备 > 该 band 只有一个
+设备没被关掉（老镜像常把备用 radio 关着）。两个都活着且没有显式指定时**不猜**：该 band 一个字段都不写，
+日志里点名 `zte_mesh.main.wifi_5g`。写错设备比不写更难查——空卡被写上控制器的 SSID，而空中什么都没有。
+
+### 13.7 现在的事实
+
+| 项 | 值 |
+|---|---|
+| 控制器（VM 192.168.1.20） | `running=1`，`nodes` 含 `02:00:00:00:19:e3`（`zte=true online=true`） |
+| 子路由（192.168.1.1） | `running=1`，`cur_hop=2 max_hop=2`（此前 `-2`） |
+| M1 次数 | 一个服务生命周期 1 次（此前 3 次） |
+| 下发的 Wi-Fi | `/run/zte-mesh/wlan-plan` 与 `/etc/config/wireless` 都是控制器的 `ZTEMESHCTRL` |
+| 未落地 | 本机三个 `wifi-device` 都是 `disabled=1`（镜像/自配状态），所以 BSS 谁都没起来；见 13.8，现在由 `wlan-sync` 在 plan 启用某 band 时把对应设备打开 |
+
+### 13.8 第五个改动（B 方案）：plan 说这个 band 要开，就把关着的 radio 设备打开
+
+配置已经对了、空中什么都没有，是因为 radio 设备本身 `disabled=1`——而 `wlan-sync` 过去只写 `wifi-iface`，
+从不碰 radio 的开关。这在这台机上不是偶发：出厂镜像和实验室的 ax3600，三个 `wifi-device` **全是关的**。
+
+现在 `apply_plan` 在某个 band 的主 BSS `enabled=1` 时调 `enable_radio`；backhaul 行也一样，回程 BSS 同样需要
+radio 开着才有地方承载。
+
+- 只写 `disabled=0`，从不写 1。plan 说这个 band 关的时候一个字段都不碰设备：把设备关掉会连带把该 band 的
+  backhaul BSS 一起杀掉，而那是控制面的通路。
+- 不是看门狗：它只在 plan 变化时跑一次。用户之后手动关掉的 radio 会一直关着，直到控制器下发不同的 profile。
+- UCI 布尔有词形（`true` / `on` / `yes`），手改的配置会用；`radio_off()` 一并认，`radio_section_of` 判断
+  "哪个候选还活着"也改用它，免得两个函数对"关着"的理解不一致。
+
+### 13.9 第六个 bug：`E([ ..., null, ... ])` 让子路由角色整页空白
+
+选成子路由之后，页面抛 `TypeError: Cannot read properties of null (reading 'charCodeAt')`。起因在 `render()`
+的收尾：
+
+```js
+return E([
+    E('div', ...),                 // Status
+    child ? null : E('div', ...),  // Child routers
+    formNode
+]);
+```
+
+`dom.create()` 对数组是**逐个元素**递归调 `create()`，而 `create()` 的第一件事是 `html.charCodeAt(0)`，
+于是 `create(null)` 直接抛。`E('div', attrs, [ok, null])` 不会抛：那条路走的是 `append()`，它跳过 null。
+差别就在"数组元素"与"子节点"。
+
+修法是那一节**不进列表**（`sections.push`），不是往列表里塞 `null`。
+
+测试为什么没抓到：`tests/test_luci.js` 的 `E` 桩接受任何参数，连 `null` 都包成一个对象。现在桩按
+`dom.create()` 的语义实现（数组递归展开、首参为 null 时抛同一个 TypeError），改视图前跑一次就能复现同一个
+异常，改后通过——子路由页面至少不会因为这条路径再白一次。
+
+
+## 14. 2026-10-31 第三轮：角色拆成三个，主路由也能把档案落到本机
+
+### 14.1 为什么拆
+
+原厂那台"主路由"是**既当主控、又自己发 Wi-Fi**的盒子，一个开关就够。但 OpenWrt 这边的现实是反过来的：
+SR1010 这类机器是**有线网关、没有射频**，当年给它做主的正是它。所以"控制"和"自己也发"必须能分开：
+
+| `mesh_role` | 给子路由下发档案 | 应用到本机 `/etc/config/wireless` | 线上 `mesh.role` |
+|---|---|---|---|
+| `master`（默认；未设置也等于它） | 是 | **不动** | `master` |
+| `main` | 是 | **是**（plan 由 `write_config` 写） | `auto` |
+| `slave` | 否 | 是（plan 由服务从 M2 读出来写） | `slave` |
+
+`main` 用的就是原厂的"主路由 / 自适应"，所以**线上一个字节没改**：还是 `auto`，还是 `Mode 0 → 2` 的选举替身
+（第 12 节）。旧的 `auto` 值继续被接受、含义与 `main` 相同，升级过的配置不用动。反过来，语义变化只有一处：
+以前 LuCI 把 `master` 叫作"主路由"，现在 `master` 是"仅主控"——它在**行为上**和以前一样（以前也没人改本机
+无线），只是名字改了；想真的把网络发出去，得选"主路由"。
+
+### 14.2 一个 plan 只能有一个生产者
+
+子路由的 plan 是 `agent-sync.c` 从 `WLANCfg`/`WLANPSK` 读出来的（第 11 节），主路由没有 M2 可等——它就是
+发 M2 的那台。所以主路由的 plan 由 `write_config` 直接写（`write_local_plan`），格式与 `agent-sync.c`
+逐字段相同（`rows=`、`i.radio/slot/ssid/key/enabled/hidden/access/beacon_type`），`wlan-sync` 不关心来源。
+
+三条规则，写在 `write_config` 的 case 里：
+
+- `main`/`auto`：写 `$RUNDIR/wlan-plan`（0600）。
+- `slave`：**一个字节都不碰**。`write_config` 在 reload 时也会跑，删掉它等于把正在用的 plan 抽走，而服务只在
+  行变化时才重发（`agent_sync_reset()` 只在启动时调）——子路由会安静地停止应用。`tests/test_init.sh` 的
+  `role-slave-keeps-plan` 就是钉这个的。
+- 其余（`master`、空）：`rm -f`。上一步角色留下的 plan 不该被一个已经不跑的 `wlan-sync` 应用。
+
+### 14.3 5 GHz 的派生值要写第二遍，这是这次改动里唯一的知识重复
+
+daemon 自己会用 `wifi.dual_band_sync` / `wifi.essid_suffix` 派生 5G 的名称和密钥，而 plan 必须**写全**。
+第二遍推导就是漂移的来源，所以：`emit_band_options` 顺手把该频段的 `hidden` / `beacon_type` 读回给调用方
+（`BAND_HIDDEN` / `BAND_BEACON`），5G 的名称/密钥只在 `write_config` 里算一次（`s1_air` / `k1_air`），
+emit 与 plan 都用它。测试用 `role-main`（sync 关、5G 全空 → `home-5G` / 2.4G 的密钥）和 `role-main-sync`
+（sync 开、`wifi_5g_ssid` 写了也被忽略、隐藏与加密跟随 2.4G）两条用例把它钉住。
+
+### 14.4 设备证据
+
+控制器（VM，192.168.1.20，**零个 wifi-device**）`mesh_role=main` 之后：
+
+```
+/run/zte-mesh/wlan-plan   316 B, -rw-------, rows=2
+  0.ssid=ZTEMESHCTRL  0.key=Ztemesh2631!  0.hidden=0  0.beacon_type=12  0.access=32
+  1.ssid=ZTEMESHCTRL  1.key=Ztemesh2631!  1.hidden=0  1.beacon_type=12  1.access=32
+ZTE_MESH_SERVICE cfg mode=2 set_role_enable=1 en_master_only=1 cur_hop=2 max_hop=2
+wlan-sync: no radio device for 2g; left alone
+wlan-sync: no radio device for 5g; left alone
+wlan-sync: plan applied nothing new          # status: result=ok changed=0
+ubus call luci.zte-mesh status → "role": "main"
+```
+
+`procd` 里多了一个 `wlan-sync` 实例；`mesh_role=master` 之后同一个文件消失、实例消失、`"role": "master"`，
+子节点（`02:00:00:00:19:e3`）全程 `online=1`。
+
+子路由（ax3600，三个 wifi-device）上用临时 `RUNDIR` 直接调 `write_config`（不动正在跑的服务）：
+
+```
+rc=0   /tmp/r2/wlan-plan 316 B -rw-------
+0.ssid=ImmortalWrt  0.key=Ztemesh2631!      # 本机自己的档案（sync=1，5G 跟随 2.4G）
+```
+
+也就是说：**没有射频的控制器**里这台逻辑一条不差地跑通（只是最后一步无事可做），**有射频的机器**上它产出
+的 plan 就是那台机器该广播的东西。
+
+### 14.5 有意的取舍
+
+没有加 `apply_local_wifi` 之类的开关：**角色本身就是那个开关**。多一个布尔值就多一种"角色说主路由、开关说
+不要"的组合，而这两种状态在页面上没法解释。仅主控要是还有射频，启动日志里会明说一句
+（`controller-only role: the Wi-Fi profile goes to the child routers only ...`），因为这是最容易看成"plan
+没生效"的一种配置。

@@ -3,11 +3,15 @@
 SR1010 刷 OpenWrt/ImmortalWrt（有线网关，没有 Wi-Fi）以后，继续管理保留原厂固件的中兴子路由（测试机 ZXHN Z506）。做法是把原厂 ARM32
 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、两个 CM 函数的替身和一个服务配置文件指挥它，**不重写 mesh 协议**。
 
-主控是主线。**子路由（agent）角色**自 2026-10-29 起也实现了，但属于实验路径：`mesh_role=slave` 让本机作为子节点入网，
-接收主控下发的 M2 并把 Wi-Fi 名称/密码/加密写到本机 `/etc/config/wireless`；`backhaul=multi_ap` 再把主控下发的
-隐藏回程网络落成一个 Multi-AP 回程 BSS（4 地址），这是 1905 报文跨无线的那条数据面。它需要完整的 `wpad`，
-4 地址是否真在驱动里生效还没有真机数据，细节与缺口见
-[docs/research/AGENT_PROBE.md](docs/research/AGENT_PROBE.md) 第 11 节。
+主控是主线。设备角色有三个（`zte_mesh.main.mesh_role`，2026-10-31 起）：
+
+- **`master`（默认）仅主控**：把 Wi-Fi 档案下发给子路由，**本机无线完全不动**。SR1010 这类有线网关就属于这种，所以是默认值。
+- **`main` 主路由**：主控 + 自己发 Wi-Fi。同一份档案既下发，也通过 `/etc/config/wireless` 落到本机，控制器和子路由在空中是同一个网络。
+  它就是原厂的"主路由 / 自适应"（线上仍发 `mesh.role=auto`），旧值 `auto` 继续有效、含义相同。
+- **`slave` 子路由（实验路径）**：本机作为子节点入网，接收主控下发的 M2 并把 Wi-Fi 名称/密码/加密写到本机
+  `/etc/config/wireless`；`backhaul=multi_ap` 再把主控下发的隐藏回程网络落成一个 Multi-AP 回程 BSS（4 地址），
+  这是 1905 报文跨无线的那条数据面。它需要完整的 `wpad`，4 地址是否真在驱动里生效还没有真机数据，细节与缺口见
+  [docs/research/AGENT_PROBE.md](docs/research/AGENT_PROBE.md) 第 11 节。
 
 ## 当前状态（2026-10-18）
 

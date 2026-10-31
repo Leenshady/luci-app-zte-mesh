@@ -103,6 +103,9 @@
 - 可选键 `mesh.role=master|auto|slave`。启动：`master`/`auto` 写 `Mode 2` 和 `SetRoleEnable`（0/1）；`slave` 写
   `Mode 1 / SetRoleEnable 0 / EnMasterOnly 0 / CurHop -2`（子路由），并在运行时把主控下发的 Wi-Fi 配置发布成
   `/run/zte-mesh/wlan-plan`（`agent-sync.c`），由沙箱外的 `wlan-sync` 落到 `/etc/config/wireless`。键的出现/消失需重启服务。
+- 同一个 plan 还有第二个生产者：**主路由**角色（`mesh_role=main`，见下一节）。它自己是主控、没有 M2 可等，所以
+  `write_config` 用刚校验过的档案直接写这个文件（`write_local_plan`），格式与 `agent-sync.c` 完全相同；`wlan-sync`
+  不关心是谁写的。一个角色只有一个生产者，两者不会写同一个文件：子路由由服务写，主路由由 init 写，仅主控不写（还会删掉旧文件）。
 - 热更新 `master→auto`：写 `SetRoleEnable 1`、`Mode 0`，重启守护进程；约 3 秒后写 `Mode 2`，再重启一次。**第二步是监督进程替 cspd 的 `cooperator_mgr` 做的模拟**（守护进程自己不会把 Mode 写回 2：实验室里 `Mode 0` 停了 12 秒以上）。
   `auto→master`：只清 `SetRoleEnable`，不重启。日志 `role_update`、`role_settle`、`cfg mode=… set_role_enable=… en_master_only=… cur_hop=… max_hop=…`（变化时打印）。
 - `CurHop` 恒为 2：`EnMasterOnly=1` 让原厂会把它重置成 -2 的 `slave_init` 跳过；线上 `HigherLayerResponse` 子 TLV `0x43` 与原厂一致（原厂的 -2 是库里几秒的瞬态，采样的线上帧里没看到）。
@@ -126,13 +129,28 @@
 | `wifi_24g_hidden` / `wifi_5g_hidden` | `radioN.hidden` | |
 | `wifi_24g_security` / `wifi_5g_security` | `radioN.beacon_type` | `none`=0、`psk2`=3、`psk-mixed`=6、`sae`=10、`sae-mixed`=12；`none` 会让真实网络变成开放网络 |
 | `wifi_*_beacon_interval`、`_channel`、`_tx_power`、`_acl_policy` | `radioN.beacon_interval/channel/tx_power/acl_policy` | 范围同 REAL_CHILD.md 第 3 节（信道按频段白名单，0 = 自动） |
-| `mesh_v2`、`mesh_role`（`master`/`auto`/`slave`）、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 是 LuCI 的"自组网"开关，即原厂的 MESH 开关（`P1905ComCfg.Enable`）：开 = 中兴增强模式，只接受市场码相同的中兴子路由；关 = 中兴兼容模式，接受任何子路由（默认） |
+| `mesh_v2`、`mesh_role`（`master`/`main`/`slave`，旧的 `auto` = `main`）、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 是 LuCI 的"自组网"开关，即原厂的 MESH 开关（`P1905ComCfg.Enable`）：开 = 中兴增强模式，只接受市场码相同的中兴子路由；关 = 中兴兼容模式，接受任何子路由（默认）。`mesh_role` 三角色见下 |
 | `band_steer`、`band_steer_rssi_24g/_5g`、`roam_rssi_24g/_5g`、`roam_force` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
+
+### 设备角色（三个）
+
+原厂那台"主路由"是既当主控、又自己发 Wi-Fi 的盒子；但 SR1010 这类刷 OpenWrt 的机器大多是**有线网关、没有无线**，
+所以把原厂的一个开关拆成三个角色（2026-10-31）：
+
+| `mesh_role` | 给子路由下发档案 | 应用到本机 `/etc/config/wireless` | 写 `mesh.role` |
+|---|---|---|---|
+| `master`（默认；未设置也等于它） | 是 | **不动** | `master` |
+| `main` | 是 | **是**（plan 由 `write_config` 写） | `auto` |
+| `slave` | 否 | 是（plan 由服务从 M2 读出来写） | `slave` |
+
+`main` 就是原厂的"主路由 / 自适应"，所以线上仍然发 `auto`：守护进程一侧一行没改，`Mode 0 → 2` 的选举替身照旧跑。
+旧的 `auto` 值继续被接受、含义与 `main` 完全相同（升级后不用改配置）。仅主控会删掉
+`/run/zte-mesh/wlan-plan`、**不启动** `wlan-sync` 实例，万一它还有射频，启动日志里会明说"本机无线不动"。
 
 包里的默认配置（2026-10-19 起）把能取出厂值的选项都写上，LuCI 也显示同样的默认值，并在每项下面写明范围：`mesh_v2=0`（自组网关）、
 `mlo_enable=1`、`wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、
 信标 100 ms、信道 0（自动）、功率 2.4G 20 dBm / 5G 23 dBm（子节点都取最大档，即出厂值）、`band_steer=1`、引导阈值 -60/-110、
-漫游阈值 -60/-70、`roam_force=0`（出厂值见 `multiap_domain.def`）。`enabled=1`（默认启用）、`wifi_24g_key=00000000`（默认密码；清空则服务不启动）。
+漫游阈值 -60/-70、`roam_force=0`（出厂值见 `multiap_domain.def`）。`enabled=1`（默认启用）、`wifi_24g_key=Ztemesh2631!`（默认密码；清空则服务不启动）。
 要让子路由保持自己的信道、功率，删掉对应选项（LuCI 里清空）。LuCI 列表区段的编辑框保存失败时会在框内写明原因（LuCI 自带的实现静默吞掉校验错误）。
 
 `config zte_mesh_bss`（可有多段）= 额外 SSID 槽位：`band`（24g/5g）、`slot`（1 到 3）、`enabled`、`ssid`、`key` 必填，`hidden`、`security`、`acl_policy` 可选。
