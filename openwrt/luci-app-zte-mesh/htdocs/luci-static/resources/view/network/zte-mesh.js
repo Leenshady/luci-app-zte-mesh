@@ -153,12 +153,38 @@ return view.extend({
 
 		if (state && state.config_error)
 			row(_('Last configuration problem'), E('span', { 'style': 'color:#b94a48' }, state.config_error));
+		if (state && state.al_mac_conflict && state.al_mac_conflict.count > 0)
+			row(_('Identity conflicts'), _('%d frames, last one %d s ago')
+				.format(state.al_mac_conflict.count,
+					Math.max(0, Math.round(Date.now() / 1000 - state.al_mac_conflict.last))));
 		if (state && state.restart_required)
 			row(_('Pending'), _('A setting changed that the controller reads only at start; restart the controller to apply it.'));
 		if (stale && info.running)
 			row(_('Report'), _('No fresh status for %d s').format(info.age));
 
+		/* The conflict is invisible from every other angle: no error, no missing node, just a topology that never
+		 * fills in. It belongs above the table, not among the rows. */
+		if (state && state.al_mac_conflict && state.al_mac_conflict.count > 0)
+			return E('div', {}, [
+				this.renderConflict(state),
+				E('div', { 'class': 'table' }, rows)
+			]);
+
 		return E('div', { 'class': 'table' }, rows);
+	},
+
+	/* A router that presents the same AL MAC as this one is dropped by the 1905 stack before anything can be
+	 * logged, because every frame it sends carries this router's own identity as the source. The service sees
+	 * those frames on the wire and counts them; this is the part a person can act on. */
+	renderConflict: function(state) {
+		var last = String(state.al_mac || '').split(':').pop();
+		var suggestion = /^[0-9a-fA-F]{2}$/.test(last)
+			? ('0' + (((parseInt(last, 16) + 1) & 0xff).toString(16))).slice(-2)
+			: '01';
+		return E('div', { 'class': 'alert-message warning' }, [
+			E('p', _('Another device on this network uses the same controller address (AL MAC) as this router.')),
+			E('p', _('The two cannot join while that is true: each drops the other\'s frames as its own, so both send searches and neither answers. Change the last byte on one of them, for example uci set zte-mesh.main.al_last=\'%s\', then restart this service.').format(suggestion))
+		]);
 	},
 
 	/* Restart and LED buttons of one child router (ZTE routers only; the controller tunnels them to the router). */

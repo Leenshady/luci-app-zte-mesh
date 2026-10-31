@@ -79,6 +79,8 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ✅ | init 79；VM 切 `main` 后 init 写出 `wlan-plan`（`rows=2`）、`wlan-sync` 在跑、日志 `no usable 2g radio; left alone`；切回 `master` 后 plan 与实例一起消失（一个 plan 只有一个生产者） | — |
 | B18 | **cspd 替身**：控制器侧自己发 `0x0007` Search、并代答子路由的 Search（`0x0008`） | ✅ | `tools/lab/enroller.c` → `/usr/libexec/zte-mesh/mesh-search`，init 在非 `slave` 角色下多起一个 `search` 实例，带 `--al-mac 02:00:00:00:19:<al_last>`（子路由的 M1 发给控制器 AL MAC）。`--search` 每次启动只发**一帧**，所以周期就是"多久收一次新子节点"，已从 `86400` 改成 `300`（最坏等 5 分钟）；实测不抖：`plan applied nothing new`、`daemon_restarts=0`。装 r6 后真机自动入网，不再需要手工 enroller | — |
 
+| B19 | **同一 AL MAC 自检**：局域网里还有设备用同一个 AL MAC 时，状态页顶部告警并给出改法（`al_last`） | ☑️ | 服务在 `veth-lab` 上旁听 `0x893a`：源 MAC = 本机 AL MAC 且不是自发帧（`PACKET_OUTGOING`）即计数（`controller-conflict.c`，`conflict-codec` 30 条断言 + 2 万次变异）；`state.json` 的 `al_mac_conflict` 经 rpcd 透传到页面。宿主命名空间里的 `mesh-search` 会把自己的帧泛洪回沙箱，由它写 `/run/zte-mesh/search-sent` 时间戳排除（±2 s）。真机上还没造过两台同 AL MAC | 2 |
+
 ## C. 打包与分发
 
 | # | 功能 | 状态 | 证据 | 难度 |

@@ -35,14 +35,14 @@ $(ARTIFACTS)/zte-meshctl: zte-meshctl.c Makefile $(ARTIFACTS)/manifest.json
 
 database: $(ARTIFACTS)/db-engine-probe $(ARTIFACTS)/zte-meshctl $(ARTIFACTS)/ns-run $(ARTIFACTS)/config-bridge-probe
 
-$(ARTIFACTS)/db-engine-probe: db-engine-probe.c controller-run.c controller-service.c controller-service.h controller-packet.c controller-wsc.c controller-wsc-crypto.c controller-wsc-crypto.h controller-packet.h startup-views.inc multiap-cfg.c multiap-cfg.h multiap_cfg.def \
+$(ARTIFACTS)/db-engine-probe: db-engine-probe.c controller-run.c controller-service.c controller-service.h controller-packet.c controller-wsc.c controller-wsc-crypto.c controller-wsc-crypto.h controller-packet.h controller-conflict.c controller-conflict.h startup-views.inc multiap-cfg.c multiap-cfg.h multiap_cfg.def \
                            agent-sync.c agent-sync.h wlan_cfg.def wlan_psk.def \
                            mesh-policies.c mesh-policies.h multiap_master.def multiap_domain.def vendor-db.h \
                            wlan-profiles.c wlan-profiles.h wlan_base.def wlan_cfg.def wlan_ssid.def \
                            wlan_psk.def dev_info.def mesh-bridge.c mesh-bridge.h Makefile $(ARTIFACTS)/manifest.json
 	$(ARMCC) $(COMMON) -march=armv7-a -mfloat-abi=soft -no-pie -nostdlib \
 	  $(shell $(ARMCC) -print-file-name=crt1.o) $(shell $(ARMCC) -print-file-name=crti.o) \
-	  $(shell $(ARMCC) -print-file-name=crtbegin.o) db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c \
+	  $(shell $(ARMCC) -print-file-name=crtbegin.o) db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c controller-conflict.c \
 	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) -Wl,--dynamic-linker=/lib/ld-linux.so.3 \
 	  -Wl,--no-as-needed,--start-group $(VENDOR_LIBS) -lgcc -Wl,--end-group \
 	  $(shell $(ARMCC) -print-file-name=crtend.o) $(shell $(ARMCC) -print-file-name=crtn.o) -o $@
@@ -138,11 +138,16 @@ $(ARTIFACTS)/tests/controller-wsc-crypto-codec: tests/controller-wsc-crypto-code
 $(ARTIFACTS)/tests/agent-sync-codec: tests/agent-sync-codec.c agent-sync.c agent-sync.h wlan_cfg.def wlan_psk.def | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -I. tests/agent-sync-codec.c agent-sync.c -o $@
 
-test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec
+# Which frames count as "another node is using my AL MAC" -- pure, so the decision is testable without a wire.
+$(ARTIFACTS)/tests/conflict-codec: tests/conflict-codec.c controller-conflict.c controller-conflict.h | $(ARTIFACTS)/tests
+	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -I. tests/conflict-codec.c controller-conflict.c -o $@
+
+test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec $(ARTIFACTS)/tests/conflict-codec
 	$(ARTIFACTS)/tests/controller-wsc-codec
 	$(ARTIFACTS)/tests/controller-wsc-crypto-codec
 	$(ARTIFACTS)/tests/controller-packet-codec
 	$(ARTIFACTS)/tests/agent-sync-codec
+	$(ARTIFACTS)/tests/conflict-codec
 	$(ARTIFACTS)/tests/cm-profile-codec
 	$(ARTIFACTS)/tests/bridge-codec
 	python3 -m unittest discover -s tests -p test_evidence.py -v
