@@ -552,6 +552,12 @@ jobs:
         if: github.event.inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          # The feed is checked out into a subdirectory (`path: zte-mesh`), so the
+          # job's working directory is *not* a git repository. Without GH_REPO,
+          # gh discovers the repo from the cwd and dies with
+          # "failed to run git: fatal: not a git repository" -- after the 20-30
+          # minute build, on the last step.
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.inputs.release_tag }}
           SHA: ${{ github.sha }}
         run: |
@@ -563,7 +569,9 @@ jobs:
 
           # A tag that already exists but points at another commit would ship a
           # release whose assets were built from somewhere else. Refuse instead
-          # of attaching them silently.
+          # of attaching them silently. Fetch first: a tag created by an earlier
+          # run of this same workflow is not in the local refs of this checkout.
+          git -C zte-mesh fetch --tags --quiet origin || true
           if git -C zte-mesh rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             AT=$(git -C zte-mesh rev-parse "refs/tags/$TAG^{commit}")
             [ "$AT" = "$SHA" ] || {
