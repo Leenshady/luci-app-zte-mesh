@@ -142,7 +142,7 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 真机摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 
-**版本控制**：仓库在 GitHub `Leenshady/zte-mesh`，只有 `main` 一条分支。`out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz
+**版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，只有 `main` 一条分支。`out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz
 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
 
 **发布 release**：`Build APK` 是唯一出包的地方，但它的 artifact 不是分发渠道——下载要登录 GitHub、会过期、还是一包 zip。
@@ -151,7 +151,7 @@ apk 加 `SHA256SUMS.txt`，并按上一个 tag 生成"本版提交"清单：
 
 ```
 Actions → Build APK → Run workflow → release_tag: v0.1.0
-# 发布后：https://github.com/Leenshady/zte-mesh/releases/tag/v0.1.0
+# 发布后：https://github.com/Leenshady/luci-app-zte-mesh/releases/tag/v0.1.0
 ```
 
 - 留空 = 只构建，产物仍只在 artifact 里（默认行为，与以前一样）。

@@ -1,7 +1,10 @@
-# sr1010-mesh：SR1010 上用原厂 multiapd 当 mesh 主控（AC）
+# luci-app-zte-mesh：让 OpenWrt 路由器与中兴路由器组网
 
-SR1010 刷 OpenWrt/ImmortalWrt（有线网关，没有 Wi-Fi）以后，继续管理保留原厂固件的中兴子路由（测试机 ZXHN Z506）。做法是把原厂
-ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、两个 CM 函数的替身和一个服务配置文件指挥它，**不重写 mesh 协议**。
+**项目目标**：为 OpenWrt / ImmortalWrt 提供与中兴路由器组网的插件。OpenWrt 侧既能当主控（AC，把 Wi-Fi 档案下发给中兴子路由），
+也能当子节点（加入网络，配置由主控下发）；中兴侧保留原厂固件，不刷机。包里带 LuCI 页面，装完在路由器界面上配。
+
+做法是把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、两个 CM 函数的替身和一个服务配置文件指挥它，**不重写 mesh 协议**。
+参考实现是 SR1010 刷 OpenWrt/ImmortalWrt（有线网关，没有 Wi-Fi），真子路由是保留原厂固件的 ZXHN Z506。
 
 ## 三种角色（`zte_mesh.main.mesh_role`）
 
