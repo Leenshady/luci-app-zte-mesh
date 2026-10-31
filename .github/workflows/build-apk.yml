@@ -324,6 +324,16 @@ jobs:
       - name: Configure target
         working-directory: sr1010/immortalwrt
         run: |
+          # The feed was scanned in "Link the package feed" before .config named a
+          # target, and a target-gated package is dropped from the index there:
+          # zte-mesh-launcher declares @(TARGET_zte||TARGET_qualcommax), so the
+          # scan saw it as unavailable, never linked package/feeds/zte_mesh/
+          # zte-mesh-launcher, and the build died on "No rule to make target
+          # package/feeds/zte_mesh/zte-mesh-launcher/compile" after the whole
+          # toolchain had been built. defconfig then dropped
+          # CONFIG_PACKAGE_zte-mesh-launcher without saying so, because a symbol
+          # that never reached Config.in cannot be selected. Re-scan now that the
+          # target is known; the metadata is cheap, the toolchain is not.
           cat >> .config <<EOF
           CONFIG_TARGET_zte=y
           CONFIG_TARGET_zte_zx279133=y
@@ -332,7 +342,18 @@ jobs:
           CONFIG_PACKAGE_luci-app-zte-mesh=m
           CONFIG_PACKAGE_luci-i18n-zte-mesh-zh-cn=m
           EOF
+          rm -f tmp/.packageinfo tmp/.config-package.in feeds/zte_mesh.index
+          ./scripts/feeds update zte_mesh >/dev/null
+          ./scripts/feeds install -a -p zte_mesh
           make defconfig
+
+          # Say it here rather than 20 minutes later with three words of make
+          # output: an arch-tagged package that is missing from the index has no
+          # make rule at all.
+          grep -q '^CONFIG_PACKAGE_zte-mesh-launcher=m' .config || {
+            echo "zte-mesh-launcher fell out of the package index (target-gated DEPENDS?)" >&2
+            ls package/feeds/zte_mesh/ >&2
+            exit 1; }
 
           # The translations are a *virtual* package: luci.mk turns po/zh_Hans/
           # into luci-i18n-zte-mesh-zh-cn, which owns no directory, so it can
