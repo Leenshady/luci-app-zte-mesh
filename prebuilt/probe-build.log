@@ -24,3 +24,15 @@ arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -
 rc=0
 prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=547486916c8b65d4c4a2be34d8f3acdfeb059ddd, for GNU/Linux 3.2.0, not stripped
 -rwxr-xr-x 1 runner runner 193364 Oct 31 03:55 prebuilt/db-engine-probe
+--- repacked by hand (no CI run) -------------------------------------------
+lab VM, Ubuntu 22.04 host toolchain instead of the bookworm container:
+  arm-linux-gnueabi-gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+  ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35
+  ARMCC="arm-linux-gnueabi-gcc -D_TIME_BITS=32" sh tools/lab/build.sh database
+Both properties the CI guard checks hold: `nm -u` finds no __time64 /
+__clock_gettime64 / __ioctl_time64 / __isoc23_* symbol, and every undefined
+symbol resolves against the 27 factory libraries in out/runtime/lib except the
+three optional linker weaks (_ITM_*, __gmon_start__).
+reason: the packed probe predated controller_self_identity() and the packed
+ns-run predated ZTE_MESH_QEMU, so state.json had no self{model,name} on device.
+packed sha256: 74234b5296327d00953a7df1733303ca68c697a03763a7664d1be62ca7387eb8
