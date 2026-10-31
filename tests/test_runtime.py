@@ -78,6 +78,22 @@ def main():
     check("ns-run in the archive is an AArch64 ELF", ns_run[:4] == b"\x7fELF" and machine == 183,
           f"e_machine={machine}")
 
+    # Same hazard, other binary: root/bin/db-engine-probe is the ARM32 host side of the sandbox
+    # (parse_config, the service loop). It is linked -nostdlib against the factory glibc, so it can
+    # only be rebuilt on the lab-tools branch -- it cannot be compiled here the way ns-run now is.
+    # A copy frozen at some earlier pack date silently keeps the device on old behaviour while the
+    # init script already feeds it new keys: on 2026-10-31 the packed copy predated the child role,
+    # so its parse_config refused "mesh.role=slave", controller_service() returned -1 and the
+    # controller instance respawned every five seconds on both lab boxes (2/3 instances) with
+    # "ZTE_MESH_SERVICE fail=config-missing-or-invalid" and no detail line. These two markers are
+    # the cheapest proof the copy is not that one: both are absent from it and present in a build
+    # made from these sources (config-reject from controller-service.c, wlan-plan from agent-sync.c).
+    probe = blobs.get("root/bin/db-engine-probe", b"")
+    for marker in (b"config-reject", b"wlan-plan"):
+        check(f"db-engine-probe in the archive carries {marker.decode()}", marker in probe,
+              "the packed copy predates the current sources; rebuild prebuilt/db-engine-probe on the "
+              "lab-tools branch and repack with openwrt/repack-runtime.py --replace")
+
     makefile = (REPO / "openwrt/zte-mesh/Makefile").read_text()
     check("the package builds ns-run from the archive sources",
           "$(PKG_BUILD_DIR)/ns-run.c" in makefile and "$(PKG_BUILD_DIR)/controller-net.c" in makefile)

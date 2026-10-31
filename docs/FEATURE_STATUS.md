@@ -28,8 +28,9 @@
 
 - dropbear **没有 sftp**，`scp` 报 `Connection closed`；两台之间传文件用
   `ssh A 'cat f' | ssh B 'cat > f'`，本机也没有 `timeout` / `nohup`
-- 包里 `usr/libexec/zte-mesh/ns-run` 是 aarch64 的旧版，见 C5
+- 包里 `usr/libexec/zte-mesh/ns-run` 曾是 aarch64 旧版，见 C5（已修）
 - 两台 root 密码都是 `root`；公钥已写进 `/etc/dropbear/authorized_keys`，以后 `ssh root@192.168.1.X` 直接进
+- 两台**都没有 `tcpdump`**，`apk add tcpdump-mini` 可以装（有源）
 
 ## 图例
 
@@ -85,7 +86,8 @@
 | B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | 本轮；wlan-sync 86 项、rpcd 18 项 | — |
 | B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ✅ | init 74（`role-main` / `role-main-sync` / `role-master` / `role-auto-legacy`）；LuCI 角色表 3 项断言；**VM**：`main` 时 init 写出 `wlan-plan`（316 B、0600、`rows=2`、`ZTEMESHCTRL`/`Ztemesh2631!`/`access=32`/`beacon_type=12`）、`wlan-sync` 实例在跑、日志 `no usable 2g radio; left alone` / `no usable 5g radio; left alone`；切回 `master` 后 plan 与 `wlan-sync` 实例一起消失（一个 plan 只有一个生产者） | — |
 | B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | ⬜ | 只做了 AP 侧 | 4 |
-| B14 | 真机：本机当子路由，接真主控（有线回程） | ⬜ | 只在合成主控下验过。**2026-10-31 两台实验机同时装新包后仍未打通**：ax3600 的 plan 只落到本机默认（`ImmortalWrt`），VM 的 `state.json` 始终 `"nodes":[]`，VM 上 `enroller br-lan 150 --al-mac 02:00:00:00:19:03` 收到 `heard=0`（一帧 `0x0007` 都没有）。下一步要在 ax3600 侧抓包确认 agent 到底有没有发 Search，而不是继续在控制器侧等 | 2 |
+| B14 | 真机：本机当子路由，接真主控（有线回程） | ✅ | **2026-10-31 11:01 两台实验机打通**。抓包先否掉了"子路由在发 Search"：ax3600 的 `br-lan` 上 30 秒 **0 帧 `0x893a`**，两端日志都是 `SSEND socket Message[0X%04X] to [%s] failed`。真正原因是子路由的 Search 定时器被 cspd 门控（沙箱里没有 cspd），控制器侧同样不发 `0x0007`，两边都在等对方。VM 上 `enroller br-lan 100 --al-mac 02:00:00:00:19:03 --search` 补一拍后立刻通：`0x0002/0x0003` 拓扑发现、`0x0004/0x0005` 查询/响应、`0x0006` 链路度量、子路由自己发出 `0x0007`（band 0/1）并收到 `0x0008`、`M1/M2` 往返，`heard=352 replies=2`；VM 的 `state.json` 出现子节点（`mac=02:00:00:00:19:e3` `model=ZXSLC SR1010` `zte=true` `online=true`）。补的这一拍已作为 B18 进包 | — |
+| B18 | **cspd 替身**：控制器侧自己发 `0x0007` Search、并代答子路由的 Search（`0x0008`），补上沙箱里不存在的 cspd | ✅ | `tools/lab/enroller.c` 编成 `/usr/libexec/zte-mesh/mesh-search`，init 在控制器角色（非 `slave`）下多起一个 `search` 实例，带 `--al-mac 02:00:00:00:19:<al_last>`（子路由的 M1 发给控制器 AL MAC，不是出接口 MAC），`86400` 秒后由 procd 重启再发一次。**实验机**：机制就是上面 B14 那次实测（同一份代码，手工跑的 `enroller --search`）；**装 r6 后真机自动入网已验证**：ax3600 切 master（控制器）、VM 切 slave（子路由），全程不跑手工 enroller，ax3600 的 `state.json` 自动出现 `mac=02:00:00:00:19:03 online=true`，日志 `topology dev_num=2`；`ubus call service list` 里 search 实例命令行确认为 `mesh-search br-lan 86400 --al-mac 02:00:00:00:19:e3 --search --quiet` | — |
 | B15 | `CmWLANMapSsidCfgSync2Repeater` 对齐（libcmapi 内部调用，替身命中不到） | ⬜ | 沙箱里是 no-op | 5 |
 | B16 | `CurHop` 在子路由侧的真实更新 | ⬜ | 实验室用 `-2` 顶替 | 2 |
 
@@ -97,7 +99,8 @@
 | C2 | 拆包：`zte-mesh-runtime` + `zte-mesh-controller` + `zte-mesh-agent` | ⬜ | 方案已定（见 AGENT_PROBE §11.7），未动手 | 2 |
 | C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ⬜ | 现在工作区 CRLF，测试要转 LF 才能跑 | 1 |
 | C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配了 `=m`、没编译，中文目录从不产出 | ✅ | 本轮；CI 断言三个 apk 都在；**实验机**：两台装完后 `/usr/lib/lua/luci/i18n/zte-mesh.zh-cn.lmo` 就是包带来的（11632 B），端点读得出中文 | — |
-| C5 | **包里的 `ns-run` 与 init 脚本不同步**：`zte-mesh-runtime.tar.gz` 里的 aarch64 `ns-run` 还是旧版，不认 `ZTE_MESH_QEMU` / `ZTE_MESH_EMULATED_LAB`，在内核没有 `CONFIG_COMPAT` 的 aarch64 上 `execv` 直接 `errno=8`（ENOEXEC），controller 实例反复退 80 | ⬜ | **ax3600 实测**：包里的 ns-run（strip 后 598083 B）`strings` 里没有 `emulated_lab`；换成 lab-tools 上的 `prebuilt/ns-run-aarch64`（707760 B，sha256 `8f3dac72…`）后三个实例全起、`errno=8` 消失。修法二选一：把新 ns-run 重打进 runtime tarball，或让 Makefile 用工具链现编 `ns-run.c` | 2 |
+| C5 | **包里的 `ns-run` 与 init 脚本不同步**：`zte-mesh-runtime.tar.gz` 里的 aarch64 `ns-run` 还是旧版，不认 `ZTE_MESH_QEMU` / `ZTE_MESH_EMULATED_LAB`，在内核没有 `CONFIG_COMPAT` 的 aarch64 上 `execv` 直接 `errno=8`（ENOEXEC），controller 实例反复退 80 | ✅ | **ax3600 实测**：包里的 ns-run（strip 后 598083 B）`strings` 里没有 `emulated_lab`；换成现编的版本后三个实例全起、`errno=8` 消失。**修法是消除这类漂移本身**，不是换一个二进制：tarball 现在额外带 `ns-run.c` / `controller-net.c` / `enroller.c`（`repack-runtime.py --add`，41 个成员，`SHA256SUMS` 重算），`Build/Compile` 用 `$(TARGET_CC)` 现编，包再也发不出过期的 ns-run。`tests/test_runtime.py`（20 项，已进 test-host）比对 tarball 里的副本与仓库文件，重打包漏了它们在本机就失败 | — |
+| C6 | **tarball 里的 `db-engine-probe` 冻结在打包那天**：ARM32 那一半（`parse_config`、服务循环）只能挂在 lab-tools 分支上、对着原厂 glibc 2.26 用 `-nostdlib` 编，包里编不了。三角色上线后 init 已经喂 `mesh.role=slave`，可那份副本还不认这个值 → `controller_service()` 直接 `-1`，子路由角色的 controller 实例每 5 秒退一次（`fail=config-missing-or-invalid`，连 `config-reject` 详情都没有），两台都是 2/3 | ✅ | **ax3600 实测**：`strings` 里 `config-reject`、`wlan-plan` 都是 0；换成 lab-tools 重编的副本（193364 B，sha256 `7ff631a7…`）后 slave 角色 `agent_election attempt=1`、`cfg cur_hop=2 max_hop=2`、3/3 实例全起。`tests/test_runtime.py` 现在断言包里那份必须带 `config-reject` 与 `wlan-plan`，冻住的副本在本机就会被拦下 | — |
 
 ## D. 没有通道的（换子路由固件才谈得上）
 
@@ -120,10 +123,10 @@
 | 1 | ~~B8 / B9 / B10~~ | — | **2026-10-29 已完成** |
 | 2 | ~~B12 应用结果回传~~ | — | **2026-10-29 已完成** |
 | 3 | ~~A20 / B5 / B7 / B10 / B17 / C4~~ | — | **2026-10-31 两台实验机装新包后已全部升到 ✅**（中文、打开关着的 radio、角色暴露与三角色落地、翻译包随包产出） |
-| 4 | **C5 包里的 ns-run 与 init 同步** | 2 | aarch64 上 controller 实例现在起不来（`errno=8`），是 B14 的前置；修法只有重打 tarball 或现编 `ns-run.c` 两种 |
+| 4 | ~~C5 包里的 ns-run 与 init 同步~~ | — | **2026-10-31 已修**：tarball 带源码、包里现编，并有 test_runtime 守着漂移 |
 | 5 | C3 统一行尾 | 1 | 一次改动，之后所有测试不用再转 LF；影响整个仓库，**需要单独确认**（本轮已把两台设备上出过问题的脚本都归一为 LF） |
-| 6 | B14 子路由接真主控（有线） | 2 | 决定 B15 要不要补，信息量最大，需要两台机器；本轮两台实验机上没打通，见 B14 那行的说明 |
-| 7 | C2 拆包 | 2 | 方案已定，属于分发形态，不阻塞功能 |
+| 6 | ~~B14 子路由接真主控（有线）~~ | — | **2026-10-31 已打通**：缺的是 cspd 那一拍，已作为 B18 进包 |
+| 7 | C2 拆包 | 2 | 方案已定，属于分发形态，不阻塞功能。**顺带解决 x86_64 装不上包**：`zte-mesh` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS` 带 `@(TARGET_zte\|\|TARGET_qualcommax)`，VM 装不进去；`luci-app-zte-mesh` 虽是 `LUCI_PKGARCH:=all`，但 `LUCI_DEPENDS` 里有 `+zte-mesh`，一样被拖住。把 init/wlan-sync/rpcd/LuCI 拆成 `arch: all` 的包，VM 就能直接装 |
 | 8 | B16 `CurHop` 真机确认 | 2 | 需要真机，可并入 B14 一起看 |
 | 9 | B11 额外槽位在子路由侧应用 | 3 | 要先把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
 | 10 | A18 拓扑页 | 3 | 需要状态字段（RSSI、终端数）先落到 `state.json` |
