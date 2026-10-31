@@ -7,7 +7,11 @@
 
 ## 实验机
 
-证据列里写的“实验机”指下面两台，它们与本轮 CI 产物（`main` 上 `dca90cd` 之后的 run 41151243794）一一对应。
+证据列里写的“实验机”指下面两台。**当前轮次**是 `main` 上 `2dc9522` 的 run 41181993285（2026-10-31，成功）：
+产物 `zte-mesh-apk` 3.86 MB，里面是拆包后的四个包（`zte-mesh` arch:all、`zte-mesh-launcher` aarch64、
+`luci-app-zte-mesh`、`luci-i18n-zte-mesh-zh-cn`）。**这一轮的 apk 还没装上两台机器**——上一次真正的装机是
+拆包前那三个包（run 41151243794）加手工补齐的 `ns-run` / `db-engine-probe`，所以下表里“实验机”的证据是
+那一套文件跑出来的；r10 的装机验收待做。
 两台都在 `192.168.1.0/24`，同一 L2；root 密码 `root`，登录用 `ssh root@192.168.1.X`（公钥已装）。
 
 | 代号 | 机器 | 架构 / 系统 | 角色（本轮） | 说明 |
@@ -16,13 +20,17 @@
 | **ax3600** | `192.168.1.1`，小米 AX3600 刷 ImmortalWrt（**非中兴硬件**） | aarch64 cortex-a53，25.12.2 r38135，内核 6.12.103 | `slave` | 三张 radio：`radio1`=5G、`radio2`=2.4G、`radio0` 空卡（`phy0` 无设备） |
 
 两台的 `/tmp` 里放的 apk 与 CI 产物 sha256 逐字节一致（`zte-mesh` r5、`luci-app-zte-mesh` r6、
-`luci-i18n-zte-mesh-zh-cn` r6），所以“装上新包”等于“装上 `main` 上那次构建”。
+`luci-i18n-zte-mesh-zh-cn` r6），所以“装上新包”等于“装上那次构建”。
 
-装法（2026-10-31）：ax3600 上 `apk del` 三个包再 `apk add --allow-untrusted /tmp/*.apk`，
+装法（2026-10-31，**拆包之前**的做法，保留作对照）：ax3600 上 `apk del` 三个包再 `apk add --allow-untrusted /tmp/*.apk`，
 `/etc/config/zte_mesh` 被保留（新配置落成 `zte_mesh.apk-new`，没有覆盖）。VM 装不了：包是
 `aarch64_cortex-a53`，VM 是 x86_64，所以改成把 ax3600 上新装出来的那批文件（`init.d`、
 `wlan-sync`、`attach`、`rpcd/luci.zte-mesh`、`root/{bin,lib}`、LuCI 视图与菜单、`lmo`）
 `tar` 过去解到 `/`，**故意不含 `ns-run`**，保住 VM 上 x86_64 的那一份。
+
+C2 拆包之后（r9 起）VM 不必再这么绕：`zte-mesh` 已是 `arch: all`，VM 上 `apk add --allow-untrusted zte-mesh`
+直接装得上，也不会覆盖它自己 gcc 编的 `ns-run` / `mesh-search`；`zte-mesh-launcher` 在 VM 上仍报
+`uninstallable`（架构不匹配，这是预期行为），launcher 只在 aarch64 的 ax3600 上装。
 
 三个当时踩到的点：
 
