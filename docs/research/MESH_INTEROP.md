@@ -144,12 +144,20 @@ dd if=/dev/mtdblock8 bs=2048 count=1 2>/dev/null | hexdump -C | head -4
 
 #### 4.2.3 取镜像与取文件：两条都不需要"解密"
 
+**先确认 `/tmp` 落在哪**——这台机器的 rootfs 是 100% 占满的（17 MiB / 100%），若 `/tmp` 只是
+rootfs 上的一个普通目录而不是 tmpfs，`dd` 会在第一页就 ENOSPC，**一个字节都不留**，
+随后 `tftp` 报的是 `can't open '<file>': No such file or directory`（2026-11-01 实测踩到）：
+
 ```sh
-free                                           # 先看 tmpfs 还有多少（/tmp 在 RAM 里）
-# A. 整块镜像（17 MiB，塞得下）
-dd if=/dev/mtdblock8 of=/tmp/rootfs.jffs2 bs=64k
-md5sum /tmp/rootfs.jffs2
-tftp -p -l /tmp/rootfs.jffs2 -r rootfs.jffs2 192.168.1.191   # 传到实验机 /srv/tftp
+df -h /tmp ; mount | grep -E ' /tmp |tmpfs' ; ls -ld /tmp
+```
+
+```sh
+free                                           # 看 RAM 余量，tmpfs 吃的是它
+# A. 整块镜像（17 MiB）
+dd if=/dev/mtdblock8 of=/tmp/rootfs.jffs2 bs=65536 ; echo "rc=$?"
+ls -l /tmp/rootfs.jffs2                        # 这一步别省，dd 的错误常被忽略
+tftp -p -l /tmp/rootfs.jffs2 -r rootfs.jffs2 192.168.1.191
 rm /tmp/rootfs.jffs2
 
 # B. 只要文件（更省内存，且能立刻 grep）
@@ -157,10 +165,65 @@ tar -czf /tmp/etc.tgz /etc /usr/sbin /usr/lib 2>/dev/null
 tftp -p -l /tmp/etc.tgz -r etc.tgz 192.168.1.191
 ```
 
-`tftp -p`（put）是 busybox 自带，这条通道在实验机上已经验过（见 [LAB](../LAB.md)）。
-`/kmodule/bin` 里还有 `curl` 与 `wput`，要流式上传可用
-`tar czf - /etc | curl -T - http://192.168.1.191:8000/x`，不落盘。
+**`dd` 没写出文件时的四种成因**（按出现频率排）：
 
+| 现象 | 成因 | 处置 |
+|---|---|---|
+| 无文件，`dd` 报 `No space left on device` | `/tmp` 在满的 rootfs 上，或 tmpfs 太小 | 走下面的分块法；或 `mount -t tmpfs -o size=32m tmpfs /mnt` 造个够大的 |
+| `dd` 被 `Killed`（rc=137） | tmpfs 挤占内存，OOM 杀掉 dd（这台机器上 `cspd` 已经占着 174 MB VSZ） | 分块 + 传完即删 |
+| 无 `/tmp` 目录 | 部分固件用 `/var/tmp` | `df -h /var` 后把路径换掉 |
+| 文件在但 `tftp` 仍打不开 | busybox 没编 put（`tftp --help` 里没有 `-p`） | 用 `/kmodule/bin` 的 `wput` 或 `curl` |
+
+还有两种是"文件**消失**"而不是"没生成"，现象一样、处置完全不同：① 整段粘贴时末尾那条
+`rm` 已经执行过；② `/tmp` 是 tmpfs，**设备一重启就清空**。这两种先在对端 `ls -l` 一眼就能分开，
+别在设备上白折腾。
+
+最快的定性办法其实是不落盘：`dd if=/dev/mtdblock8 bs=2048 count=1 2>&1 | hexdump -C | head -4`
+——既回答"mtdblock8 读不读得出来"，也顺手把 §4.2.2 那条判据做了。
+
+**分块法**（只要 `/tmp` 有几百 KiB 空间就能走完）：
+
+```sh
+# 每块 2 MiB；放不下就把 CH 降到 262144（256 KiB），块数变多而已
+CH=2097152 ; i=0
+while [ $i -lt 9 ]; do
+  dd if=/dev/mtdblock8 of=/tmp/c.bin bs=$CH skip=$((i*2)) count=2 2>/dev/null
+  [ -s /tmp/c.bin ] || { echo "chunk $i 空，停"; break; }
+  tftp -p -l /tmp/c.bin -r part$i.bin 192.168.1.191 && rm /tmp/c.bin
+  i=$((i+1))
+done
+```
+
+实验机侧按序拼回来，**首 2 字节应当是 `85 19`**（JFFS2 magic），不等就说明拼接或偏移错了：
+
+```sh
+cat part0.bin part1.bin part2.bin part3.bin part4.bin \
+    part5.bin part6.bin part7.bin part8.bin > rootfs.jffs2
+hexdump -C rootfs.jffs2 | head -2
+```
+
+**完全不落盘的做法**（空间与内存都不占，推荐给 17 MiB 以上或内存紧的时候）：
+`/kmodule/bin` 里有 `curl`，`-T -` 能直接从 stdin 读：
+
+```sh
+dd if=/dev/mtdblock8 | curl -T - http://192.168.1.191:8000/rootfs.jffs2
+```
+
+前提是对端有一个接受 `PUT` 的服务（`python3 -m http.server` **不接受** PUT）。仓库里带了一个：
+
+```sh
+# 实验机上
+python3 tools/lab/httpput.py --dir /srv/tftp --port 8000
+# 设备上（/kmodule/bin/curl）
+dd if=/dev/mtdblock8 | curl -T - http://192.168.1.191:8000/rootfs.jffs2
+# 校验：curl -s http://192.168.1.191:8000/rootfs.jffs2 | sha256sum（与设备侧对比）
+```
+
+`httpput.py` 支持 `Content-Length` 与 `chunked`（`curl -T -` 走的是后者）、直接落盘不占内存、
+写临时名完成后才 `rename`，所以传一半中断不会留下一个看起来正常的小文件。已用 3 000 001 字节
+随机数据对两种传输各测一遍，逐字节一致。
+
+`tftp -p`（put）是 busybox 自带，这条通道在实验机上已经验过（见 [LAB](../LAB.md)）。
 离线侧用 `jefferson`（pip）或 `mtd-utils` 解 JFFS2；`unsquashfs` 用不上，它不是 squashfs。
 
 #### 4.2.4 如果非要那把密钥：只有 RAM 一条路，期望值不高
