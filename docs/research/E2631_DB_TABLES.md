@@ -54,14 +54,14 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 3. **`MultiAPPTK` / `P1905StaBind` 这两个"列名"其实是表名**——这是第三处同类错误，
    与前两处同因：字符串表里表名与列名交错，靠排列顺序切不出可靠边界。
 
-## 2. 与漫游/无线相关的 11 张（D7 的新线索）
+## 2. 与漫游/无线相关的 11 张
 
 | # | 表 | 为什么值得看 |
 |---|---|---|
-| 270 | **`WlanRoamingCfg`** | **此前完全没在视野里**。WLAN 侧漫游配置，11k/11v/11r 的开关可能在它，而不在 `MultiAPMaster` |
-| 271 | `WlanRoamingSta` | 漫游 STA 实例表 |
+| 270 | **`WlanRoamingCfg`** | **已 dump（2026-11-01）**：6 列，是**客户端弱信号重关联**参数，**没有 11k/11v/11r 开关位**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §8.3 |
+| 271 | `WlanRoamingSta` | 漫游 STA 实例表，未 dump |
 | 259 | `WLANCfg` | 无线总配置 |
-| 261 | `WLANSSID` | SSID 实例 |
+| 261 | `WLANSSID` | SSID 实例；与 `MULTIAPDOMAINn` 的 1:1 关系可交叉验证 |
 | 258 | `WLANBase` | 基础参数 |
 | 260 | `WLANPSK` | 密钥 |
 | 264 | `WLANWEP` | 老加密 |
@@ -70,9 +70,13 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 | 262 | `WLANScheduler` | 定时开关无线 |
 | 272 | `WlanTimeCfg` | 无线的时段配置 |
 
-`WlanRoamingCfg` / `WlanRoamingSta` 是这一轮最值得新增的两条待办：
-[E2631_ROOTFS](E2631_ROOTFS.md) §5 从 `autouserconf` 得到"只有 11k/11v 没有 11r"，
-如果 11r 在这两张表里有开关位，那就是**配置层没开**而不是**固件不支持**——这会改写 D7 的判据。
+**`WlanRoamingCfg` 这条线索已经结案，方向是负的**：实测 `RoamingEnable=0`、`Interval=60`、
+`TimeStart=120`、`RssiThresh=-50`、`RssiStart=-30`，是一组"信号持续低于门限达观察窗口 →
+触发重关联"的客户端漫游参数。11r（FT）不在这张表，也不在 `MultiAPMaster`。
+
+⇒ D7 的"固件不支持 FT"现在有**两条独立证据**：编译期
+（`/etc/autouserconf` 只有 `CONFIG_CSP_WLAN_SUPPORT_80211KV`）与配置层（本表无 FT 开关）。
+**不必再查 11r 的配置入口了。**
 
 ## 3. 角色与组网相关的 3 张
 
@@ -190,32 +194,37 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 
 | 名字 | 此前出自 | 结论 |
 |---|---|---|
-| `P1905CFGn` | 上一轮凭空造的表名 | **作为表名不存在**（`table not find` 已是第一手证据）。但它可能是**行名**，见下 |
-| `IGD` | 我猜的 `IGD.P1905CFGn` | 库里**没有 `IGD` 这张表**。但 `IGD.` 是**行名前缀**——`TimePolicy` 的行名就叫 `IGD.TpCfg0`…`IGD.TpCfg2`（[FEATURE_MAP](FEATURE_MAP.md) §15 的采集记录） |
+| `P1905CFGn` | 上一轮凭空造的表名 | **作为表名不存在**（`table not find` 是第一手证据）。但它是**行名**，见下 |
+| `IGD` | 我猜的 `IGD.P1905CFGn` | 库里**没有 `IGD` 这张表**。`IGD.` 是**行名前缀**——已由真机确证（`TimePolicy` 的 `IGD.TpCfg0..2`、`P1905Cfg` 的 `IGD.P1905CFG1..6`） |
 | `MESH` / `Netsphere` / `EASYMESH` | [E2631_ROOTFS](E2631_ROOTFS.md) §6.4 说是"视图别名" | **不在 276 张 DB 表内**。它们更可能是 `httpd`/web 层的视图映射名，不是配置库的表 |
 
-**关于 `IGD.P1905CFGn` 的再判断**（这一条比"不存在"更有用）：
+**`IGD.P1905CFGn` 已结案（2026-11-01 实测）：它是 `P1905Cfg`(#164) 的第 n 行。**
 
-`sendcmd 1 DB p` 的**参数只收表名**，所以 `DB p P1905CFGn` 报 not find 只能证明它不是表名，
-不能证明这个标识在系统里不存在。仓库里已有硬证据表明中兴这套 DB 的**行名可以带 `IGD.` 前缀**
-（`TimePolicy` 的 `IGD.TpCfg0..2`）。所以 `IGD.P1905CFGn` 的正确读法更可能是
-**"`IGD` 视图下的第 n 行"**，而不是"一张表"。
+上一轮靠 `TimePolicy` 的 `IGD.TpCfg0..2` 推断"行名可带 `IGD.` 前缀"，本轮 dump `P1905Cfg` 后
+`ViewName` 逐字命中：`IGD.P1905CFG1`…`IGD.P1905CFG6`，对应 `eth1`–`eth4`、`wlan0`、`wlan1`，
+6 行有值 + 6 行空壳（`EnableP1905=0`）。详见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §8.1。
 
-验证办法：dump `P1905Cfg`(#164) 时看它的 `ViewName` 是不是形如 `IGD.P1905CFG1`。
-若是，1905 接口配置就在这张表里，而"每实例一行"的结构与 `MultiAPDomain`(`MULTIAPDOMAIN%d`) 完全同构。
+⇒ 这个名字**不该判死**。它的问题只是层级少写了一层：正确形式是
+「表 `P1905Cfg` ／ 行 `IGD.P1905CFG<n>` ／ 列 `P1905InterfaceName`、`EnableP1905`」。
 
 最后一条要改文档：`MESH→Netsphere→EASYMESH` 不该再写成"DB 视图别名"，
 应降级为"web 层名称映射，与配置库无关"。
 
 ## 6. 下一步 dump 的优先级（全部只读）
 
+前三轮列的 5 条已全部跑完（`P1905StaBind` 0 行、`P1905Cfg` 12 行、`WlanRoamingCfg` 1 行，
+结果见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §8）。剩下这些：
+
 | 顺序 | 命令 | 期望 |
 |---|---|---|
-| 1 | `sendcmd 1 DB p P1905StaBind` | D6 的真身；若 0 行，与 `MultiAPStaCfg` 一起视为"存在未配" |
-| 2 | `sendcmd 1 DB p P1905Cfg` | D5 的 1905 接口名 / `EnableP1905`；**同时看 `ViewName` 是不是 `IGD.P1905CFG1`**（§5） |
-| 3 | `sendcmd 1 DB p WlanRoamingCfg` | **11r 是否只是配置层没开**（可能改写 D7 判据） |
-| 4 | `sendcmd 1 DB p MultiapCapability` | 与 `SupportStrategies=251` 位图对照 |
-| 5 | `sendcmd 1 DB p MapCooperatorCfg` | 角色选举触发分支 |
+| 1 | `sendcmd 1 DB p MultiapCapability` | 与 `MultiAPDomain.SupportStrategies=251` 位图对照，可能一次解开 |
+| 2 | `sendcmd 1 DB p EthVlan` | **D5 的 VLAN 本体**：`P1905Cfg` 只解决"哪些接口跑 1905"，没解决流量分离 |
+| 3 | `sendcmd 1 DB p Brport` | 桥端口属性，D5 的第二个候选（与 `EthVlan` 一起看） |
+| 4 | `sendcmd 1 DB p MapCooperatorCfg` | 角色选举触发分支（`AutoSetup`/`EnRebootElect`） |
+| 5 | `sendcmd 1 DB p WLANSSID` | SSID 实例，与 `MULTIAPDOMAINn` 的 1:1 关系交叉验证 |
 
-`DB all` 已经跑过，不必再跑；但若要表名与行数一起看，`sendcmd 1 DB all` 之外还可以
-逐表 `DB p <名>` 喂给 `wc -l`。
+`DB all` 已经跑过，不必再跑。三张 per-STA 表（`MultiAPStaCfg` / `P1905StaBind` /
+`MultiAPCacheMac`）**行空是常态**，要看到行得先配一条绑定——那是改配置，不是取证。
+
+**一条通用判据**（本轮读出）：`isSave=0` 的列是运行时/派生值，写 DB 不落盘。
+改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"。

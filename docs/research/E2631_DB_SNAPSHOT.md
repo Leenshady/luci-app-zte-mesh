@@ -1,6 +1,6 @@
-# E2631 配置库实测快照：七张 mesh 表的真身
+# E2631 配置库实测快照：十张表的真身
 
-2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。三轮：
+2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。四轮：
 
 ```sh
 # 第一轮
@@ -15,11 +15,15 @@ sendcmd 1 DB p MultiAPRoamCatonCfg   # RowCount=1，7 列
 # 第三轮（§6、§7）
 sendcmd 1 DB p MultiAPCfg        # RowCount=1，50 列 —— 角色开关/跳数/MeshName/IFLink 全在这
 sendcmd 1 DB all                 # 全部表名，276 张 —— 见 E2631_DB_TABLES
+# 第四轮（§8）
+sendcmd 1 DB p P1905StaBind      # RowCount=0（表存在、无实例）
+sendcmd 1 DB p P1905Cfg          # RowCount=12，3 列 —— ViewName 就是 IGD.P1905CFG1..6
+sendcmd 1 DB p WlanRoamingCfg    # RowCount=1，6 列 —— 不是 11r，是客户端弱信号重关联
 ```
 
 这份文件的用途只有一个：**它是 [E2631_ROOTFS](E2631_ROOTFS.md) §6 那些离线推断的对照答案**。
 §6 是从 `cspd` 字符串表按排列顺序切出来的（当时标"中—强"），这里给出实测结果 —
-**表归属错了三处、数值注释错了一处**，错误与成因记在 §4、§5.1、§6.2。
+**表归属错了三处、数值注释错了一处、命名空间层级错了一处**，错误与成因记在 §4、§5.1、§6.2、§8.1。
 表名全集另见 [E2631_DB_TABLES](E2631_DB_TABLES.md)。
 
 > 值都带出处：这一份是出厂状态，机器已组过网（domain 4/8 是自动生成的 `ZMESH-` 专用 SSID）。
@@ -499,7 +503,9 @@ sendcmd 1 DB all             # 276 张表名全集（见 E2631_DB_TABLES）
 
 - **D6**：上一轮说落点是 `MultiAPStaCfg`（0 行）。现在看 `P1905StaBind` 更像正主——
   名字直接对应 `CmMultiApSetStaBind` 那个函数。两张表都要 dump 才能分清职责。
+  → **§8.2 已 dump：`P1905StaBind` 也是 0 行**，三张 per-STA 表全空。
 - **D5**：1905 接口名的候选从"不存在的 `IGD.P1905CFGn`"变成 **`P1905Cfg`**（存在，未 dump）。
+  → **§8.1 已 dump：`P1905Cfg` 就是 1905 接口使能表，`ViewName` = `IGD.P1905CFG1..6`。**
 
 另外一条负结果：`MESH` / `Netsphere` / `EASYMESH` 这三个名字**不在 276 张表里**。
 [E2631_ROOTFS](E2631_ROOTFS.md) §6.4 把它们写成"DB 视图别名"是没有依据的，
@@ -507,17 +513,114 @@ sendcmd 1 DB all             # 276 张表名全集（见 E2631_DB_TABLES）
 
 ---
 
-## 8. 还没 dump 的表（按价值排序）
+## 8. 第四轮：`IGD.P1905CFG1` 逐字命中，`WlanRoamingCfg` 否掉了 11r
+
+三条命令的输出：
+
+```sh
+sendcmd 1 DB p P1905StaBind     # RowCount=0
+sendcmd 1 DB p P1905Cfg         # RowCount=12，3 列
+sendcmd 1 DB p WlanRoamingCfg   # RowCount=1，6 列
+```
+
+### 8.1 `P1905Cfg`：`ViewName` 就是 `IGD.P1905CFG1`（§7 的推断命中）
+
+| 行 | `ViewName` | `P1905InterfaceName` | `EnableP1905` |
+|---|---|---|---|
+| 0 | `IGD.P1905CFG1` | `eth1` | 1 |
+| 1 | `IGD.P1905CFG2` | `eth2` | 1 |
+| 2 | `IGD.P1905CFG3` | `eth3` | 1 |
+| 3 | `IGD.P1905CFG4` | `eth4` | 1 |
+| 4 | `IGD.P1905CFG5` | `wlan0` | 1 |
+| 5 | `IGD.P1905CFG6` | `wlan1` | 1 |
+| 6–11 | `""` | `""` | **0** |
+
+三件事：
+
+**① `IGD.` 是行名前缀，已由真机确证。** §7 是从 `TimePolicy` 的 `IGD.TpCfg0..2` 推出这个结论的，
+本轮在 `P1905Cfg` 上再次看到，形如 `IGD.P1905CFG<n>`，与 `MULTIAPDOMAIN<n>` 完全同构。
+于是上一轮判死的 `IGD.P1905CFGn` 应当**复活为"`P1905Cfg` 的第 n 行"**。
+
+**② D5 那一行文字其实一直是对的，错的是命名空间层级。** 最早我在 `FEATURE_STATUS` D5 右列写的是
+`IGD.P1905CFGn.{P1905InterfaceName, EnableP1905}`——**行名与两个字段名全对**，
+只是把「表 `P1905Cfg` 的行 `IGD.P1905CFG<n>`」压缩成了「表 `IGD.P1905CFGn`」。
+上一轮把它一刀切删掉属于**过度纠正**；本轮恢复，但改成正确的层级写法。
+
+**③ 12 是编译期容量上限，不是配置数据。** 6 行有值、6 行空壳（`EnableP1905=0`、名字为空），
+说明这张表按固定上限预分配——与 `MultiAPDomain` 的 8 个实例（生效 4 个）是同一套做法。
+
+接口清单本身也有信息量：
+
+- **`eth1`–`eth4` 四个以太口全开 1905**。`eth0` 不在表里。按 ZTE 常见布局 `eth0` 可能是
+  CPU/WAN 内部口，但本次**没有证据**，只记现象、不下结论。
+- **`wlan0` / `wlan1` 两个无线口全开**。MT7916 是双频，但哪个是 2.4G、哪个是 5G **未验证**
+  （需 `iw dev` 或 `/etc/wlan*` 配置才能定）。做 1905 抓包前要先确认，否则 band 归属会错。
+
+### 8.2 `P1905StaBind`：0 行 —— 三张绑定表全空
+
+| 表 | RowCount | 含义 |
+|---|---|---|
+| `MultiAPStaCfg` | 0 | 三地址映射，未配 |
+| `P1905StaBind` | 0 | STA 绑定，未配 |
+| `MultiAPCacheMac` | 0 | per-MAC 帧缓存，运行时浮动 |
+
+**出厂没有任何 per-STA 配置**——不是"表坏了"，是没配过。三张表都要先在网页上配一条绑定才有行，
+那属于**改配置**，不再是只读取证。D6 的结论因此只能停在「入口存在、未使用」。
+
+### 8.3 `WlanRoamingCfg`：**不是 11r**，D7 判据不变
+
+| 列 | 值 | 读法（**推断**） |
+|---|---|---|
+| `ViewName` | `DEV.WIFI.ROAMING` | `isSave=0`，运行时生成 |
+| `RoamingEnable` | **0** | 出厂关 |
+| `Interval` | 60 | 检查周期（秒） |
+| `TimeStart` | 120 | 观察窗口（秒） |
+| `RssiThresh` | -50 | 触发门限 |
+| `RssiStart` | -30 | 起始门限 |
+
+这六个字段是一组**客户端弱信号重关联**参数，形状是「信号持续低于 `RssiThresh` 达 `TimeStart` 秒
+→ 触发重新扫描/关联，每 `Interval` 秒检查一次」。**里面没有任何 11k/11v/11r 的开关位。**
+
+⇒ 上一轮设想的"11r 可能是配置层没开"**不成立**。D7 的"固件不支持 FT"现在有**两条独立证据**：
+编译期（`/etc/autouserconf` 里只有 `CONFIG_CSP_WLAN_SUPPORT_80211KV`）与配置层（本表无 FT 开关）。
+这条线索到此结案，不必再查。
+
+### 8.4 顺带读出来的：`ViewName` 的三种命名风格
+
+| 风格 | 例子 | 出现在 |
+|---|---|---|
+| 大写无点 | `MULTIAPMASTER`、`MULTIAPDOMAIN1` | `MultiAPMaster`、`MultiAPDomain` |
+| `IGD.` 前缀 | `IGD.P1905CFG1`、`IGD.TpCfg0` | `P1905Cfg`、`TimePolicy` |
+| `DEV.` 前缀 + 点分 | `DEV.WIFI.ROAMING` | `WlanRoamingCfg` |
+
+`IGD.` / `DEV.` 都是 **TR-069 数据模型的根对象前缀**（InternetGatewayDevice / Device）。
+所以 `ViewName` 不是随便起的实例名，而是 **TR-069 路径到 DB 行的映射**。
+
+这对项目有直接用处：web 页改 `EnVbss` 之类走的是 `OBJ_*_ID` → 表 → **行名** → 列
+（[E2631_ROOTFS](E2631_ROOTFS.md) §7）。**做 web 层自动化时行名必须带前缀**，
+只给 `P1905CFG1` 很可能匹配不上。
+
+### 8.5 `isSave` 是一条实用判据
+
+- `P1905Cfg` 三列全 `isSave=1`；
+- `WlanRoamingCfg` 只有 `ViewName` 是 `0`，其余五列 `1`；
+- 与 `MultiAPDomain` 的 `ESSID`/`DomainUsed`（`isSave=0`）一致。
+
+⇒ **`isSave=0` 的是运行时/派生值，写 DB 也不落盘。** 改配置前先看这一列，
+否则"改了不生效"会被误判成"固件不认"。
+
+---
+
+## 9. 还没 dump 的表（按价值排序）
 
 | 顺序 | 表 | 为什么要它 | D 段哪一项 |
 |---|---|---|---|
-| 1 | `P1905StaBind` | STA 绑定的真身（§7） | D6 |
-| 2 | `P1905Cfg` | 1905 接口名 / `EnableP1905`；**同时看 `ViewName` 是否形如 `IGD.P1905CFG1`**（§4.1） | D5 |
-| 3 | `WlanRoamingCfg` | **11k/11v/11r 的 WLAN 侧开关**；若 11r 在这里，D7 的判据要改写 | D7 |
-| 4 | `MultiapCapability` | 与 `MultiAPDomain.SupportStrategies=251` 位图对照 | D7 |
-| 5 | `MapCooperatorCfg` | 角色选举触发分支（`AutoSetup`/`EnRebootElect`） | 角色 |
+| 1 | `MultiapCapability`(#154) | 与 `MultiAPDomain.SupportStrategies=251` 位图对照，可能一次解开 | D7 |
+| 2 | `EthVlan`(#79) / `Brport`(#20) / `PortBinding`(#182) | **D5 的 VLAN 本体**——`P1905Cfg` 只解决"哪些接口跑 1905"，没解决流量分离 | D5 |
+| 3 | `MapCooperatorCfg`(#139) | 角色选举触发分支（`AutoSetup`/`EnRebootElect`） | 角色 |
+| 4 | `WLANSSID`(#261) | SSID 实例；与 `MULTIAPDOMAINn` 的 1:1 关系可交叉验证（§3.1） | D7 |
 
 全部只读、不用停机。表名清单见 [E2631_DB_TABLES](E2631_DB_TABLES.md)。
 
-`MultiAPCacheMac` / `MultiAPStaCfg` 已 dump 完但行空（§5），要看到行得先在网页上配一条绑定，
-属于**改配置**，不再是只读取证。
+`MultiAPCacheMac` / `MultiAPStaCfg` / `P1905StaBind` 已 dump 完但行空（§5、§8.2），
+要看到行得先在网页上配一条绑定，属于**改配置**，不再是只读取证。
