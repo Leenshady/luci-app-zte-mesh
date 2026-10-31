@@ -571,7 +571,26 @@ start_service() {
 		compat=0
 		case "$(uname -m)" in
 		aarch64|arm64)
-			compat=$( (zcat /proc/config.gz 2>/dev/null || cat /proc/config 2>/dev/null) | grep -c '^CONFIG_COMPAT=y$')
+			# /proc/config.gz is the authoritative answer, but most firmware builds (the stock
+			# ImmortalWrt image on an ax3600 among them) do not ship it, and "no answer" must not
+			# be read as "no COMPAT": a board that does support it would then be pushed onto the
+			# emulator, which is not in the package, and the service would fail with execv errno=8
+			# for no reason. So when the config is missing, ask the kernel directly: exec the
+			# 32-bit loader with no arguments. Where ELF32 works it prints its own usage text;
+			# where it does not the shell falls back to reading the file as a script and reports a
+			# syntax error instead. Same trick the shell uses, just read on purpose.
+			if (zcat /proc/config.gz 2>/dev/null || cat /proc/config 2>/dev/null) | grep -q '^CONFIG_COMPAT=y$'; then
+				compat=1
+			elif [ -x "$ROOT/lib/ld-linux.so.3" ]; then
+				case "$("$ROOT/lib/ld-linux.so.3" 2>&1)" in
+					*sage:*) compat=1 ;;
+					*) compat=0 ;;
+				esac
+			fi
+			;;
+		*)
+			# x86-64 and anything else can never run the ARM32 daemon natively.
+			compat=0
 			;;
 		esac
 		if [ "$compat" = 0 ]; then
@@ -580,6 +599,10 @@ start_service() {
 			for candidate in "$ROOT/qemu-arm-static" "$ROOT/usr/bin/qemu-arm-static" "$ROOT/bin/qemu-arm-static"; do
 				[ -x "$candidate" ] && { emulator=${candidate#"$ROOT"}; break; }
 			done
+			# No package ships one (OpenWrt does not build qemu-user, and it would have to match
+			# this board anyway), so this is a lab-only affordance. Say exactly what is missing
+			# instead of letting the sandbox fail later with a bare "execv errno=8".
+			[ -z "$emulator" ] && log "this kernel cannot run the 32-bit ARM daemon and no qemu-arm-static was found in $ROOT: put one there (it must be built for $(uname -m), and it must sit inside the private root because it is exec'd after the chroot), or install a firmware built with CONFIG_COMPAT=y, or set zte_mesh.main.emulator=none to force the native path"
 		fi
 	fi
 	emulated=""

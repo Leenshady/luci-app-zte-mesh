@@ -787,5 +787,18 @@ config zte_mesh_bss 'g'
 	run "bad-slot-$1-$2" 1 "$1"
 done
 
+# start_service() picks the emulator and this harness only runs write_config(), so guard the source
+# instead. Without the ld-linux.so.3 probe, a board whose firmware does not ship /proc/config.gz
+# (stock ImmortalWrt on an ax3600, for one) is read as "no CONFIG_COMPAT" and pushed onto an
+# emulator that no package ships, and the sandbox then dies with a bare execv errno=8 -- which is
+# exactly what a fresh install hit on 2026-10-31 before this existed.
+for needle in 'CONFIG_COMPAT=y' 'ld-linux.so.3' 'sage:' 'qemu-arm-static' 'no qemu-arm-static was found'; do
+	if grep -q -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL emulator source: $needle"
+	fi
+done
+
 echo "init test: $pass passed, $fail failed"
 [ "$fail" = 0 ]
