@@ -1,9 +1,35 @@
 # 中兴 mesh 功能清单、完成度与推进顺序
 
-> **状态（2026-10-29）：** 主控侧在真子路由（ZXHN Z506，原厂固件）上验证；子路由侧在实验室（合成主控）验证。
+> **状态（2026-10-31）：** 主控侧在真子路由（ZXHN Z506，原厂固件）上验证；子路由侧在实验室（合成主控）验证。
 > 本表是唯一的功能总账：每完成一项就在“状态”列打勾并把证据补上，**不要**在别的文档里另起一份清单。
 > 协议与逆向细节见 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)、[REAL_CHILD.md](REAL_CHILD.md)、
 > [research/AGENT_PROBE.md](research/AGENT_PROBE.md)；部署与测试见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+
+## 实验机
+
+证据列里写的“实验机”指下面两台，它们与本轮 CI 产物（`main` 上 `dca90cd` 之后的 run 41151243794）一一对应。
+两台都在 `192.168.1.0/24`，同一 L2；root 密码 `root`，登录用 `ssh root@192.168.1.X`（公钥已装）。
+
+| 代号 | 机器 | 架构 / 系统 | 角色（本轮） | 说明 |
+|---|---|---|---|---|
+| **VM** | `192.168.1.20`，VMware 里的 ImmortalWrt | x86_64，25.12.2 r38135，内核 6.12.103 | `master`（测 `main` 时临时切过去，测完切回） | **没有一张无线网卡**，所以 `main` 角色下 `wlan-sync` 只会记“无射频可管” |
+| **ax3600** | `192.168.1.1`，小米 AX3600 刷 ImmortalWrt（**非中兴硬件**） | aarch64 cortex-a53，25.12.2 r38135，内核 6.12.103 | `slave` | 三张 radio：`radio1`=5G、`radio2`=2.4G、`radio0` 空卡（`phy0` 无设备） |
+
+两台的 `/tmp` 里放的 apk 与 CI 产物 sha256 逐字节一致（`zte-mesh` r5、`luci-app-zte-mesh` r6、
+`luci-i18n-zte-mesh-zh-cn` r6），所以“装上新包”等于“装上 `main` 上那次构建”。
+
+装法（2026-10-31）：ax3600 上 `apk del` 三个包再 `apk add --allow-untrusted /tmp/*.apk`，
+`/etc/config/zte_mesh` 被保留（新配置落成 `zte_mesh.apk-new`，没有覆盖）。VM 装不了：包是
+`aarch64_cortex-a53`，VM 是 x86_64，所以改成把 ax3600 上新装出来的那批文件（`init.d`、
+`wlan-sync`、`attach`、`rpcd/luci.zte-mesh`、`root/{bin,lib}`、LuCI 视图与菜单、`lmo`）
+`tar` 过去解到 `/`，**故意不含 `ns-run`**，保住 VM 上 x86_64 的那一份。
+
+三个当时踩到的点：
+
+- dropbear **没有 sftp**，`scp` 报 `Connection closed`；两台之间传文件用
+  `ssh A 'cat f' | ssh B 'cat > f'`，本机也没有 `timeout` / `nohup`
+- 包里 `usr/libexec/zte-mesh/ns-run` 是 aarch64 的旧版，见 C5
+- 两台 root 密码都是 `root`；公钥已写进 `/etc/dropbear/authorized_keys`，以后 `ssh root@192.168.1.X` 直接进
 
 ## 图例
 
@@ -39,7 +65,7 @@
 | A17 | 引导（BTM）/ 封锁 / 踢终端 | ⬜ | `0x8014` 等，接口已在 libcmapi | 3 |
 | A18 | 拓扑页：回程 RSSI、树状图、每 AP 终端列表、固件版本 | ⬜ | 现在只有节点清单与动作 | 3 |
 | A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性的错误定位 | ☑️ | init 69 项 | — |
-| A20 | **界面中英双语**：全部文案走 `_()`，`po/zh_Hans` 与源码逐条对齐，菜单标题也在目录里 | ☑️ | i18n 12 项；两台设备 `ucode` 直接查表为中文 | — |
+| A20 | **界面中英双语**：全部文案走 `_()`，`po/zh_Hans` 与源码逐条对齐，菜单标题也在目录里 | ✅ | i18n 12 项；**实验机**：两台都随包装出 `zte-mesh.zh-cn.lmo`（11632 B），`/cgi-bin/luci/admin/translations/zh-cn` 返回中文 `window.TR` | — |
 
 ## B. 子路由（Agent，本机是子节点）
 
@@ -49,17 +75,17 @@
 | B2 | 发 M1、收 M2、凭据落 `WLANCfg` / `WLANPSK` | ☑️ | 两个频段各一份，`m2_match=1` | — |
 | B3 | setter 兜底（配置管理器返回 -3 时读回校验再报 0） | ☑️ | `libzte_agent_mm.so`，沙箱专用 | — |
 | B4 | 库 → 计划的发布（`agent-sync` → `/run/zte-mesh/wlan-plan`） | ☑️ | `published=1 rows=2` | — |
-| B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化；plan 启用某 band 时把关着的 radio 设备打开，只写 0） | ☑️ | 86 项测试 | — |
+| B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化；plan 启用某 band 时把关着的 radio 设备打开，只写 0） | ✅ | 86 项测试；**ax3600**：人为 `uci set wireless.radio2.disabled=1` 后重启服务，日志 `radio radio2 (2g) was switched off; switched on ...`、`applied; wireless committed and reloaded`，`disabled` 回到 0；空卡 `radio0` 全程 `disabled=1` 没被动 | — |
 | B6 | 回程 BSS：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 86 项测试含开关双向复原 | — |
-| B7 | UCI / init / LuCI 暴露 `mesh_role` + `backhaul` | ☑️ | init 74、rpcd 18 | — |
+| B7 | UCI / init / LuCI 暴露 `mesh_role` + `backhaul` | ✅ | init 74、rpcd 18；**实验机**：两台 `uci` 写的角色都被 init 接受，`ubus call luci.zte-mesh status` 读到 `master` / `slave` / `main` 三个值 | — |
 | B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | 本轮；init `role-slave-borrow` | — |
 | B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | 本轮；`test_luci.js`（主控 31 项 / 子路由 4 项） | — |
-| B10 | rpcd `status` 返回角色 | ☑️ | 本轮；rpcd 18 项 | — |
+| B10 | rpcd `status` 返回角色 | ✅ | 本轮；rpcd 18 项；**实验机**：VM `"role":"master"`→`"main"`→`"master"`、ax3600 `"role":"slave"` | — |
 | B11 | 子路由侧应用额外槽位（slot 1–3 现在只记日志） | ⬜ | `wlan-sync` 明确跳过 | 3 |
 | B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | 本轮；wlan-sync 86 项、rpcd 18 项 | — |
-| B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ☑️ | init 74（`role-main` / `role-main-sync` / `role-master` / `role-auto-legacy`）；LuCI 角色表 3 项断言 | — |
+| B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ✅ | init 74（`role-main` / `role-main-sync` / `role-master` / `role-auto-legacy`）；LuCI 角色表 3 项断言；**VM**：`main` 时 init 写出 `wlan-plan`（316 B、0600、`rows=2`、`ZTEMESHCTRL`/`Ztemesh2631!`/`access=32`/`beacon_type=12`）、`wlan-sync` 实例在跑、日志 `no usable 2g radio; left alone` / `no usable 5g radio; left alone`；切回 `master` 后 plan 与 `wlan-sync` 实例一起消失（一个 plan 只有一个生产者） | — |
 | B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | ⬜ | 只做了 AP 侧 | 4 |
-| B14 | 真机：本机当子路由，接真主控（有线回程） | ⬜ | 只在合成主控下验过 | 2 |
+| B14 | 真机：本机当子路由，接真主控（有线回程） | ⬜ | 只在合成主控下验过。**2026-10-31 两台实验机同时装新包后仍未打通**：ax3600 的 plan 只落到本机默认（`ImmortalWrt`），VM 的 `state.json` 始终 `"nodes":[]`，VM 上 `enroller br-lan 150 --al-mac 02:00:00:00:19:03` 收到 `heard=0`（一帧 `0x0007` 都没有）。下一步要在 ax3600 侧抓包确认 agent 到底有没有发 Search，而不是继续在控制器侧等 | 2 |
 | B15 | `CmWLANMapSsidCfgSync2Repeater` 对齐（libcmapi 内部调用，替身命中不到） | ⬜ | 沙箱里是 no-op | 5 |
 | B16 | `CurHop` 在子路由侧的真实更新 | ⬜ | 实验室用 `-2` 顶替 | 2 |
 
@@ -67,10 +93,11 @@
 
 | # | 功能 | 状态 | 证据 | 难度 |
 |---|---|---|---|---|
-| C1 | 单个 apk（runtime + init + wlan-sync + rpcd + LuCI），4.1 MB | ✅ | 装在真路由器上，procd/rpcd 全通 | — |
+| C1 | 单个 apk（runtime + init + wlan-sync + rpcd + LuCI），4.1 MB | ✅ | 装在真路由器上，procd/rpcd 全通；**实验机**：ax3600 走完整 `apk del` → `apk add --allow-untrusted /tmp/*.apk`（三个包全在、旧配置 `/etc/config/zte_mesh` 保留、新文件替换），VM 因为包是 `aarch64_cortex-a53` 架构装不进去，改用同一批产物解包覆盖（见 C5） | — |
 | C2 | 拆包：`zte-mesh-runtime` + `zte-mesh-controller` + `zte-mesh-agent` | ⬜ | 方案已定（见 AGENT_PROBE §11.7），未动手 | 2 |
 | C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ⬜ | 现在工作区 CRLF，测试要转 LF 才能跑 | 1 |
-| C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配了 `=m`、没编译，中文目录从不产出 | ☑️ | 本轮；CI 断言三个 apk 都在 | — |
+| C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配了 `=m`、没编译，中文目录从不产出 | ✅ | 本轮；CI 断言三个 apk 都在；**实验机**：两台装完后 `/usr/lib/lua/luci/i18n/zte-mesh.zh-cn.lmo` 就是包带来的（11632 B），端点读得出中文 | — |
+| C5 | **包里的 `ns-run` 与 init 脚本不同步**：`zte-mesh-runtime.tar.gz` 里的 aarch64 `ns-run` 还是旧版，不认 `ZTE_MESH_QEMU` / `ZTE_MESH_EMULATED_LAB`，在内核没有 `CONFIG_COMPAT` 的 aarch64 上 `execv` 直接 `errno=8`（ENOEXEC），controller 实例反复退 80 | ⬜ | **ax3600 实测**：包里的 ns-run（strip 后 598083 B）`strings` 里没有 `emulated_lab`；换成 lab-tools 上的 `prebuilt/ns-run-aarch64`（707760 B，sha256 `8f3dac72…`）后三个实例全起、`errno=8` 消失。修法二选一：把新 ns-run 重打进 runtime tarball，或让 Makefile 用工具链现编 `ns-run.c` | 2 |
 
 ## D. 没有通道的（换子路由固件才谈得上）
 
@@ -92,12 +119,14 @@
 |---|---|---|---|
 | 1 | ~~B8 / B9 / B10~~ | — | **2026-10-29 已完成** |
 | 2 | ~~B12 应用结果回传~~ | — | **2026-10-29 已完成** |
-| 3 | C3 统一行尾 | 1 | 一次改动，之后所有测试不用再转 LF；影响整个仓库，**需要单独确认** |
-| 4 | B14 子路由接真主控（有线） | 2 | 决定 B15 要不要补，信息量最大，需要两台机器 |
-| 5 | C2 拆包 | 2 | 方案已定，属于分发形态，不阻塞功能 |
-| 6 | B16 `CurHop` 真机确认 | 2 | 需要真机，可并入第 4 项一起看 |
-| 7 | B11 额外槽位在子路由侧应用 | 3 | 要先把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
-| 8 | A18 拓扑页 | 3 | 需要状态字段（RSSI、终端数）先落到 `state.json` |
-| 9 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺的是策略与 UI |
-| 10 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
-| 11 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，只有前 4 项都过了才值得动 |
+| 3 | ~~A20 / B5 / B7 / B10 / B17 / C4~~ | — | **2026-10-31 两台实验机装新包后已全部升到 ✅**（中文、打开关着的 radio、角色暴露与三角色落地、翻译包随包产出） |
+| 4 | **C5 包里的 ns-run 与 init 同步** | 2 | aarch64 上 controller 实例现在起不来（`errno=8`），是 B14 的前置；修法只有重打 tarball 或现编 `ns-run.c` 两种 |
+| 5 | C3 统一行尾 | 1 | 一次改动，之后所有测试不用再转 LF；影响整个仓库，**需要单独确认**（本轮已把两台设备上出过问题的脚本都归一为 LF） |
+| 6 | B14 子路由接真主控（有线） | 2 | 决定 B15 要不要补，信息量最大，需要两台机器；本轮两台实验机上没打通，见 B14 那行的说明 |
+| 7 | C2 拆包 | 2 | 方案已定，属于分发形态，不阻塞功能 |
+| 8 | B16 `CurHop` 真机确认 | 2 | 需要真机，可并入 B14 一起看 |
+| 9 | B11 额外槽位在子路由侧应用 | 3 | 要先把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
+| 10 | A18 拓扑页 | 3 | 需要状态字段（RSSI、终端数）先落到 `state.json` |
+| 11 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺的是策略与 UI |
+| 12 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
+| 13 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，只有前 6 项都过了才值得动 |
