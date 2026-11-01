@@ -628,3 +628,6 @@ msgstr "已下发"
 
 msgid "%d min left"
 msgstr "剩余 %d 分钟"
+
+msgid "ran out"
+msgstr "已到期"

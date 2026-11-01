@@ -20,7 +20,11 @@
 #define ACTION_BAN_REFRESH 120   /* seconds between repetitions of a ban (an agent that restarted forgot it) */
 
 enum action_kind { ACTION_KIND_NONE = 0, ACTION_KIND_KICK = 1, ACTION_KIND_BAN = 2 };
-enum action_state { ACTION_PENDING = 0, ACTION_SENT, ACTION_DONE, ACTION_FAILED };
+/* ACTION_EXPIRED: a timed ban whose time ran out. The entry stays so the unchanged rule does not re-arm it on the
+ * next config pass (the daemon folds the same intents in once a second, and a rule re-created right after its
+ * "allow" went out would flap the client off and on for ever). It is dropped when the rule is removed, and
+ * re-armed when its lifetime in the page changes. */
+enum action_state { ACTION_PENDING = 0, ACTION_SENT, ACTION_DONE, ACTION_FAILED, ACTION_EXPIRED };
 
 struct action_entry {
     uint8_t mac[6];
@@ -36,6 +40,10 @@ struct action_entry {
 struct action_table {
     struct action_entry entry[ACTION_MAX];
     unsigned int count;
+    /* The clock of the last configure/tick. state.json's countdown is measured against this rather than against a
+     * time the caller passes in: the daemon ticks with CLOCK_MONOTONIC and used to write the JSON with time(NULL),
+     * which turned every "seconds left" into a wall clock minus a monotonic deadline. */
+    long now;
 };
 
 /* One line of user intent: what to do with `mac`. minutes = 0 means "until undone" for a ban and is ignored
@@ -71,7 +79,8 @@ unsigned int actions_tick(struct action_table *table, long now, struct action_du
  * did what was asked. Only KICK entries are affected; a ban has no per-client answer. */
 void actions_observe(struct action_table *table, const uint8_t mac[6], int ok);
 
-/* JSON array for state.json, bounded: *room bytes is always enough for fewer entries than ACTION_MAX too. */
-int actions_json(const struct action_table *table, long now, char *out, size_t room);
+/* JSON array for state.json, bounded: *room bytes is always enough for fewer entries than ACTION_MAX too. The
+ * countdown is measured against the table's own clock (the last configure/tick), never against a caller's. */
+int actions_json(const struct action_table *table, char *out, size_t room);
 
 #endif

@@ -151,6 +151,7 @@ return view.extend({
 					var c = state.clients[i];
 					var how = c.state === 'done' ? _('done')
 						: c.state === 'failed' ? _('the router refused or did not answer')
+						: c.state === 'expired' ? _('ran out')      /* a timed block that is over */
 						: c.state === 'pending' ? _('queued') : _('sent');
 					var left = c.left > 0 ? ' · ' + _('%d min left').format(Math.ceil(c.left / 60)) : '';
 					text.push(c.mac + ': ' + (c.action === 'ban' ? _('Blocked') : _('Kicked')) + ', ' + how + left);

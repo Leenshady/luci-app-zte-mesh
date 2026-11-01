@@ -932,7 +932,7 @@ static int write_state(const struct service_state *state)
     used += (size_t)snprintf(json + used, sizeof(json) - used, "],\"clients\":[");
     {
         char list[1024];
-        int bytes = actions_json(&actions, time(NULL), list, sizeof(list));
+        int bytes = actions_json(&actions, list, sizeof(list));
         if (bytes > 0 && used + (size_t)bytes < sizeof(json)) {
             memcpy(json + used, list, (size_t)bytes);
             used += (size_t)bytes;

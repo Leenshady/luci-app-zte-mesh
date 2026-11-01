@@ -42,6 +42,7 @@ int actions_configure(struct action_table *table, long now, const struct action_
 
     if (!table || (count && !intents))
         return -1;
+    table->now = now;
     /* A rule that is no longer wanted still has to be undone on the agent, so bans are marked for lifting and
      * only removed after the undo has gone out. Everything else that vanished is forgotten right here. */
     for (i = 0; i < table->count;) {
@@ -52,6 +53,8 @@ int actions_configure(struct action_table *table, long now, const struct action_
                 seen = 1;
         if (seen) {
             i++;
+        } else if (entry->kind == ACTION_KIND_BAN && entry->state == ACTION_EXPIRED) {
+            drop(table, i); /* it ran out and was let back in; nothing to undo */
         } else if (entry->kind == ACTION_KIND_BAN && !entry->lift) {
             table->entry[i].lift = 1;
             table->entry[i].state = ACTION_PENDING;
@@ -82,8 +85,12 @@ int actions_configure(struct action_table *table, long now, const struct action_
                 entry->minutes = intents[i].minutes;
                 entry->expires = intents[i].minutes ? now + (long)intents[i].minutes * 60 : 0;
             } else if (entry->kind == ACTION_KIND_BAN && entry->minutes != intents[i].minutes) {
+                /* A new lifetime in the page re-arms the rule, including one that already ran out: that is the
+                 * user saying "block it again, for this long". */
                 entry->minutes = intents[i].minutes;
                 entry->expires = intents[i].minutes ? now + (long)intents[i].minutes * 60 : 0;
+                entry->state = ACTION_PENDING;
+                entry->next = now;
             }
             continue;
         }
@@ -121,6 +128,7 @@ unsigned int actions_tick(struct action_table *table, long now, struct action_du
 
     if (!table || !out)
         return 0;
+    table->now = now;
     for (i = 0; i < table->count;) {
         struct action_entry *entry = &table->entry[i];
 
@@ -131,9 +139,19 @@ unsigned int actions_tick(struct action_table *table, long now, struct action_du
                 drop(table, i);
                 continue;
             }
+            if (entry->state == ACTION_EXPIRED) {
+                i++;
+                continue;
+            }
             if (entry->expires && now >= entry->expires) {
+                /* Time is up: say so on the agent and keep the row as "expired" instead of dropping it. Dropping
+                 * would let the next config pass (one second later) create it again from the same unchanged rule,
+                 * and the client would be blocked, released and blocked again for ever. */
                 emit(out, &used, max, entry, 1);
-                drop(table, i);
+                entry->state = ACTION_EXPIRED;
+                entry->expires = 0;
+                entry->next = 0;
+                i++;
                 continue;
             }
             if (entry->state == ACTION_PENDING || now >= entry->next) {
@@ -189,11 +207,12 @@ static const char *state_name(int state)
     case ACTION_PENDING: return "pending";
     case ACTION_SENT: return "sent";
     case ACTION_DONE: return "done";
+    case ACTION_EXPIRED: return "expired";
     default: return "failed";
     }
 }
 
-int actions_json(const struct action_table *table, long now, char *out, size_t room)
+int actions_json(const struct action_table *table, char *out, size_t room)
 {
     size_t used = 0;
     unsigned int i;
@@ -204,7 +223,7 @@ int actions_json(const struct action_table *table, long now, char *out, size_t r
     out[0] = 0;
     for (i = 0; i < table->count; i++) {
         const struct action_entry *entry = &table->entry[i];
-        long left = entry->expires ? entry->expires - now : -1;
+        long left = entry->expires ? entry->expires - table->now : -1;
         int written = snprintf(out + used, room - used,
                                "%s{\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"action\":\"%s\",\"state\":\"%s\","
                                "\"left\":%ld,\"attempts\":%u}",

@@ -153,7 +153,11 @@ SIGKILL 旧进程、`waitpid`、探测数据库池锁与订阅池锁（被杀的
 - **封禁与踢终端**（`controller-actions.c`）：`ban` 是"持续规则"——首次即发 `0x8016`，之后每 120 秒重发一次
   （子节点重启后不会忘记），到 `ban_minutes` 或规则被删时补发一条"放行"；`kick` 是"点一下"——`0x8014` 每 5 秒一次、
   最多 3 次，收到 `0x8015`/`0x8017` 回报即结案，超时标 `failed`。`state.json` 的 `clients[]` 每项
-  `{mac, action, state, left, attempts}`，`left` 为剩余秒（-1 = 不会到期）；LuCI 状态框只有一行文字，就是这几项拼出来的。
+  `{mac, action, state, left, attempts}`：`state` 是 `pending`/`sent`/`done`/`failed`/`expired`，`left` 是剩余秒
+  （-1 = 不会到期，`expired` 时也是 -1）。定时封禁到期后这一行**留着**并变成 `expired`：删掉的话，下一秒读同一份配置
+  就会把它重新建出来，客户端会被"封禁 / 放行 / 封禁"地循环；改页面上的时长会重新计时并重新封。`left` 用的是服务内部
+  那个单调时钟（`action_table.now`），不是墙钟——早先两者混用，页面上显示过 `-1793371222 分钟`。LuCI 状态框只有一行文字，
+  就是这几项拼出来的。
   动作发给**每个在线子节点**，`0x8014` 的目标 BSSID 用广播（还没有"终端挂在哪个 BSS"的表，见 H-03）。
 - **调度器和访客限时**：配置里的 `enabled` 是"用户的设置"，有效值 = 设置 减去 定时窗口和已到期的限时；日志
   `sched off_all=… off_guest=…`、`access_expired`。
