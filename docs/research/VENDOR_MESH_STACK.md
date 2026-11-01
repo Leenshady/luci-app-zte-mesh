@@ -2,8 +2,11 @@
 
 一台开了 telnet 的市售 ZTE AX3000（`/tmp/sysinfo/model` = `E2631`，hostname `Z500_w9bZ`）把
 `/kmodule` 整个拿出来做静态比对。和上一份编程器固件的关系见第 7 节：同型号、同芯片，
-**但不是同一版固件，那台的 rootfs 密文在这里也解不开**；这里拿到的是另一件事——
-**原厂 mesh 栈的用户态实现，明文**。
+**但不是同一版固件；那份 `.bin` 包里的 rootfs 密文在这里也解不开**（`.bin` 是整包加密分发，
+刷机侧才解密）。这里拿到的是另一件事——**原厂 mesh 栈的用户态实现，明文**。
+`/proc/cmdline` 实测 `root=/dev/mtdblock8 ro rootfstype=jffs2`、`/proc/mounts` 是
+`/dev/root / jffs2 ro`，说明**真机上连 rootfs 也是明文**，「密文」只存在于分发包里
+（改判过程见 [E2633_FIRMWARE](E2633_FIRMWARE.md) §5.4 晚补）。
 
 ## 1. 样本与取法
 

@@ -260,6 +260,14 @@ cat /dev/mtdblock8 | /kmodule/bin/curl -T - http://192.168.1.191:8000/rootfs.jff
 
 #### 4.2.4 如果非要那把密钥：只有 RAM 一条路，期望值不高
 
+> **2026-11-01 夜：本节的前提被真机取证推翻，先读这条再看下面。**
+> 真机 `/proc/cmdline` = `root=/dev/mtdblock8 ro rootfstype=jffs2 mem=256M; ...`，
+> `/proc/mounts` = `/dev/root / jffs2 ro 0 0`，`/proc/mtd` = `mtd8: 01100000 rootfs`，
+> **命令行与挂载表里没有任何 crypt/dm/mapper 层** ⇒ 运行中的 rootfs 就是明文 JFFS2。
+> 也就是说：**对「读 mesh 实现」这个目标，rootfs 密钥不存在也不需要**——它不存在于你
+> 需要解决的问题里。密钥只服务**升级包分发**（`.bin` 里那两段整包加密），细节见本节末
+> 补记。下面关于 RAM 搜 key 的推演，只在「非要解 `.bin` 升级包」时才还有意义。
+
 先说为什么"拿真机当解密机"没用：把 dump 的密文写回同地址 NAND 再读出来，确实得到明文，
 但那是**解密服务**不是密钥；AES 下已知明文-密文对推不出 key。而写 NAND 是这台机器上
 唯一可能变砖的操作。**不做。**
@@ -332,6 +340,60 @@ hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换
 > （config 的密钥组号 `0238002E` 被 E2631/E2633/E1630/E2637/E2638 五个机型共用），但没有实证。
 > 所以"全空"**不能**单独证明 OTP——它同样兼容"每台设备一把 key"。要分开这两者，得在**同一台
 > 设备**上同时拿到 RAM 和它的编程器 dump。
+
+**2026-11-01 夜：真机取证，结论改写成「不需要密钥」。**
+
+受限壳（`shellproc`，`command -v` 对一切返回 no）里能读到的证据：
+
+| 证据 | 实测值 | 含义 |
+|---|---|---|
+| `/proc/cmdline` | `root=/dev/mtdblock8 ro rootfstype=jffs2 mem=256M; U-Boot V1.0.0 20230828191152 0x2300000 0x1 0xaf 0x00` | 根就是 mtdblock8 上的 jffs2，**无 crypt 层** |
+| `/proc/mounts` | `/dev/root / jffs2 ro 0 0`；`/dev/loop0 /kmodule squashfs ro`；另有 11 个 jffs2 mtdblock 挂载 | 运行时根是明文 JFFS2 |
+| `/proc/mtd` | `mtd8: 01100000 rootfs`（= 17 825 792 B） | 与本地 `rootfs.jffs2` **同尺寸** |
+| `/proc/iomem` | `System RAM 40000000-4fffffff`；`Kernel code 40008000-405e3b27`；`Kernel data 4061c000-407e1a4b`；`spifc_reg 0x94406000`；PCIe 空洞 `10000000-17ffffff`/`20000000-27ffffff` | 无并行 NAND 控制器，SPI-NAND 走 spifc |
+| `/proc/modules` | `shellproc@0xbf000000`、`patch@0xbf010000`、`zx_ponreg@0xbf014000`、`plat_zxylzb_9128S@0xbf018000`、`tm@0xbf04d000`、`switch@0xbf1ab000`、`idmfdb@0xbf1e4000`、`mt7916@0xbf1f9000`、`xdpi@0xbf6df000` | 九个模块，**没有一个是 crypto/dm 层** |
+| `/dev/mem`、`/dev/kmem` | 都在（owner `Z500_w9b`）；`/proc/kcore` **不存在** | RAM 原始通道还在，但见下 |
+
+**RAM 路线在这台机器上不可行**：没有 `dd`/`head`/`tail`/`od`/`base64` 任何 seek 工具，
+`devmem2` 一次只读一个字，256 MiB 走不通；`/dev/mem` 有 PCIe 空洞（`0x10000000–0x27ffffff`）
+会 EIO 中断 `cat`。**但这不是死路**——`/kmodule`（squashfs，挂 `/dev/loop0`，ro）里躺着一整套
+工具，只是不在 `$PATH`：
+
+| 路径 | 用途 |
+|---|---|
+| `/kmodule/bin/busybox` | 398 568 B 真二进制；applet 含 `hexdump`/`md5sum`/`grep`/`sed`/`tar`/`tftp`/`cat`/`sh`（**不含** `dd`/`head`/`tail`/`base64`/`od`/`nc`） |
+| `/kmodule/bin/{cat,ls,tar,cp,mkdir,sed,...}` | 列表里绝大多数是 **busybox 符号链接**（本地解包后落成 0 字节空文件，别当成独立二进制）；调用一律写成 `/kmodule/bin/busybox <applet>` 最稳 |
+| `/kmodule/bin/curl`（190 558 B）、`wput`、`wgets` | 真二进制，上行通道，`curl -T -` 直接接管道 |
+| `/kmodule/bin/devmem2`（6 719 B）、`memtest`、`ftest` | 单字读写/内存测试，做不了 256 MiB 流式 dump |
+
+所以 `cat /dev/mtdblock8 | /kmodule/bin/curl -T - http://<host>:8000/rootfs.jffs2`
+这条（§4.2.1）现在**确认可跑**——`cat` 用根分区的 `/bin/cat` 或 busybox applet，
+`curl` 是独立静态二进制。
+
+**还剩一个矛盾没闭合，别当已解决。** 运行系统说 rootfs 是明文，但 `e1630.raw` 的
+`0xd80000`（同尺寸 `0x1100000`）熵 8.00 是密文，而本地明文 `rootfs.jffs2` 在那份 dump 里
+**检索不到**（首 4K/中段/32B 边界探针全负）。三种解释并列，未决：
+
+1. dump 与 `rootfs.jffs2` 来自**不同设备/不同版本**（目录名是 `zte e1630`，而 tag 区字符串是
+   `ZXHN E2631`——两型号混在一起，本身就要核）；
+2. flash 上确实是密文，**读路径透明解密**（`patch.ko` 可疑，它排在 `shellproc` 之后第一时间加载）；
+3. 那份 dump 取的是**未刷完/升级暂存**状态，`0xd80000` 上放的是升级包原样。
+
+一条只读命令就能分流（一秒，无风险）：
+
+```sh
+/kmodule/bin/busybox hexdump -C -n 64 /dev/mtdblock8
+```
+
+（写 `busybox hexdump` 而不是 `/kmodule/usr/bin/hexdump`：后者在本地解包后是 0 字节，
+真机上大概率是 busybox 的符号链接，别赌。）
+
+- 打出 `85 19 01 e0 31 00 00 00 ...` ⇒ 读路径返回明文，解释 1 或 2；
+- 打出随机字节、而 `/` 又确实挂着 jffs2 ⇒ **解释 2 成立**，`patch.ko` 就是那个透明层，
+  这时「密钥」真的存在，但它在 `patch.ko` 的初始化路径里，反汇编它比搜 RAM 便宜得多；
+- 再补一条 `/kmodule/bin/busybox md5sum /dev/mtdblock8` 与本地 `rootfs.jffs2`
+  （`835653325cafa1c73d52e2baadd8d973`）对比，一致就说明手上这份就是运行中的根，
+  **密钥问题可以直接关档**。
 
 #### 4.2.5 真正值钱的不是密钥，是脚本
 
