@@ -341,6 +341,11 @@ ECB/CBC × 128/192/256 位），输入 1 MiB：
 [E2633_FIRMWARE](E2633_FIRMWARE.md) §5 的三条路（BOOTROM/cspboot、NAND 控制器透明解密、eFuse）
 一条没少。这次只是排除了一个便宜的猜测。
 
+> 2026-11-01 再补一个同款便宜猜测的排除：SR1010 社区仓库的「CSPBOOT 明文常量当密钥」打法
+> （`SR1010V102020030` 那类）对 E2633 的 boot/kernel/JS 全量扫描也不中——
+> 不止配置密钥族无关，**rootfs 密钥也不是任何盘上明文常量**。
+> 详见 [E2633_FIRMWARE](E2633_FIRMWARE.md) §5.4。
+
 ### 8.3 一个副产品结论
 
 `boot.bin` 里 `public_key inited but CSPBOOT_VERIFY_SIGN_XXX not enable` +

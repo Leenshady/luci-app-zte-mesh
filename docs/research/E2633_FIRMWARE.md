@@ -206,6 +206,46 @@ U-Boot 运行时才推导出来，任何纯软件解包工具都得先拿到密�
 > 怀疑 rootfs 是否复用的最便宜猜测。已用 84 组派生组合实测排除，
 > 见 [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §8.2。
 
+### 5.4 SR1010 仓库的提取/解密链路与 E2633 密钥实测（2026-11-01 补）
+
+SR1010/Z506 同血统的社区仓库 [zte-sr1010-research](https://github.com/1234205a/zte-sr1010-research)
+真的把 AES-128-ECB rootfs 解开过（其逆向记录第五阶段拿到密钥）。把它的方法搬来，
+对 E2633 手上全部明文材料做了一轮全量实测。
+
+**先纠一个前提**：该仓库的 `tools/firmware-layout.py` 本身**不解密**——它只做双槽头识别与
+kernel/rootfs 切图（`rootfs_plain_jffs2` 仅是魔数检测）。解密是另外两件工具的事：
+`tools/decrypt-ecb-layer.py`（AES-128-ECB）+ 密钥来自 CSPBOOT 里逐字节滑动的 16 字节常量
+（SR1010 在 CSPBOOT `0x68BFA6` 找到 ASCII 密钥 `SR1010V102020030`）。
+完整链路三步：**切图（firmware-layout.py）→ 解 ECB 层（decrypt-ecb-layer.py，常量扫描验密钥）
+→ JFFS2 解包（jffs2-extract.py，含 rtime）**。仓库里另有配置密钥派生
+（`SHA256(ModelName+"Key"+"0510"+"0001")` → AES-256-CBC）等，与 rootfs 无关，
+其同族猜测已在 [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §8.2 排除。
+
+**可移植的核心判据**（不需要任何文件系统魔数）：JFFS2 擦除区全 `0xFF` 填充，
+ECB 下「相同明文块 → 相同密文块」⇒ 密文区最高频 16 字节块 = `AES_ECB(key, FF×16)`，
+候选密钥一次块加密即可判对错。本仓据此写了 `tools/lab/ecb-key-scan.py`
+（纯 stdlib，内嵌 AES-128 加解密双向，FIPS-197 自检通过；`--key-hex`/`--decrypt`
+留给拿到密钥那天）。oracle 确认：`9b58f878bbb341366b2b543daffb0185`
+（全区对齐计数 ×5938；§2/§5.1 的 5906 是此前口径，块值一致）。
+
+**E2633 实测：全部未命中。**
+
+| 扫描面 | 候选数 | 结果 |
+|---|---|---|
+| SR1010 的 ASCII 密钥 `SR1010V102020030` 直试 | 1 | ✗ |
+| 「机型+版本+日期」模式候选（E2633/E2631/SR1010 等组合） | 358 | ✗ |
+| printable-ASCII 滑窗：`boot.bin` / `kernel-Image.bin` / `kernel-uimage.bin` | 20 822 / 194 556 / 883 | ✗ |
+| 全偏移滑窗（`--full`）：`boot.bin`（559 325）/ `kernel-Image.bin`（6 627 665）/ `kernel-uimage.bin`（3 342 727）/ `telnet_enable.js`（11 077）/ `change-model-boot.js`（26 399） | 同左（每偏移一候选） | ✗ |
+| 全偏移滑窗：固件头 564 B（549）/ `kernel.config`（92 235）/ `zte_config_telnet_enable.js`（9 515）/ `README.txt`（2 841） | 同左 | ✗ |
+| 32 位 hex-ASCII 串转 16 字节直试 | 4 | ✗ |
+
+**结论**：E2633 rootfs 密钥**不是任何盘上明文材料里的 16 字节常量**。SR1010 的
+「CSPBOOT 常量」打法在 E2633 上不成立——密钥要么运行时派生不落盘（§5.2），
+要么经过变形/散列后才进加密例程。§5.3 的三条路里，「读 bootloader 取密钥」中
+「密钥是 boot 里明文常量」这一支已排除（`boot.bin` 全偏移无命中），剩下的是
+「U-Boot 运行时派生」——要逆向推导逻辑，成本不变；RAM 搜索路线见
+[MESH_INTEROP](MESH_INTEROP.md) §4.2.4。
+
 ## 6. 对「复现中兴 mesh」到底有多少帮助
 
 分四种用途看，别混在一起说：

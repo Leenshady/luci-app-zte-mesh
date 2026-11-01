@@ -62,6 +62,9 @@
 - 内核带 IKCONFIG，**完整 `.config` 已提取**，这是本次唯一"能直接用"的产物；
 - rootfs 23.4 MB 全程熵 7.99，判定 AES-128-ECB 加密的 JFFS2，**密钥不在镜像里**；社区工具
   （binwalk / unblob）能处理容器和 squashfs/UBI，对这一层没有公开密钥，也就没有下一步。
+  姊妹机型 SR1010 的社区仓库（[zte-sr1010-research](https://github.com/1234205a/zte-sr1010-research)）
+  拿到过密钥（CSPBOOT 明文常量），但同法在 E2633 的全部盘上明文材料实测不中
+  （[E2633_FIRMWARE](E2633_FIRMWARE.md) §5.4）。
 
 所以固件线只有两个产出值得记，都不是代码：
 
@@ -292,6 +295,13 @@ dd if=/dev/mem of=/var/m0.bin bs=1048576 count=16 skip=2048
 离线扫描的 C 骨架（**未实测**，跑通再考虑收进 `tools/`）：对 4 字节对齐的每个偏移取 32 字节
 当 AES-256 key（也试 16 字节当 AES-128），做一次 `AES_encrypt(key, FF×16)` 比对。256 MiB ÷ 4 × 2
 ≈ 1.3 亿次单块加密，C 实现分钟级。
+
+**2026-11-01 补：盘上明文材料这一面已经扫完，负结果。** C 骨架没写，先用纯 Python
+（`tools/lab/ecb-key-scan.py`，同一判据）把 `boot.bin`/`kernel-Image`/`kernel-uimage`/
+固件头/`kernel.config`/两个 telnet JS 做了全偏移滑窗，外加 358 个「机型+版本+日期」模式候选、
+SR1010 自己的 CSPBOOT ASCII 密钥和 4 条 hex-ASCII 串——**全部未命中**。
+「密钥是盘上明文常量」这一支就此排除，剩下的就是本节的 RAM 路线（或控制器/eFuse）；
+全部扫描面与候选数见 [E2633_FIRMWARE](E2633_FIRMWARE.md) §5.4。
 
 两种结果都有信息量，别只看"命中"那一种：
 
