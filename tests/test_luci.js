@@ -57,7 +57,7 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	// node table: ZTE routers that are online get the Restart / Light buttons, others a dash
 	{
 		const table = viewDef.renderNodes({ state: { nodes: [
-			{ mac: 'aa:bb:cc:dd:ee:01', name: 'child', model: 'M', software: 'v', zte: true, online: true, light: 1, stations: 3 },
+			{ mac: 'aa:bb:cc:dd:ee:01', name: 'child', model: 'M', software: 'v', zte: true, online: true, light: 1, stations: 3, bss: 2, hops: 1, metrics_age: 5 },
 			{ mac: 'aa:bb:cc:dd:ee:02', name: 'std', model: '', software: '', zte: false, online: true },
 			{ mac: 'aa:bb:cc:dd:ee:03', name: 'off', model: '', software: '', zte: true, online: false } ] } }, {});
 		const rows = table.kids;
@@ -65,6 +65,16 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		const text = r => JSON.stringify(r);
 		if (!text(rows[0]).includes('Living room') || text(rows[1]).includes('Living room') || !text(rows[0]).includes('"On"') || !text(rows[0]).includes('"3"')) {
 			console.log('alias / light / clients cells wrong:', text(rows[0]).slice(0, 400));
+			process.exit(1);
+		}
+		/* The link cell shows what the 1905 header said (direct or relayed) and the BSS count sits in its tooltip; a
+		 * node that never reported metrics shows '-' rather than a zero that looks measured. */
+		if (!text(rows[0]).includes('"Direct"') || !text(rows[0]).includes('2 BSS reported by the router') || !text(rows[0]).includes('5 s ago')) {
+			console.log('link / BSS cells wrong:', text(rows[0]).slice(-500));
+			process.exit(1);
+		}
+		if (!text(rows[1]).includes('"-"') || text(rows[1]).includes('"Direct"')) {
+			console.log('a node without metrics should show no link:', text(rows[1]).slice(-400));
 			process.exit(1);
 		}
 		if (rows.length !== 3 || buttons(rows[0]) !== 3 || buttons(rows[1]) !== 0 || buttons(rows[2]) !== 0) {

@@ -4,7 +4,7 @@
 > 功能本身的状态与证据在 [FEATURE_STATUS](FEATURE_STATUS.md)（唯一总账），协议与逆向在
 > [research/](research/)，装机与踩坑在 [LAB](LAB.md)。三处不重复列同一件事。
 >
-> 最后更新：2026-11-01（批次 1 开工）
+> 最后更新：2026-11-01（批次 3 开工：A17a 完成）
 
 ## 1. 终点：四个可验收的场景
 
@@ -53,9 +53,9 @@ S4 的一半：页面能看见拓扑。数据面不碰无线，只把已经收�
 
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
-| A18a | `state.json` 的 `peers[]` 补上每个节点的回程指标与终端数（来源：Topology Response / Link Metric / AP Capability 里已有的 TLV，`controller-trace.c` 现在只统计长度） | H | 构造帧的单元测试：给定一段 CMDU，解析出的 `rssi`/`hops`/`sta_count` 与手算一致 |
-| A18b | rpcd `status` 透出 `peers[]`，LuCI 拓扑卡片（只读：树状层级、RSSI 颜色、终端数） | H | `node tests/test_luci.js` 新增卡片渲染项；`sh tests/test_rpcd.sh` 新增字段 |
-| A19b | 校验补充：`extra_slots`（批 1 新增）、`backhaul` 与 `wpad` 变体的组合告警（`wpad-basic` 上开 multi_ap 必然无效） | H | `sh tests/test_init.sh` 新增分支 |
+| A18a | **已完成**。`controller-1905.c`：CMDU 头 + TLV 走查 + ZTE 厂商子 TLV（`OUI 00:19:c6` + 3 字节 + `[类型 长度 值]`）。`state.json` 每个节点加 `stations`/`bss`/`hops`/`metrics_age`，`-1` = 该节点没上报（与 0 区分） | H | `tests/controller-1905-codec.c`：101 断言 + 10 万次有界变异，**含一段实验台抓包的原文帧**；`0x83`/`0x94` 的布局对照 tshark dissector 核过 |
+| A18b | **已完成**。rpcd 的 `status` 本来就把整个 `state.json` 透传，字段自动可见；LuCI 节点表加「链路」列（直连/经中继，鼠标悬停看 BSS 数与上报新鲜度） | H | `node tests/test_luci.js` 新增 2 组断言（有指标 / 无指标）；`sh tests/test_rpcd.sh` 18 项 |
+| A19b | **已完成**。`wlan-sync` 读包库判断 `wpad` 变体：`-basic` 上开 `backhaul=multi_ap` 时把原因写进日志与 `wlan-sync.status` 的 `message`；完整 `wpad`、回程关、包库读不到三种情况都不误报 | H | `sh tests/test_wlan_sync.sh` 新增 5 项 |
 
 ### 批 3 · 控制面（H 建模 + D 效果确认）
 
@@ -63,7 +63,7 @@ S4 的一半：页面能看见拓扑。数据面不碰无线，只把已经收�
 
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
-| A17a | 1905 侧动作消息的构造与编码（对齐现成的 `0x8014` 类消息与 `mesh-policies.c` 的 live 接口） | H | C 编解码测试：字节与 Wireshark dissector 字段逐项一致 |
+| A17a | **已完成**。`controller-steer.c`：`0x8014` 引导请求（flags/window/timer/STA 列表/目标 BSS 列表）、`0x8016` 封禁（封/放行 + 有效期 + 多 MAC）、`0x8015` BTM 结果与 `0x8017` 引导完成的解码。字段顺序以 Wireshark dissector 为准（flags 在窗口之前、每个列表的计数贴着列表），见 [STEER_1905](research/STEER_1905.md) | H | `tests/controller-steer-codec.c`：整帧字节比对 + 越界/容量/参数拒绝 + 10 万次有界变异；`tests/test_steer_tshark.sh`：tshark 逐字段读回 20 项，且无 malformed/多余 TLV 数据 |
 | A17b | 策略层：`ban`/`kick` 的触发条件、去抖、超时回滚；配置语法与页面字段 | H | `test_policies.py` 新增用例；`test_luci.js` 新增 2 项 |
 | A17c | 真机确认：一台手机关联后被踢、被拒重连 | D | 见第 5 节 H-03 |
 
@@ -99,8 +99,8 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 批次 | 主题 | 状态 | 批末 CI |
 |---|---|---|---|
 | 1 | 子路由侧落地保真 | ✅ B11（210 项主机测试）/ C3 / D0 全做完 | **待触发**（批末一次） |
-| 2 | 主控侧可见性 | ⬜ 下一批：A18a 先做（解析 1905 拓扑帧），A18b/A19b 跟着 | — |
-| 3 | 控制面 | ⬜ | — |
+| 2 | 主控侧可见性 | ✅ A18a / A18b / A19b 全做完（回程 RSSI 无线索，见 H-05） | **待触发**（批末一次） |
+| 3 | 控制面 | 🔄 A17a 已完成（`0x8014` 一族能编能解，tshark 20 项核对）；A17b/A17c 待做 | — |
 | 4 | 无线回程 | ⬜ | — |
 | 5 | 多子节点与稳定性 | ⬜ | — |
 | 6 | 发布与工程化 | ⬜（C9 已随本轮下令先做） | — |
@@ -111,10 +111,13 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 
 | 命令 | 覆盖 | 基线 |
 |---|---|---|
-| `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci） | 123 passed（批 1 加 37 条；Windows 上约 7 分钟，Linux 上快得多） |
+| `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci） | 130 passed（批 2 加 5 条；Windows 上约 8 分钟，Linux 上快得多） |
 | `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 87 项（批 1 加 4 条） |
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 18 项 |
-| `node tests/test_luci.js` | LuCI 表单：字段、角色可见性、槽位校验 | `32 main / 10 slot / 4 ACL / child 5`（批 1 的 `extra_slots` 只在 main/child 渲染） |
+| `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列 | `32 main / 10 slot / 4 ACL / child 5`（批 1 的 `extra_slots` 只在 main/child 渲染；批 2 加节点表断言） |
+| `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94` | 101 断言 + 10 万次有界变异（需要一台能编 C 的机器） |
+| `tests/controller-steer-codec.c`（`make test-host`） | 终端动作消息的编码与两种回报的解码 | 整帧字节比对 + 10 万次有界变异（同上） |
+| `sh tests/test_steer_tshark.sh` | 把上面那几帧交给 tshark，逐字段读回 | 20 项；没有 tshark 时输出 SKIP 并退出 0 |
 | `python tests/test_runtime.py`、`test_i18n.py`、`test_schema.py out` 等 | 运行包完整性、翻译、表结构 | 各自脚本末尾 |
 | `sh tests/test_frames.py`（`python tests/test_frames.py`） | pcap 帧长/配对/周期 | 4 项 |
 | `sh tools/build/container-make.sh test-host` | C 编解码（含 10 万次变异）+ 沙箱 | 需要容器或 Ubuntu（`192.168.1.191`） |
@@ -132,7 +135,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | **H-02** | B11 在真子路由上不炸：额外槽位落成多个 BSS | ax3600 + 中兴主控（或 OpenWrt 主控） | ①`extra_slots=on` ②主控配一个访客槽位 ③`iw dev`/`uci show wireless` ④客户端连访客 SSID | 多出一个 BSS、名字密钥对、能拿到 IP；关掉后 BSS 消失且 `wlan-sync.status` 有记录 | 信道/带宽被多 BSS 摊薄；`wpad` 版本不支持多 BSS 时会静默失败 |
 | **H-03** | A17 踢终端/封锁真的生效 | S1 拓扑 + 一台测试手机（MAC 已知） | ①封禁该 MAC ②重连 ③解封 ④引导（BTM）观察是否切频段 | 封禁后拒绝关联；解封后恢复；BTM 发出后终端切换（不保证） | 会踢掉用户自己的设备；`EnBtmKickoff` 出厂是关的，可能根本不发 |
 | **H-04** | 多子节点 | 两台子路由 | A23 | 两个节点同时出现在拓扑页，动作按 MAC 不串 | 1905 域 ID 冲突、AL MAC 冲突（`al_last`） |
-| **H-05** | A18 RSSI/终端数的真值来源 | S1 + 一台已关联终端 | 抓 1905 后与 `iw station dump` 对照 | 页面上的数值与真机读数的偏差在 ±3 dB 内或明确标注"来自控制器上报" | 原厂 `StaRssiRptThr` 出厂 -110（等于不上报），可能根本没有值 |
+| **H-05** | A18 RSSI/终端数的真值来源 | S1 + 一台已关联终端 | 抓 1905 后与 `iw station dump` 对照。**已有负结果**（[CAPTURE_1905](research/CAPTURE_1905.md)）：有线链路的 107 帧里没有任何 RSSI，链路度量应答是 ZTE 定长模板；要看 RSSI 必须走无线回程 | 页面上的数值与真机读数的偏差在 ±3 dB 内或明确标注"来自控制器上报" | 原厂 `StaRssiRptThr` 出厂 -110（等于不上报），可能根本没有值 |
 | **H-06** | B15 `CmWLANMapSsidCfgSync2Repeater` | 真机 + strace | 逆向或动态跟踪 | 沙箱里替身不再需要 | 需要停机窗口；前序项没做完不值得动 |
 | **H-07** | D5 VLAN / D6 绑定 / D7 BTM 在 E2631 上的实际行为 | 一台市售 E2631/AX3000，停机窗口 | 用它自带 `pktdump 1` 抓线上，按 [MULTIAPD](research/MULTIAPD.md) §5 的命令表 | 三处配置入口能被厂商自己的 web 打开（说明运行时真的读） | 动的是别人的家用路由器 |
 | **H-08** | 出厂 `VersionMode` 与"兼容模式"文案的对应 | E2631 页面 | 改页面开关，看 `MultiAPCfg.VersionMode` 与 `P1905ComCfg.Enable` | 文案 ↔ 字段一一对应 | 已有一半结论（[FINDINGS](FINDINGS.md)），缺厂商侧确认 |

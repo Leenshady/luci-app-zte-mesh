@@ -602,5 +602,41 @@ check "status: a no-op run reports no change" 0 "$(status_val changed)"
 check "status: a no-op run names no band" "" "$(status_val bands)"
 check "status: still ok" ok "$(status_val result)"
 
+# --- the installed wpad variant --------------------------------------------------------------------------
+# The backhaul options this script writes (multi_ap 2, and the 4-address path that follows from it) exist only in the
+# full wpad build: a -basic package accepts them and puts nothing on the air. A run that reported a clean success in
+# that state would be the exact kind of false pass this project keeps having, so the reason goes to the log and into
+# the status message the page reads. WPAD_DB points the lookup at a file, so the test does not depend on the host.
+printf 'P:wpad-basic-mbedtls\nP:libc\n' > "$T/pkg-basic"
+printf 'Package: wpad-mbedtls\n' > "$T/pkg-full"
+seed_db
+backhaul_on
+: > "$LOG"
+WPAD_DB=$T/pkg-basic sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "wpad basic: warning logged" 1 "$(grep -c 'wpad-basic-mbedtls has no Multi-AP support' "$LOG")"
+check "wpad basic: warning in the status" 1 "$(status_val message | grep -c 'wpad-basic-mbedtls has no Multi-AP support')"
+check "wpad basic: still applied" 2 "$(val zte_backhaul_2g.multi_ap)"
+
+seed_db
+backhaul_on
+: > "$LOG"
+WPAD_DB=$T/pkg-full sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "full wpad: no warning" "" "$(status_val message)"
+
+# The warning belongs to the backhaul: with it off, a -basic image is perfectly fine.
+seed_db
+backhaul_off
+: > "$LOG"
+WPAD_DB=$T/pkg-basic sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "backhaul off: no wpad warning" "" "$(status_val message)"
+
+# An unreadable package database is not an error: nothing installed is known, so nothing is claimed.
+seed_db
+backhaul_on
+: > "$LOG"
+WPAD_DB=$T/no-such-file sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "no package database: no warning, no failure" "" "$(status_val message)"
+check "no package database: still ok" ok "$(status_val result)"
+
 echo "wlan-sync: $pass passed, $fail failed"
 [ "$fail" = 0 ]

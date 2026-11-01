@@ -69,6 +69,32 @@ backhaul_mode() {
 	case "$value" in multi_ap) echo multi_ap ;; *) echo off ;; esac
 }
 
+# wpad_variant -> the name of the installed hostapd/wpad package, empty when neither database can be read. Both are
+# checked because this tree builds apk images while older ones use opkg; WPAD_DB names a single file instead (tests).
+wpad_variant() {
+	local db name
+	for db in "${WPAD_DB:-}" /lib/apk/db/installed /usr/lib/opkg/status; do
+		[ -n "$db" ] && [ -f "$db" ] || continue
+		name=$(sed -n -e 's/^Package: *//p' -e 's/^P://p' "$db" 2>/dev/null | grep -E '^(wpad|hostapd)' | head -n 1)
+		[ -n "$name" ] && { printf '%s\n' "$name"; return 0; }
+	done
+	return 0
+}
+
+# wpad_warning -> why the backhaul cannot work with the installed package, or nothing when it can. The two options this
+# script writes for a backhaul (multi_ap 2 on the BSS, and the 4-address data path that follows from it) exist only in
+# the full wpad build: the -basic variants that fit a small image accept the option and put nothing on the air. Saying
+# so once per apply beats a status file that reports success while the backhaul BSS never appears.
+wpad_warning() {
+	local variant
+	[ "$(backhaul_mode)" = multi_ap ] || return 1
+	variant=$(wpad_variant)
+	case "$variant" in
+	*-basic*) printf 'backhaul needs the full wpad, %s has no Multi-AP support' "$variant"; return 0 ;;
+	esac
+	return 1
+}
+
 # extra_slots_mode -> "on" or "off". Anything unexpected is off, like the backhaul mode: a typo must not put
 # extra SSIDs on the air by accident.
 extra_slots_mode() {
@@ -452,9 +478,12 @@ write_status() {
 }
 
 apply_and_reload() {
+	local warning
 	APPLIED=""
 	TOUCHED=0
 	apply_plan "$1" || { write_status error "the plan could not be applied"; return 1; }
+	warning=$(wpad_warning) || warning=""
+	[ -n "$warning" ] && log "$warning"
 	if [ "$CHANGED" = 1 ]; then
 		uci commit wireless || { log "uci commit failed"; write_status error "uci commit failed"; return 1; }
 		# wifi reload re-reads every radio; a full restart is not needed and would drop the backhaul.
@@ -465,7 +494,7 @@ apply_and_reload() {
 	else
 		log "plan applied nothing new"
 	fi
-	write_status ok
+	write_status ok "$warning"
 	return 0
 }
 

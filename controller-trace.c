@@ -17,6 +17,7 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+#include "controller-1905.h"
 #define EXPORT __attribute__((visibility("default")))
 
 static unsigned int lines, packet_lines, trace_all_lines;
@@ -159,48 +160,62 @@ EXPORT ssize_t sendto(int fd, const void *data, size_t length, int flags,
     }
     errno = saved; return result;
 }
-/* What the topology page of the controller shows per child but the database does not hold: the indicator light and the number
- * of associated clients. Both ride in frames the daemon receives anyway: the child's HigherLayerResponse carries its light status
- * in the vendor sub-TLV 0x21 {AL MAC[6], status} (the master reads it in _topoLightStatusHandle), and every APMetricsResponse
- * lists the station count of each BSS (AP Metrics TLV 0x94: BSSID[6], channel utilisation, u16 stations). The latest values go
- * to /run/zte-mesh/peers/<AL MAC> as "light=<0|1|-1> stations=<n|-1>" (written atomically; the service reads them for
- * state.json). Only single, complete frames are looked at; nothing else is kept. */
-static void note_peer(const unsigned char *f, size_t n)
+/* What the topology page of the controller shows per child but the database does not hold: the indicator light, the number
+ * of associated clients, how many BSS the child reports as up, and whether it reached us over a direct link or through a
+ * relay. All of it rides in frames the daemon receives anyway: a HigherLayerResponse carries the light in the vendor sub-TLV
+ * 0x21 {AL MAC[6], status} (the master reads it in _topoLightStatusHandle), an AP Metrics Response lists the station count of
+ * each BSS, and a Topology Response lists the child's BSS interfaces. controller-1905.c does the parsing - the same decoder
+ * is unit-tested on constructed frames and on one captured frame - and keeps no TLV body. The latest values go to
+ * /run/zte-mesh/peers/<AL MAC>.<kind>, written atomically; the service reads them for state.json. Only complete,
+ * unfragmented frames are looked at. */
+static void write_peer(const unsigned char *mac, const char *kind, const char *text, int bytes)
 {
-    unsigned int type = ((unsigned int)f[16] << 8) | f[17], sum = 0, bss = 0;
+    char path[64], temp[72];
+    int fd;
+    snprintf(path, sizeof(path), "/run/zte-mesh/peers/%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    snprintf(path + strlen(path), sizeof(path) - strlen(path), ".%s", kind);
+    snprintf(temp, sizeof(temp), "%s.t", path);
+    fd = open(temp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
+    if (fd < 0)
+        return;
+    if (write(fd, text, (size_t)bytes) == bytes && !close(fd))
+        (void)rename(temp, path);
+    else
+        (void)unlink(temp);
+}
+static void note_peer(const unsigned char *f, const size_t n)
+{
+    struct cmdu_header header;
+    struct tlv_cursor cursor;
+    struct node_metrics metrics;
+    unsigned int type;
+    const unsigned char *value, *mac = f + 6;
+    size_t length, used = 0;
     int light = -1;
-    size_t o = 22;
-    const unsigned char *mac = f + 6;
-    char path[64], temp[72], text[48];
-    int fd, bytes;
-    if (n < 25 || f[20] != 0 || !(f[21] & 0x80) || (type != 0x000e && type != 0x800c))
+    char text[72];
+    int bytes;
+    if (!cmdu_decode(f, n, &header) || !header.last_fragment || header.fragment)
         return;
-    while (o + 3 <= n) {
-        unsigned int t = f[o], l = ((unsigned int)f[o + 1] << 8) | f[o + 2];
-        const unsigned char *v = f + o + 3;
-        if (!t || o + 3 + l > n)
-            break;
-        if (type == 0x000e && t == 0x0b && l >= 9 && !memcmp(v, "\x00\x19\xc6", 3)) {
-            size_t p = 6;
-            while (p + 3 <= l) {
-                unsigned int sub = v[p], sub_length = ((unsigned int)v[p + 1] << 8) | v[p + 2];
-                if (p + 3 + sub_length > l)
-                    break;
-                if (sub == 0x21 && sub_length == 7) {
-                    light = v[p + 3 + 6] ? 1 : 0;
-                    mac = v + p + 3; /* the AL MAC the child reports for itself */
-                }
-                p += 3 + sub_length;
+    tlv_open(&cursor, f, n);
+    while (tlv_next(&cursor, &type, &value, &length)) {
+        struct zte_cursor zte;
+        /* Only a HigherLayerResponse carries the light: the same sub-TLV number inside another message type is a
+         * different field, and the master reads it from the response too. */
+        if (header.type != 0x000e || type != CONTROLLER_TLV_VENDOR || !zte_vendor_open(&zte, value, length))
+            continue;
+        while (zte_vendor_next(&zte, &type, &value, &length))
+            if (type == 0x21 && length >= 7) {
+                light = value[6] ? 1 : 0;
+                mac = value; /* the AL MAC the child reports for itself */
             }
-        } else if (type == 0x800c && t == 0x94 && l >= 9) {
-            sum += ((unsigned int)v[7] << 8) | v[8];
-            bss++;
-        }
-        o += 3 + l;
     }
-    if (type == 0x000e && light < 0)
+    if (!node_metrics_decode(f, n, &metrics))
         return;
-    if (type == 0x800c && !bss)
+    /* Only frames that describe the link or its load are worth a file: the daemon's status chatter (CMDU 0x0004 on the lab
+     * link, ~2/s) says nothing the page shows, and rewriting a file for it would churn the tmpfs for no gain. */
+    if (!(metrics.fields & (NODE_METRIC_STATIONS | NODE_METRIC_BSS)) &&
+        header.type != 0x0003 && header.type != 0x0006 && header.type != 0x000e && light < 0)
         return;
     {
         /* Anybody on the LAN can send a 1905 frame with any AL MAC: remember at most 32 distinct MACs per daemon lifetime so a
@@ -217,21 +232,19 @@ static void note_peer(const unsigned char *f, size_t n)
             memcpy(known[known_count++], mac, 6);
         }
     }
-    snprintf(path, sizeof(path), "/run/zte-mesh/peers/%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    if (type == 0x000e)
+    if (light >= 0) {
         bytes = snprintf(text, sizeof(text), "light=%d\n", light);
-    else
-        bytes = snprintf(text, sizeof(text), "stations=%u\n", sum);
-    /* one file per kind: the two frame types arrive independently; the service merges them */
-    snprintf(path + strlen(path), sizeof(path) - strlen(path), type == 0x000e ? ".light" : ".stations");
-    snprintf(temp, sizeof(temp), "%s.t", path);
-    fd = open(temp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
-    if (fd < 0)
-        return;
-    if (write(fd, text, (size_t)bytes) == bytes && !close(fd))
-        (void)rename(temp, path);
-    else
-        (void)unlink(temp);
+        write_peer(mac, "light", text, bytes);
+    }
+    /* A count that the frame did not carry is left out, so the reader sees "no data" instead of a zero that looks measured. */
+    if (metrics.fields & NODE_METRIC_STATIONS)
+        used += (size_t)snprintf(text + used, sizeof(text) - used, "stations=%u\n", metrics.stations);
+    if (metrics.fields & NODE_METRIC_BSS)
+        used += (size_t)snprintf(text + used, sizeof(text) - used, "bss=%u\n", metrics.bss);
+    if (metrics.hops > 0)
+        used += (size_t)snprintf(text + used, sizeof(text) - used, "hops=%d\n", metrics.hops);
+    if (used)
+        write_peer(mac, "metrics", text, (int)used);
 }
 
 EXPORT ssize_t recvfrom(int fd, void *data, size_t length, int flags,

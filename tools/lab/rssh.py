@@ -103,6 +103,20 @@ def _sftp(alias: str):
         return cli, None
 
 
+def _exec_put(cli, local: str, remote: str) -> int:
+    """Write a local file over the exec channel. Used when sftp negotiates but cannot open a path."""
+    data = open(local, "rb").read()
+    stdin, stdout, stderr = cli.exec_command(f"cat > '{remote}'", timeout=CMD_TIMEOUT)
+    stdin.write(data)
+    stdin.channel.shutdown_write()
+    err = stderr.read().decode("utf-8", "replace")
+    if stdout.channel.recv_exit_status() != 0:
+        sys.stderr.write(f"写入失败：{err}\n")
+        return 1
+    _, out, _ = cli.exec_command(f"wc -c < '{remote}'", timeout=30)
+    return int(out.read().decode().strip() or -1)
+
+
 def put(alias: str, local: str, remote: str) -> int:
     if not os.path.exists(local):
         sys.stderr.write(f"本地不存在：{local}\n")
@@ -112,20 +126,18 @@ def put(alias: str, local: str, remote: str) -> int:
         if remote.endswith("/"):
             # SFTP 的 put 不会替你拼文件名，目录要自己接。
             remote = posixpath.join(remote, os.path.basename(local))
+        size = -1
         if sftp is not None:
-            sftp.put(local, remote)
-            size = sftp.stat(remote).st_size
-        else:
-            data = open(local, "rb").read()
-            stdin, stdout, stderr = cli.exec_command(f"cat > '{remote}'", timeout=CMD_TIMEOUT)
-            stdin.write(data)
-            stdin.channel.shutdown_write()
-            err = stderr.read().decode("utf-8", "replace")
-            if stdout.channel.recv_exit_status() != 0:
-                sys.stderr.write(f"写入失败：{err}\n")
-                return 1
-            _, out, _ = cli.exec_command(f"wc -c < '{remote}'", timeout=30)
-            size = int(out.read().decode().strip() or -1)
+            try:
+                sftp.put(local, remote)
+                size = sftp.stat(remote).st_size
+            except Exception as exc:
+                # The Ubuntu VM answers the sftp handshake but refuses every path with ENOENT, so a working
+                # negotiation is not proof that sftp works. Fall back to the exec channel rather than make the
+                # caller guess which of the three machines needs that.
+                sys.stderr.write(f"{alias}: sftp 不可用（{exc}），改走 cat 通道\n")
+        if size < 0:
+            size = _exec_put(cli, local, remote)
         local_size = os.path.getsize(local)
         print(f"{alias}:{remote}  {size} B" + ("" if size == local_size else f"  != {local_size} B"))
         return 0 if size == local_size else 1
@@ -139,9 +151,14 @@ def get(alias: str, remote: str, local: str) -> int:
         local = os.path.join(local, posixpath.basename(remote))
     cli, sftp = _sftp(alias)
     try:
+        got = False
         if sftp is not None:
-            sftp.get(remote, local)
-        else:
+            try:
+                sftp.get(remote, local)
+                got = True
+            except Exception as exc:
+                sys.stderr.write(f"{alias}: sftp 不可用（{exc}），改走 cat 通道\n")
+        if not got:
             _, out, err = cli.exec_command(f"cat '{remote}'", timeout=CMD_TIMEOUT)
             data = out.read()
             if out.channel.recv_exit_status() != 0:

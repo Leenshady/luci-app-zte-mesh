@@ -219,6 +219,7 @@ return view.extend({
 				E('th', { 'class': 'th' }, _('Type')),
 				E('th', { 'class': 'th' }, _('Light')),
 				E('th', { 'class': 'th' }, _('Clients')),
+				E('th', { 'class': 'th' }, _('Link')),
 				E('th', { 'class': 'th' }, _('State')),
 				E('th', { 'class': 'th' }, _('Actions'))
 			])
@@ -245,7 +246,13 @@ return view.extend({
 				E('td', { 'class': 'td' }, node.software || '-'),
 				E('td', { 'class': 'td' }, node.zte ? 'ZTE' : _('Standard')),
 				E('td', { 'class': 'td' }, node.light === 1 ? _('On') : (node.light === 0 ? _('Off') : '-')),
-				E('td', { 'class': 'td' }, (node.online && node.stations >= 0) ? String(node.stations) : '-'),
+				/* The station count comes from the AP Metrics the child sends; the BSS count from its Topology Response.
+				 * Both are -1 (shown as '-') when the child has not reported them, which is not the same as zero. */
+				E('td', { 'class': 'td', 'title': (node.bss >= 0 ? _('%d BSS reported by the router').format(node.bss) : '') },
+					(node.online && node.stations >= 0) ? String(node.stations) : '-'),
+				/* Reached over its own link or through another node: the 1905 header's relay bit, nothing inferred. */
+				E('td', { 'class': 'td', 'title': (node.metrics_age >= 0 ? _('%d s ago').format(node.metrics_age) : '') },
+					node.hops === 1 ? _('Direct') : (node.hops === 2 ? _('Relayed') : '-')),
 				E('td', { 'class': 'td' }, node.online ? badge(_('Online'), '#46a546') : badge(_('Offline'), '#999')),
 				E('td', { 'class': 'td' }, (node.online && node.zte) ? self.renderNodeActions(node, title) : '-')
 			]));
@@ -253,7 +260,7 @@ return view.extend({
 
 		if (!nodes.length)
 			table.appendChild(E('tr', { 'class': 'tr placeholder' }, [
-				E('td', { 'class': 'td', 'colspan': 10 },
+				E('td', { 'class': 'td', 'colspan': 11 },
 					E('em', _('No child routers have been discovered yet.')))
 			]));
 

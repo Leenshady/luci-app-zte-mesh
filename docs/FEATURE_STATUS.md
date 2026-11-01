@@ -51,9 +51,9 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | A14 | MLO 开关下发（`0200fe`） | ☑️ | 线上帧逐字节一致；Z506 无该字段，等于无操作 | — |
 | A15 | Wi-Fi 5 兼容标志（`ForceWiFi5`） | ☑️ | 线上值正确；Z506 不认 | — |
 | A16 | 漫游 / 频段引导阈值下发 | ☑️ | 能发；Z506 固件没有解析代码 | — |
-| A17 | 引导（BTM）/ 封锁 / 踢终端 | ⬜ | `0x8014` 等，接口已在 libcmapi | 3 |
-| A18 | 拓扑页：回程 RSSI、树状图、每 AP 终端列表、固件版本 | ⬜ | 现在只有节点清单与动作 | 3 |
-| A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性的错误定位 | ☑️ | init 79 项 | — |
+| A17 | 引导（BTM）/ 封锁 / 踢终端 | 🔄 | A17a：`controller-steer.c` 编解码 `0x8014`/`0x8015`/`0x8016`/`0x8017`；C 测试整帧字节比对 + 10 万次有界变异，tshark 逐字段交叉核对 20 项。**对端是否照做未验**（出厂 `EnBtmKickoff=0`），见 [STEER_1905](research/STEER_1905.md) 与 H-03 | 3 |
+| A18 | 拓扑页：节点清单 + **每节点的终端数 / BSS 数 / 直连还是经中继 / 上报新鲜度**；缺回程 RSSI、树状图、每 AP 终端列表、固件版本 | 🔄 | A18a：`controller-1905.c` 解码 `0x83`/`0x94`/头部 relay 位，`state.json` 每节点加 `bss`/`hops`/`metrics_age`（-1 = 没上报，与 0 区分）；C 测试 101 断言 + 10 万次变异，含一帧抓包原文。A18b：LuCI 加「链路」列。**回程 RSSI 无线索**，见 [CAPTURE_1905](research/CAPTURE_1905.md) 与 H-05 | 3 |
+| A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性 / `extra_slots` / **`backhaul=multi_ap` 与 `wpad` 变体** | ☑️ | init 87 项 + wlan-sync 新增 4 项：`-basic` 变体上开回程会把原因写进日志与 `wlan-sync.status` 的 `message`，完整 `wpad` 不告警，回程关时不告警，包库读不到时既不言过也不失败 | — |
 | A20 | **界面中英双语**：文案全走 `_()`，`po/zh_Hans` 与源码逐条对齐 | ✅ | i18n 12 项；两台随包装出 `zte-mesh.zh-cn.lmo`（11632 B），`/cgi-bin/luci/admin/translations/zh-cn` 返回中文 | — |
 
 ## B. 子路由（本机是子节点）
@@ -273,7 +273,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 2 | ax3600 刷 `CONFIG_COMPAT=y` 固件 | 1 | 彻底摆脱手工模拟器，`.github/workflows/build-firmware.yml` |
 | 3 | C3 统一行尾 | 1 | 影响整个仓库，**需要单独确认** |
 | 4 | ~~B11 额外槽位在子路由侧应用~~ | — | **已完成**（2026-11-01，批 1）：`extra_slots` 默认关，主机测试 210 项；真机验收见 [PLAN](PLAN.md) H-02。后续批次见 [PLAN](PLAN.md) |
-| 5 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
+| 5 | ~~A18 拓扑页~~ | — | **已做一半**（2026-11-01，批 2）：终端数 / BSS 数 / 直连与中继 / 新鲜度已上线；回程 RSSI 要无线回程真机（H-05），树状图与每 AP 终端列表待排 |
 | 6 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
 | 7 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定。**新线索**：`MapCooperatorCfg.Addr4EffectDelayTime=10` 可能就是 4 地址模式的生效延迟（歧义未定，见 [SNAPSHOT](research/E2631_DB_SNAPSHOT.md) §10.8） |
 | 8 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 7 项都过了才值得动 |

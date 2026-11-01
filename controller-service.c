@@ -778,7 +778,7 @@ static void al_mac(char out[18])
  * peers/<mac>.<kind>, -1 if missing or older than max_age seconds; *age gets the file's age in seconds. */
 static int read_peer(const char *mac, const char *kind, const char *key, time_t max_age, long *age)
 {
-    char path[96], text[32], wanted[16];
+    char path[96], text[96], wanted[16];
     struct stat info;
     ssize_t bytes;
     int fd, value = -1;
@@ -790,9 +790,20 @@ static int read_peer(const char *mac, const char *kind, const char *key, time_t 
     if (!fstat(fd, &info) && S_ISREG(info.st_mode) && info.st_size > 0 && info.st_size < (off_t)sizeof(text)) {
         bytes = read(fd, text, sizeof(text) - 1);
         if (bytes > 0) {
+            const char *at = text;
+            size_t want = strlen(wanted);
             text[bytes] = 0;
-            if (!strncmp(text, wanted, strlen(wanted)) && text[strlen(wanted)] >= '0' && text[strlen(wanted)] <= '9')
-                value = atoi(text + strlen(wanted));
+            /* A digest file holds one "key=value" per line, because one frame can say several things at once
+             * (stations, BSS count, hop count). The older one-key files match on their first line. */
+            while (at && *at) {
+                if (!strncmp(at, wanted, want) && at[want] >= '0' && at[want] <= '9') {
+                    value = atoi(at + want);
+                    break;
+                }
+                at = strchr(at, '\n');
+                if (at)
+                    at++;
+            }
         }
         if (age)
             *age = (long)(time(NULL) - info.st_mtime);
@@ -851,11 +862,21 @@ static int write_state(const struct service_state *state)
         used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"software\":", quoted);
         json_string(quoted, sizeof(quoted), nodes[i].software);
         {
-            long light_age = -1;
+            /* Everything below comes from the frames the daemon received from this node (controller-trace.c writes
+             * them, controller-1905.c decodes them). A value of -1 means the node has not reported it, which is not
+             * the same as zero: a node that reports no BSS is different from one this router never heard from. */
+            long light_age = -1, metrics_age = -1;
             int light = read_peer(nodes[i].mac, "light", "light", 0, &light_age);
-            int stations = read_peer(nodes[i].mac, "stations", "stations", 30, NULL);
-            used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"zte\":%s,\"online\":%s,\"light\":%d,\"light_age\":%ld,\"stations\":%d}",
-                                     quoted, nodes[i].zte ? "true" : "false", nodes[i].active ? "true" : "false", light, light_age, stations);
+            int stations = read_peer(nodes[i].mac, "metrics", "stations", 30, &metrics_age);
+            int bss = read_peer(nodes[i].mac, "metrics", "bss", 30, NULL);
+            int hops = read_peer(nodes[i].mac, "metrics", "hops", 300, NULL);
+            if (stations < 0)
+                stations = read_peer(nodes[i].mac, "stations", "stations", 30, NULL); /* written by r10 and older */
+            used += (size_t)snprintf(json + used, sizeof(json) - used,
+                                     "%s,\"zte\":%s,\"online\":%s,\"light\":%d,\"light_age\":%ld,\"stations\":%d,"
+                                     "\"bss\":%d,\"hops\":%d,\"metrics_age\":%ld}",
+                                     quoted, nodes[i].zte ? "true" : "false", nodes[i].active ? "true" : "false", light, light_age,
+                                     stations, bss, hops, metrics_age);
         }
     }
     used += (size_t)snprintf(json + used, sizeof(json) - used, "],\"actions\":[");
