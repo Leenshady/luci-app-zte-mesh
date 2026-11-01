@@ -178,9 +178,12 @@ M2 侧 `MessageType=0x5`，`EnrolleeNonce` 与对应 M1 逐字节相同——配
 | 3 | `_acdcVendorHandler` | `0x7266c` |
 | 4 | `_acdcCompleteHandler` | `0x72408` |
 
-**M1 在 state 2（Config）发出**——`_acdcConfigHandler` 收到 `0x0008` 后就是这条路。所以真机日志
-`acdc current state[0]:3,event:10` 里的 **3 是有意义的**：两个频段都已经过了 Config、发过 M1、
-现在停在 Vendor 处理厂商 TLV。**卡在 3 而不进 4，是「M2 之后」那条链上的问题，不是发送问题。**
+**M1 从「收到 autoconfig 报文」那一刻发出**，不是由某个固定状态发出。`_acdcSearchHandler`、
+`_acdcConfigHandler`、`_acdcVendorHandler` 三处各有一份**结构完全相同**的 `event=8` 分支：
+打一行 `... state, Rcv AP-autoconfiguration renew message`，把 `ctx[band]+0x40` 压回 **2**，
+清计数，然后 `bl _acdcSendApAutoConfigWSCM1`。所以不论当前在哪个状态，收到 `0x0008` 就重发 M1
+并回到 Config。真机日志 `acdc current state[0]:3,event:10` 里的 3 是**处理前**的状态，
+说明它当时停在 Vendor（详见 §3.2）。
 
 ### 怎么量（别再用 tcpdump 的文本长度）
 
@@ -193,6 +196,111 @@ M2 侧 `MessageType=0x5`，`EnrolleeNonce` 与对应 M1 逐字节相同——配
 **踩过的坑**：`tcpdump -e` 的文本输出在流式管道里会被 hex dump 打断，`awk '{print $NF}'`
 取到的"长度"是 dump 碎片，能把 771 字节的 M1 读成 68 字节。上一节记的「没有大帧」就是这么来的。
 量帧长必须读二进制记录头。
+
+## 3.2 M2 之后：Vendor 阶段与那个永远不来的 state 4
+
+厂商私有 TLV 的细节在 §3.1 已经够用了，但**拿到 M2 之后往哪走**是另一套逻辑，2026-11-01 才逐
+函数读通。结论先说：**真机日志里反复出现的 `state[0]:3,event:10` 是 V1（兼容模式）下的正常
+驻足，不是故障**；真正值得注意的是它**永远到不了 state 4**，而这件事对可用性没有影响。
+
+### 事件号
+
+三层 handler 的分派都是 `cmp r1, #N` 的链，把三张表拼起来就是全部事件：
+
+| event | 在哪个 handler | 日志原文 | 动作 |
+|---:|---|---|---|
+| 1 | Search | `search_tmid:%d ifname:%s, wanlantype:%d...` | 发 `APAutoconfigSearch`，退避 `5n+rand(6)` 秒 |
+| 6 | Config | `Config state: M1 timeout` | 压回 **state 1**，等 `rand(32)` 秒重搜 |
+| 7 | Config | — | **收到 M2**，见下面的分叉 |
+| 8 | 三个都有 | `... state, Rcv AP-autoconfiguration renew message` | 压回 **state 2** + 重发 M1 |
+| 9 | Vendor | `Retry[%d] send vendor query message` | 重发 vendor 查询 |
+| 10 | Vendor | `Vendor state: send Vendor Specific message` | 重发 vendor，5 秒定时器 |
+
+### M2 之后的三岔口（`_acdcConfigHandler` 的 event=7 分支）
+
+```
+72a90: ands r7, r4, #3          ; r4 = acdGetCurVersionMode()
+72aa0: bne  72ab0              ; versionMode & 3 != 0  → 直接 Complete
+72aa4: ldrb r3, [r9, #0x10c]   ; r9 = acdGetBasicInfo()，这是一个固定 bss 结构
+72aac: bne  72acc              ; 非 0            → Vendor
+72ab0: mov  r3, #4             ; state = 4
+72ac0: bl   _acdcConfFinish    ; dbAPISave + AcdNotifyNetworkStatus
+72acc: mov  r4, #3             ; state = 3
+72ad8: str  r4, [r8, #64]
+72adc: bl   _acdcSendApAutoConfigVendor
+```
+
+| `versionMode & 3` | `basicInfo+0x10c` | 去向 |
+|---|---|---|
+| ≠ 0 | — | **state 4 Complete**（V2 模式，跳过整个 Vendor） |
+| 0 | ≠ 0 | **state 3 Vendor** |
+| 0 | = 0 | state 4 Complete |
+
+`acdGetCurVersionMode`（`0x7a250`）读 `basicInfo+0x110`，小于 0 才去问
+`acdGetMapCfgVersionMode`（`0x89d5c`，返回 `g_mapCfg+8`）。真机实测
+`/run/zte-mesh/state.json` 里 `"version_mode":128`，`128 & 3 == 0`，所以走 Vendor 分支。
+
+> `acdSetMapCfgVersionMode`（`0x89d74`）在整个二进制里**没有调用者** —— `g_mapCfg` 是启动时
+> 整体填的。所以改 `uci set zte_mesh.main.mesh_v2=1` **不会**改变 `versionMode`（2026-11-01 实测
+> 改完重启，state 仍然停在 3），别拿这个开关去试。
+
+### Vendor 阶段到底在干什么
+
+`_acdcSendApAutoConfigVendor`（`0x71dc0`）→ `acdcBuildVendorMsg`（`0x7c6f8`）。后者不是在拼一条
+固定报文，而是**遍历一条待发链表**：`ctx[band]+0x58` 是链表头，`+0x5c` 是游标；命中游标项就
+`_acdcBuildVenContent` 填内容，返回 0 或 2 时游标推到 `next`；**遍历回到表头就返回空**。
+
+而它的调用者有一句关键短路：
+
+```
+71e6c: ldr  r7, [fp, #-1056]   ; 消息长度
+71e70: cmp  r7, #0
+71e74: bne  71f00              ; 非 0 → 照常发出去
+...
+71ea0: mov  r3, #4             ; 长度为 0 → state = 4
+71ea8: str  r3, [r5, #64]
+```
+
+**也就是「链表发空了 = 配置阶段完成 = state 4」。** 这条路径存在，但从没被走到。
+
+### 实测：三轮问答，每轮重置
+
+AX3600（Enrollee）40 秒抓包，`frames.py --vendor` 直接给出配对表（两个频段各 24 轮）：
+
+```
+轮   子类型   请求 op  请求长   应答 op  应答长
+ 1  0x0100   0x00       1    0x00      19
+ 2  0x0100   0x01       9    0x01      35
+ 3  0x0100   0x02      19    0x02       1
+ 4  0x0101   0x00       1    0x00      19
+ ...（0x0100 / 0x0101 交替，各 24 轮）
+
+sub=0x0100 的 opcode 序列：[0, 1, 2, 0, 1, 2, ...]
+  → 每 3 轮重复 [0, 1, 2]（队列被反复重置，走不到队尾就不会转 state 4）
+```
+
+三件事一次说清：
+
+1. **每一条请求都有应答**。Vendor 阶段不是「对端不理我们」，这是本项目主控（同一份 multiapd
+   的 acds 侧）在正常回包，长度 19 / 35 / 1 字节与请求的 1 / 9 / 19 严格对应。
+2. **opcode 每轮从 0 重来**。链表游标被重置，所以 `acdcBuildVendorMsg` 永远拿得到内容，
+   `_acdcSendApAutoConfigVendor` 里那条「长度为 0 → state 4」永远不触发。
+3. **卡在 state 3 不影响可用性**。`_acdcConfFinish`（`0x71cd4`）负责 `dbAPISave` 和
+   `AcdNotifyNetworkStatus`，它只在 state 4 被调用；但 SSID / 密钥这些配置在 M2 里就已经
+   经 `CmWLANSetAPConfig` 落到 DB 并生效了 —— 实测改主控 SSID 20 秒内子节点空中名就跟着变。
+
+重试也有上限：Vendor 的 `event=9` 分支比较 `ctx[band]+0xa0` 与 5，**超过就回 state 1 重新
+Search**（`0x72764`，日志 `Vendor state:vendor query timeout,send AP-autoconfiguration search
+message`）。实测没触发，因为每收到一条应答计数就被清了。
+
+### 怎么复现这一段
+
+```sh
+# 子节点侧抓 40 秒，主控会持续应答
+tcpdump -i br-lan -nn -e "ether proto 0x893a" -w /tmp/v.pcap & sleep 40; kill $!
+python tools/capture/frames.py v.pcap --vendor     # 配对表 + opcode 周期
+logread | grep "acdc current"                      # state/event 逐条
+```
 
 ## 4. M1 / M2：两端都在，且对称
 
@@ -310,8 +418,12 @@ CmWLANSetACLIsFrom1905Slave / CmWLANSetAclList_1905_Slave   ← 1905 下发 ACL 
 
 ## 9. 局限（必须连着读）
 
-- **只对 M1 发送链做了逐函数反汇编**（§3.1：`0x71188` → `0x75aa8` → `0x66bd8` → `0x66b0c` → `sendto`）。
+- **逐函数反汇编只覆盖两段**：M1 发送链（§3.1）和 M2 之后的 Vendor 分叉（§3.2）。
   其余结论仍来自 `.symtab`、`.dynsym`、`.rodata` 字符串。**M2 的组装与角色选举取值仍需实证**。
+- **§3.2 的 `basicInfo+0x10c` 语义未定**。只知道它是「M2 之后是否进 Vendor」的开关，不知道谁写它、
+  写的条件是什么（`acdSetMapCfgVersionMode` 都没有调用者，`g_mapCfg` 是启动时整块填的）。
+- **Vendor 链表由谁填充未定**。`ctx[band]+0x58` 的入队点和 `acdParseVendorMsg`（`0x7c810`）里
+  是否重置游标，都还没读；所以「队列每轮重置」是实测出来的现象，机制还没落到指令级。
 - 样本是 **SR1010 版**，不是 E2631 原厂那份；两者差异未知。
 - 命令表只证明「命令存在」，**不证明命令在当前构建/配置下可达**；`pktdump` 的入口尤其未定。
 - `1:SLAVE 2:MASTER` 是日志串里的编码，**没在线上验证过 DB/消息里用的是不是同一套值**。

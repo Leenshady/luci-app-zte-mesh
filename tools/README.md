@@ -16,7 +16,7 @@ passed as files that stay outside the repository. Unless noted, run them on the 
 |---|---|
 | `mreplay.py` | Runs the controller service on the router against the real child (tmpfs only), triggers a cold join, captures both sides; `--swap`, `--action`, `--al-last`, station guard `--expect-macs`. |
 | `cmdu.py` | IEEE 1905 CMDU sequence of a pcap with direction (`--tlv` for TLV lists). |
-| `frames.py` | **Frame-length and CMDU-type census** straight from the pcap record headers (`--min`, `--cmdu`, `--dir`, `--tlv`). Written after `awk '{print $NF}'` on `tcpdump -e` output turned a 771-byte M1 into "68 bytes, so the frame never went out" — the text stream is interrupted by hex dump, only the binary header is trustworthy. |
+| `frames.py` | **Frame-length and CMDU-type census** straight from the pcap record headers (`--min`, `--cmdu`, `--dir`, `--tlv`, `--vendor`). Written after `awk '{print $NF}'` on `tcpdump -e` output turned a 771-byte M1 into "68 bytes, so the frame never went out" — the text stream is interrupted by hex dump, only the binary header is trustworthy. `--vendor` additionally pairs every ACD Vendor request (subtype `0x0100`/`0x0101`, opcode 0/1/2) with its reply and reports the shortest repeating opcode period — which is how "the queue resets every round, so state 4 is never reached" became visible instead of guessed. |
 | `mcompare.py` | Compares two captures (vendor vs shim) frame by frame, optionally without periodic frames. |
 | `respawn_report.py` | What the wire shows after each daemon respawn. |
 | `mkprofile.py` | Turns a vendor `sendcmd 1 DB p` snapshot into a `db-profile` for the service (policy tables). |

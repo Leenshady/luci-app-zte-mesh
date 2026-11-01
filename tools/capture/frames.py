@@ -11,6 +11,7 @@ M1 会被读成 68 字节，于是得出"帧根本没发出去"的错误结论�
     python tools/capture/frames.py out/full.pcap --min 120  # 只看大帧（M1/M2 在这档）
     python tools/capture/frames.py out/full.pcap --cmdu 9 --tlv
     python tools/capture/frames.py out/full.pcap --dir e3    # 只看某个 AL MAC 末字节发出的
+    python tools/capture/frames.py out/full.pcap --vendor    # ACD Vendor 阶段（0x0100/0x0101）
 
 退出码 1 = 文件读不动；0 = 正常（哪怕 0 帧）。
 """
@@ -141,12 +142,109 @@ def show_tlvs(frame):
             offset += 4 + length
 
 
+def vendor_body(frame):
+    """返回 (子类型, 载荷)；不是中兴 VendorSpecific 就返回 None。
+
+    帧布局：14 字节以太头 + 8 字节 CMDU 头（version/reserved/type/id/frag/flags）
+    + TLV。第一个 TLV 是 0x0b（Vendor Specific），value = OUI(3) + 子类型(2) + 载荷。
+    子类型 0x0100 / 0x0101 分别对应 2.4G / 5G 两条 ACD 通道。
+    """
+    if cmdu_of(frame) != 0x0004:
+        return None
+    for kind, value in walk_tlvs(frame):
+        if kind == 0:
+            return None
+        if kind == 0x0B and len(value) >= 5 and value[:3] == b"\x00\x19\xc6":
+            return ((value[3] << 8) | value[4], value[5:])
+    return None
+
+
+def show_vendor(frames):
+    """把 ACD Vendor 阶段按时间排开，并逐条判断有没有人应答。
+
+    阶段语义（multiapd 0x71dc0/0x7c6f8 反汇编结论）：Vendor 是 ACD Client 在拿到 M2
+    之后的第三段，按 opcode 0 → 1 → 2 三轮问答；每轮请求的载荷首字节就是 opcode。
+    队列（ctx[band]+0x58 链表）走空时会直接转 state 4 Complete，所以「opcode 序列
+    反复从 0 重来」等价于「队列每轮被重置、永远走不完」。
+    """
+    events = []
+    for frame in frames:
+        parsed = vendor_body(frame)
+        if parsed is None:
+            continue
+        subtype, body = parsed
+        if not body:
+            continue
+        events.append({
+            "src": mac_text(frame[6:12]),
+            "dst": mac_text(frame[0:6]),
+            "sub": subtype,
+            "op": body[0],
+            "size": len(body),
+            "hex": body.hex(),
+        })
+    if not events:
+        print("  没有 VendorSpecific（OUI 0019c6）帧")
+        return
+    sides = {}
+    for event in events:
+        sides[event["src"]] = sides.get(event["src"], 0) + 1
+    if len(sides) < 2:
+        print(f"  只有一侧在发：{sides}")
+        return
+    # 请求方是 Enrollee，按协议永远先开口。不能拿"帧数少"当启发式：应答侧
+    # 每条请求只回一条，反而可能更少（2026-11-01 真判反过）。
+    requester = events[0]["src"]
+    print(f"  请求方 {requester}（{sides[requester]} 帧），"
+          f"应答方其余（{sum(sides.values()) - sides[requester]} 帧）")
+    pending, rounds = {}, []
+    for event in events:
+        key = event["sub"]
+        if event["src"] == requester:
+            pending[key] = event
+            continue
+        request = pending.pop(key, None)
+        if request is None:
+            continue
+        rounds.append((request, event))
+    paired = {id(pair[0]) for pair in rounds}
+    unanswered = [event for event in events if event["src"] == requester and id(event) not in paired]
+
+    print(f"\n  {'轮':>3}  {'子类型':>7} {'请求 op':>8} {'请求长':>6} {'应答 op':>8} {'应答长':>6}")
+    for index, (request, reply) in enumerate(rounds, 1):
+        print(f"  {index:3d}  0x{request['sub']:04x}   0x{request['op']:02x} "
+              f"{request['size']:6d}    0x{reply['op']:02x} {reply['size']:6d}")
+    if unanswered:
+        print(f"\n  ✗ 有 {len(unanswered)} 条请求没等到应答：")
+        for event in unanswered[:6]:
+            print(f"      sub=0x{event['sub']:04x} op=0x{event['op']:02x} "
+                  f"len={event['size']}  hex={event['hex']}")
+
+    for subtype in sorted({pair[0]["sub"] for pair in rounds}):
+        sequence = [request["op"] for request, _ in rounds if request["sub"] == subtype]
+        if len(sequence) < 6:
+            continue
+        # 找最短的重复前缀：0,1,2,0,1,2 → 3
+        period = None
+        for candidate in range(1, len(sequence) // 2 + 1):
+            if all(sequence[i] == sequence[i % candidate] for i in range(len(sequence))):
+                period = candidate
+                break
+        note = f"每 {period} 轮重复 {sequence[:period]}" if period else "不重复"
+        print(f"\n  sub=0x{subtype:04x} 的 opcode 序列（{len(sequence)} 轮）：{sequence}")
+        print(f"    → {note}"
+              + ("（队列被反复重置，走不到队尾就不会转 state 4）" if period else ""))
+    if rounds:
+        print(f"\n  首轮请求载荷：{rounds[0][0]['hex']}")
+        print(f"  首轮应答载荷：{rounds[0][1]['hex']}")
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
         return 0
     path = argv[0]
-    minimum, want_cmdu, show_all, side = 0, None, False, None
+    minimum, want_cmdu, show_all, side, vendor_view = 0, None, False, None, False
     index = 1
     while index < len(argv):
         flag = argv[index]
@@ -158,6 +256,9 @@ def main(argv):
             index += 2
         elif flag == "--tlv":
             show_all = True
+            index += 1
+        elif flag == "--vendor":
+            vendor_view = True
             index += 1
         elif flag == "--dir":
             side = argv[index + 1].lower().replace(":", "")
@@ -199,6 +300,9 @@ def main(argv):
         print(f"\n  len={len(frame)} {mac_text(frame[6:12])} -> {mac_text(frame[0:6])} "
               f"cmdu=0x{kind:04x} {CMDU_NAMES.get(kind, '?')}")
         show_tlvs(frame)
+    if vendor_view:
+        print()
+        show_vendor(frames)
     return 0
 
 
