@@ -245,13 +245,14 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
   （per-STA 四张 + `AclCfg`），"机制在、数据空"坐实。
 - **「只有 LAN2 插着网线」——预测命中**：用户确认现场 LAN 口只插了 LAN2，与 `Brport` 逐口吻合
   （`BRPORT11`(LAN2)=4、`BRPORT2`(LAN1)=0、`BRPORT12`(LAN3)=0）。接上一轮 `WLANCfg.Enable` 的配置侧对照，
-  **`PortState=4` = 在跑，配置侧 + 物理侧双证闭合**。WAN 侧 `BRPORT15=4`/`ETH_WAN=0` 的分裂
-  取决于 WAN 口当时插没插线（未确认）。
+  **`PortState=4` = 在跑，配置侧 + 物理侧双证闭合**。WAN 侧补记：用户确认 **WAN 口也插着线**，
+  `BRPORT15`(`IF1`)=4 与物理一致、`BRPORT16`(`ETH_WAN`/`IF99`)=0 说明 `IF99` 是逻辑 WAN 抽象
+  而非物理链路镜像——物理侧三口全对（LAN2 插=4、LAN1/3 没插=0、WAN 插=4）。
 
 至此**八轮、22 张表 + 276 张表名全集，`sendcmd 1 DB p` 这条线全部收口**——D3–D7 加角色、band、
-端口拓扑的库侧入口都是实测级。dump 解决不了、要换手段的只剩三件半：位图/枚举语义（反汇编）、
-厂商启用 VLAN 时写哪侧（web `.lua`）、1905 实际跑在哪几个接口（`pktdump`/`/proc/net/dev`），
-外加 WAN 口插线状态这个一句话就能补的尾巴。
+端口拓扑的库侧入口都是实测级。dump 解决不了、要换手段的只剩三件：位图/枚举语义（反汇编）、
+厂商启用 VLAN 时写哪侧（web `.lua`）、1905 实际跑在哪几个接口（`pktdump`/`/proc/net/dev`）。
+（WAN 口插线状态的尾巴已随 `PortState` 一并闭合。）
 
 一条通用判据：**`isSave=0` 的列是运行时/派生值，写 DB 不落盘**（`WLANSSID` 整表、`WLANCfg.IfName`、
 `MultiAPDomain.ESSID` 都是）。改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"；

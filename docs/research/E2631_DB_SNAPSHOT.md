@@ -722,6 +722,7 @@ PriorityTagging/WanPortVlanEnable/WanPortVlanMode/WanPortVlanID/WanPortPri/ServL
 `IF99` 的 `Alias` 直接叫 `ETH_WAN`。99 这种编号通常不是物理口。
 ⇒ 合理猜测是「`IF1` = 物理 WAN、`IF99` = 逻辑 WAN 抽象（供 PPPoE/DHCP 服务绑定）」，
 **但这只是编号习惯，本轮无证据**，登记为待解。
+（**已补证，见 §12.3**：WAN 口插着线时 `IF1=4`/`IF99=0`——`IF99` 不是物理链路的镜像。）
 
 **④ `LowerLayers` 只列 `BRPORT2`–`BRPORT12`，不含 13–16。** 说明回程 STA（13/14）与两个 WAN 口（15/16）
 **不是通过 `LowerLayers` 挂进 `br1` 的**，而是靠 `ServList`/`WanName` 挂到"服务"上。
@@ -1220,6 +1221,9 @@ sendcmd 1 DB p AclCfg            # RowCount=0
 一处没跟着闭合的：WAN 侧两条是分裂的——`BRPORT15`（`IF1`，`WanName=Bridge`）是 4，
 `BRPORT16`（`ETH_WAN`，`IF99`）是 0。若 4 = 链路在，说明 dump 时 WAN 口接着线/在转发，
 但**用户只确认了 LAN 口**，WAN 口当时插没插不知道。问一句即可定。
+**已定（补记）：用户确认 WAN 口也插着线** ⇒ `BRPORT15=4` 与物理一致，`BRPORT16=0` 说明
+`IF99` 不是物理链路状态——它是逻辑 WAN 抽象（桥模式下不承载），§9.3③ 的猜测就此有了实证。
+`PortState` 的物理侧验证是**三口全对**（LAN2 插=4、LAN1/3 没插=0、WAN 插=4），不是抽查。
 
 ### 12.4 收口：配置库取证到头
 

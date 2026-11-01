@@ -520,7 +520,9 @@ sendcmd 1 DB p AclCfg               # RowCount=0（准入层第五张空表）
   上一轮那条"8 个 `Enable=1` vs 5 个 `PortState=4`"的反证不成立，根因是拿 `WLANSSID.Enable`
   （全表 `isSave=0` 的运行时视图）当成了配置开关。`DomainUsed=0` 的 `SSID3` 与它不矛盾：
   **BSS 在广播 ≠ 被 mesh 域接管**，两个值量的是不同的事（快照 §11.4、§12.3）。
-  唯一没跟着闭合的：WAN 侧 `BRPORT15=4` 而 `ETH_WAN=0`，取决于 WAN 口当时插没插线（未确认）。
+  唯一没跟着闭合的：WAN 侧 `BRPORT15=4` 而 `ETH_WAN=0`，取决于 WAN 口当时插没插线——
+  **已闭合**：用户确认 WAN 口也插着线，`BRPORT15=4` 与物理一致、`BRPORT16=0` 说明 `IF99`
+  是逻辑 WAN 抽象而非物理链路状态（快照 §9.3③/§12.3）。
 - **七张表全空拿不到列语义**：`MultiAPStaCfg` / `MultiAPCacheMac` / `P1905StaBind` / `WlanRoamingSta` /
   `EthVlan` / `PortBinding` / `AclCfg` 表存在但行是空的，列语义只能靠名字推——要看到行得先配一条（改配置，不是取证）。
 - **`MultiAPCfg` 的偏移只在序号 0–26 上验证过**：`36+32n` 六个锚点全中，但 `IFLink`(1444)、
