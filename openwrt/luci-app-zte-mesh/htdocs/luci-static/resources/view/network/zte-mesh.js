@@ -142,6 +142,21 @@ return view.extend({
 			}
 			row(_('Wired port'), info.attached ? badge(_('Attached to the LAN bridge'), '#46a546')
 			                                   : badge(_('Not attached'), '#b94a48'));
+			/* What the controller has been asked to do to individual devices, as it stands now. A kick the child
+			 * router answered reads "done", one that ran out of tries reads "did not work", and a block counts
+			 * down. It is the only feedback there is: the child routers do not report a client list. */
+			if (state.clients && state.clients.length) {
+				var text = [];
+				for (var i = 0; i < state.clients.length; i++) {
+					var c = state.clients[i];
+					var how = c.state === 'done' ? _('done')
+						: c.state === 'failed' ? _('the router refused or did not answer')
+						: c.state === 'pending' ? _('queued') : _('sent');
+					var left = c.left > 0 ? ' · ' + _('%d min left').format(Math.ceil(c.left / 60)) : '';
+					text.push(c.mac + ': ' + (c.action === 'ban' ? _('Blocked') : _('Kicked')) + ', ' + how + left);
+				}
+				row(_('Device actions'), text.join('; '));
+			}
 		}
 
 		/* Both roles that put a profile into /etc/config/wireless report it: a child gets the profile from the
@@ -516,6 +531,11 @@ return view.extend({
 		o.default = '0';
 		o.description = _('Kick devices that stay on a weak signal (factory default: off).');
 
+		o = s.taboption('policy', form.Value, 'ban_minutes', _('Blocked devices stay off for (minutes)'));
+		o.datatype = 'range(0,1440)';
+		o.optional = true;
+		o.description = _('0 to 1440 minutes, 0 = until the entry is removed (the default). Applies to every entry of the list below, which is blocked for that long after the rule was first sent; the time is not extended by later saves.');
+
 		var b = m.section(ReportingGridSection, 'zte_mesh_bss', _('Extra Wi-Fi networks'),
 			_('Guest, spare and hidden backhaul networks of the child routers. The slots of one band must be 1, 2, 3 in order without a gap: removing slot 1 while slot 2 exists is refused. Adding or removing a slot makes the child routers drop out of the topology for up to a minute; switching one on or off does not.'));
 		b.addremove = true;
@@ -676,6 +696,26 @@ return view.extend({
 		o.value('2', _('Extra network 2'));
 		o.value('3', _('Extra network 3'));
 		o.optional = true;
+
+		/* Client actions are sent as they are: the state machine in the controller decides how often, and it keeps one
+		 * row per address, so the same device twice is refused by the init script rather than silently merged. */
+		var c = m.section(ReportingGridSection, 'zte_mesh_client', _('Blocked and kicked devices'),
+			_('Up to 8 devices. "Block" keeps a device off the Wi-Fi until the time below runs out or the entry is removed; the controller repeats the rule so a child router that reboots does not forget it. "Kick once" asks the device to move to the better access point and gives up after a few tries. Both need the child routers to support it; the factory default leaves it off, so a device that does not move is not necessarily an error.'));
+		c.addremove = true;
+		c.anonymous = true;
+		c.nodescriptions = true;
+
+		o = c.option(form.Value, 'mac', _('MAC address'));
+		o.datatype = 'macaddr';
+		o.rmempty = false;
+		o.placeholder = 'aa:bb:cc:dd:ee:ff';
+		o.description = _('The address the device uses now: phones often use a private MAC per network.');
+
+		o = c.option(form.ListValue, 'action', _('Action'));
+		o.value('ban', _('Block'));
+		o.value('kick', _('Kick once'));
+		o.default = 'ban';
+		o.rmempty = false;
 
 		}
 

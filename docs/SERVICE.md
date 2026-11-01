@@ -104,6 +104,7 @@ SIGKILL 旧进程、`waitpid`、探测数据库池锁与订阅池锁（被杀的
 | `wifi_*_beacon_interval`、`_channel`、`_tx_power`、`_acl_policy` | `radioN.*` | 范围同 REAL_CHILD 第 3 节（信道按频段白名单，0 = 自动） |
 | `mesh_v2`、`mesh_role`、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 即原厂 MESH 开关（`P1905ComCfg.Enable`）：开 = 只接受市场码相同的中兴子路由；关 = 接受任何子路由（默认） |
 | `band_steer*`、`roam*` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
+| `ban_minutes` | `ban.minutes` | 0..1440 分钟，0 = 直到删除记录；对所有封禁生效，是"从第一次下发算起"的绝对时长 |
 
 ### 设备角色（三个）
 
@@ -123,14 +124,17 @@ SIGKILL 旧进程、`waitpid`、探测数据库池锁与订阅池锁（被杀的
 信标 100 ms、信道 0、功率 20/23 dBm（子节点最大档 = 出厂值）、`band_steer=1`、引导阈值 -60/-110、漫游阈值 -60/-70、
 `roam_force=0`、`enabled=1`、`wifi_24g_key=Ztemesh2631!`（清空则服务不启动）。要让子路由保持自己的信道/功率，删掉对应选项。
 
-其余区段：`zte_mesh_bss`（额外槽位，`band`/`slot`/`enabled`/`ssid`/`key` 必填，同频段槽位必须 1..k）、
+其余区段：`zte_mesh_client`（最多 8 条，`mac` 必填且同一地址不许重复，`action` 为 `ban`/`kick`，默认 `ban`；
+按文件顺序翻成 `ban.mac` / `kick.mac`）、`zte_mesh_bss`（额外槽位，`band`/`slot`/`enabled`/`ssid`/`key` 必填，同频段槽位必须 1..k）、
 `zte_mesh_timer`（最多 8 条，`start`/`end` 必填，`days`、`scope` 可选；init 把 `date +%z` 换算成 `timer.utc_offset`，
 **夏令时切换后要重新保存设置**）、`zte_mesh_acl`（最多 16 条，按文件顺序编号）、`zte_mesh_node`（别名，只给 LuCI 节点表）。
 
 重载：`reload_service` 只在"需要重启服务"的东西变了才重启——`version_mode` 变了，或策略键（`mesh.role`、`wifi.dual_band_sync`、
 `band_steer.*`、`roam.*`、`mlo.enable`）出现/消失（init 把键名存进 `/run/zte-mesh/restart.sig` 比较）；值变了不重启，热更新。
+`zte_mesh_client` 与 `ban_minutes` **不在** restart.sig 里：服务每秒重读这份配置，状态机自己比对新旧规则——新规则立刻发，
+删掉的规则补发一条"放行"再丢弃，所以加/删一条封禁不需要重启。
 
-测试（都不需要 OpenWrt）：`tests/test_init.sh`（busybox ash + UCI 桩，79 条）、`node tests/test_luci.js`（表单跑一遍，
+测试（都不需要 OpenWrt）：`tests/test_init.sh`（busybox ash + UCI 桩，94 条）、`node tests/test_luci.js`（表单跑一遍，
 核对每个 init 读的选项都有表单项）、`dev-config-check.py DIR`（把 init 生成的配置交给真服务，报告接受/拒绝）。
 
 对已有配置的影响：随包模板新增 `option wifi_dual_band_sync '1'`（conffile，已有配置不改）——**没有这一行、又留空
@@ -146,6 +150,11 @@ SIGKILL 旧进程、`waitpid`、探测数据库池锁与订阅池锁（被杀的
   rpcd `luci.zte-mesh reboot_node {mac}` / `light_node {mac,on}` 写请求并最多等 8 秒（-5 = 服务没运行）。
 - `state.json` 的节点多了 `light`（-1 未知）、`light_age`、`stations`（-1 未知）；`sched` 有 `rules`、`off_all`、`off_guest`、
   `access`（各访客倒计时）。`light`/`stations` 来自 trace 库对子节点帧的摘要（`/run/zte-mesh/peers/`，启动时清空）。
+- **封禁与踢终端**（`controller-actions.c`）：`ban` 是"持续规则"——首次即发 `0x8016`，之后每 120 秒重发一次
+  （子节点重启后不会忘记），到 `ban_minutes` 或规则被删时补发一条"放行"；`kick` 是"点一下"——`0x8014` 每 5 秒一次、
+  最多 3 次，收到 `0x8015`/`0x8017` 回报即结案，超时标 `failed`。`state.json` 的 `clients[]` 每项
+  `{mac, action, state, left, attempts}`，`left` 为剩余秒（-1 = 不会到期）；LuCI 状态框只有一行文字，就是这几项拼出来的。
+  动作发给**每个在线子节点**，`0x8014` 的目标 BSSID 用广播（还没有"终端挂在哪个 BSS"的表，见 H-03）。
 - **调度器和访客限时**：配置里的 `enabled` 是"用户的设置"，有效值 = 设置 减去 定时窗口和已到期的限时；日志
   `sched off_all=… off_guest=…`、`access_expired`。
 - 守护进程每次启动都按"重启"计（`ZTE_MESH_START_COUNT`），所以服务单独重启时已入网的子节点会在约 40 到 60 秒内重新入网。
@@ -158,6 +167,7 @@ SIGKILL 旧进程、`waitpid`、探测数据库池锁与订阅池锁（被杀的
 - 拓扑页：回程 RSSI、树状图、每个 AP 下的终端列表、软件版本字段；终端数没有独立核对。
 - 访客限速（1905 里没有字段）、长时间稳定性、多个子节点、子节点开着 V2 而控制器关的组合。
 - 原厂为什么不发 `BeaconMetricsQuery`。
+- 封禁 / 踢终端只在主机上验过（字节、状态机、配置链）；子节点是否照做、`0x8014` 用广播 BSSID 是否被接受，都要真机（H-03）。
 
 ## 复现
 

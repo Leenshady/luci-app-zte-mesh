@@ -246,6 +246,33 @@ acl_section() {
 	fi
 }
 
+# config_foreach callback for 'config zte_mesh_client': one client action (at most 8, the size of the service's table).
+# A ban is a standing rule (the service repeats it every two minutes, so a child that rebooted does not forget it);
+# a kick is one nudge, retried a few times, and gives up. The whole section is live: the service re-reads this file
+# every second and its state machine keeps what it already did, so adding or removing a rule needs no restart.
+CLIENT_COUNT=0
+CLIENT_MACS=""
+client_section() {
+	local sec="$1" mac action n
+	CLIENT_COUNT=$((CLIENT_COUNT + 1))
+	n=$CLIENT_COUNT
+	[ "$n" -le 8 ] || { bad "more than 8 zte_mesh_client rules"; CLIENT_FAIL=1; return 1; }
+	config_get mac "$sec" mac ""
+	mac_ok "$mac" || { bad "zte_mesh_client '$sec': mac must be a unicast aa:bb:cc:dd:ee:ff address"; CLIENT_FAIL=1; return 1; }
+	mac=$(printf '%s' "$mac" | tr 'A-F' 'a-f')
+	# The service keeps one row per MAC, so two rules for the same device would silently fight over it.
+	case " $CLIENT_MACS " in
+	*" $mac "*) bad "zte_mesh_client '$sec': $mac is listed twice"; CLIENT_FAIL=1; return 1 ;;
+	esac
+	CLIENT_MACS="$CLIENT_MACS $mac"
+	config_get action "$sec" action ban
+	case "$action" in
+	ban) emit "ban.mac" "$mac" ;;
+	kick) emit "kick.mac" "$mac" ;;
+	*) bad "zte_mesh_client '$sec': action must be ban or kick"; CLIENT_FAIL=1; return 1 ;;
+	esac
+}
+
 # tz_offset_minutes: the router's UTC offset in minutes east (the sandbox has no time zone; the service needs it for the schedule)
 tz_offset_minutes() {
 	local z sign h m
@@ -440,6 +467,7 @@ write_config() {
 	CFG_TMP="$RUNDIR/.config.$$"
 	( umask 077; : > "$CFG_TMP" ) || return 1
 	BSS_SEEN="" BSS_FAIL="" ACL_COUNT=0 ACL_FAIL="" TIMER_COUNT=0 TIMER_FAIL=""
+	CLIENT_COUNT=0 CLIENT_MACS="" CLIENT_FAIL=""
 
 	emit version_mode "$VERSION_MODE"
 	emit radio0.enabled "$e0"
@@ -543,6 +571,15 @@ write_config() {
 	config_foreach timer_section zte_mesh_timer
 	[ -z "$TIMER_FAIL" ] || { rm -f "$CFG_TMP" "$PLAN_EXTRA"; return 1; }
 	[ "$TIMER_COUNT" = 0 ] || emit timer.utc_offset "$(tz_offset_minutes)"
+
+	# One lifetime for every ban: the format has no room for a per-rule time, and the user edits one number.
+	config_get v main ban_minutes ""
+	if [ -n "$v" ]; then
+		is_int "$v" 0 1440 || { bad "ban_minutes must be 0..1440 minutes (0 = until removed)"; rm -f "$CFG_TMP" "$PLAN_EXTRA"; return 1; }
+		emit ban.minutes "$(printf '%d' "$v")"
+	fi
+	config_foreach client_section zte_mesh_client
+	[ -z "$CLIENT_FAIL" ] || { rm -f "$CFG_TMP" "$PLAN_EXTRA"; return 1; }
 
 	mv "$CFG_TMP" "$RUNDIR/config" || { rm -f "$CFG_TMP"; return 1; }
 	echo "$VERSION_MODE" > "$RUNDIR/version_mode.host"

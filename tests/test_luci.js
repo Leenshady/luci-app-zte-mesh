@@ -82,15 +82,32 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 			process.exit(1);
 		}
 	}
+	/* Device actions: the status box is the only place a ban or a kick can be seen to have worked, so it has to
+	 * spell out the address, the verb, the state and the time left. */
+	let bad0 = 0;
+	{
+		const box = viewDef.renderStatus({ installed: true, running: true, age: 1, role: 'master', state: { running: true, nodes: [],
+			al_mac: '02:00:00:00:19:e3', config_applied: 1,
+			clients: [ { mac: 'aa:bb:cc:dd:ee:ff', action: 'ban', state: 'sent', left: 42, attempts: 1 },
+			           { mac: '11:22:33:44:55:66', action: 'kick', state: 'failed', left: 0, attempts: 3 } ] } });
+		const t = JSON.stringify(box);
+		for (const want of ['aa:bb:cc:dd:ee:ff: Blocked, sent · 1 min left', '11:22:33:44:55:66: Kicked, the router refused or did not answer']) {
+			if (!t.includes(want)) { console.log('status box lacks ' + JSON.stringify(want) + ':', t.slice(0, 600)); bad0++; }
+		}
+		if (t.includes('Blocked, sent · 1 min left') && JSON.stringify(viewDef.renderStatus({ installed: true, running: true, age: 1, state: { running: true, nodes: [], clients: [] } })).includes('Device actions')) {
+			console.log('status box shows an empty device action row'); bad0++;
+		}
+	}
 	const text = fs.readFileSync(initTest, 'utf8');
 	const wanted = { zte_mesh: new Set(['enabled', 'bridge', 'al_last']), /* read by start_service, not by write_config */ zte_mesh_bss: new Set(['band', 'slot', 'enabled', 'ssid', 'key', 'hidden', 'security', 'acl_policy', 'access_minutes', 'force_wifi5']),
-	                 zte_mesh_acl: new Set(['mac', 'name', 'band', 'bss']), zte_mesh_timer: new Set(['start', 'end', 'days', 'scope']), zte_mesh_node: new Set(['mac', 'name']) };
+	                 zte_mesh_acl: new Set(['mac', 'name', 'band', 'bss']), zte_mesh_timer: new Set(['start', 'end', 'days', 'scope']),
+	                 zte_mesh_client: new Set(['mac', 'action']), zte_mesh_node: new Set(['mac', 'name']) };
 	const block = text.slice(text.indexOf('# 8. every optional main option'), text.indexOf('run all-options'));
 	for (const m of block.matchAll(/^\toption (\w+) '/gm)) wanted.zte_mesh.add(m[1]);
 	// 'mode' is the legacy option of older files: the init script accepts and ignores it, so the form must not offer it.
 	wanted.zte_mesh.delete('mode');
 	for (const m of text.matchAll(/option (wifi_5g_ssid|wifi_5g_key|wifi_5g_suffix|wifi_dual_band_sync|wifi_24g_ssid|wifi_24g_key|wifi_5g_enabled|wifi_24g_enabled|enabled|bridge) /g)) wanted.zte_mesh.add(m[1]);
-	let bad = 0;
+	let bad = bad0;
 	for (const [type, set] of Object.entries(wanted)) {
 		for (const name of set) {
 			if (!registered[type] || !registered[type][name]) { console.log('LuCI form lacks', type, name); bad++; }
@@ -100,9 +117,17 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	if (extra.length) { console.log('form options the init test does not exercise:', extra.join(' ')); bad++; }
 	// Child role: the settings this router would push to its own child routers do not apply there, so they must not be
 	// offered at all, and the backhaul choice only exists on that side.
+	/* The action list writes what the init script reads: 'ban' first (it is the default), then 'kick'. A grid option that
+	 * no page can set to a value the init accepts is the failure this checks for. */
+	{
+		const act = (registered.zte_mesh_client || {}).action;
+		const vals = act ? act.values.map(v => Array.isArray(v) ? v[0] : v).join(',') : '';
+		if (vals !== 'ban,kick') { console.log('client action list is "' + vals + '", want ban,kick'); bad++; }
+	}
 	const counts = { main: Object.keys(registered.zte_mesh || {}).length,
 		bss: Object.keys(registered.zte_mesh_bss || {}).length,
-		acl: Object.keys(registered.zte_mesh_acl || {}).length, child: '' };
+		acl: Object.keys(registered.zte_mesh_acl || {}).length,
+		client: Object.keys(registered.zte_mesh_client || {}).length, child: '' };
 	// Device role: three roles now. "auto" is the old name of the main router role and still works on input, but the
 	// form offers the three current names and nothing else, so the page cannot write a value the init script refuses.
 	{
@@ -120,7 +145,7 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		const forbidden = Object.keys(m).filter(n => n !== 'enabled' && n !== 'bridge' && n !== 'mesh_role' && n !== 'backhaul' && n !== 'extra_slots');
 		if (forbidden.length) { console.log('child form still offers controller settings:', forbidden.join(' ')); bad++; }
 		if (!m.backhaul) { console.log('child form lacks the backhaul choice'); bad++; }
-			if (registered.zte_mesh_bss || registered.zte_mesh_acl || registered.zte_mesh_timer) { console.log('child form still offers the controller grids'); bad++; }
+			if (registered.zte_mesh_bss || registered.zte_mesh_acl || registered.zte_mesh_timer || registered.zte_mesh_client) { console.log('child form still offers the controller grids'); bad++; }
 		counts.child = Object.keys(registered.zte_mesh || {}).length + ' options';
 	}
 	// Main router: the controller half is still there -- it is what hands the profile out -- and the local half only
@@ -134,6 +159,6 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		if (missing.length) { console.log('main router form lacks the controller options:', missing.join(' ')); bad++; }
 		if (m.backhaul) { console.log('main router form offers the child-only backhaul choice'); bad++; }
 	}
-	console.log(bad ? 'luci test: FAIL' : 'luci test: ok (' + counts.main + ' main options, ' + counts.bss + ' slot options, ' + counts.acl + ' ACL options, child form ' + counts.child + ')');
+	console.log(bad ? 'luci test: FAIL' : 'luci test: ok (' + counts.main + ' main options, ' + counts.bss + ' slot options, ' + counts.acl + ' ACL options, ' + counts.client + ' client options, child form ' + counts.child + ')');
 	process.exit(bad ? 1 : 0);
 })().catch(e => { console.log('luci test: exception', e.stack); process.exit(1); });

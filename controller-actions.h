@@ -27,6 +27,7 @@ struct action_entry {
     int kind;        /* action_kind */
     int state;       /* action_state */
     int lift;        /* ban only: the rule is gone, send the matching "allow" and drop it */
+    unsigned int minutes; /* ban only: the lifetime this entry was anchored with (0 = until the user undoes it) */
     long expires;    /* ban: unban at this time (0 = until the user undoes it); kick: give up at this time */
     long next;       /* earliest time for the next transmission */
     unsigned int attempts;

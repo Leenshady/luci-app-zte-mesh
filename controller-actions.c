@@ -70,9 +70,21 @@ int actions_configure(struct action_table *table, long now, const struct action_
         if (intents[i].kind != ACTION_KIND_KICK && intents[i].kind != ACTION_KIND_BAN)
             return -1;
         if (entry) {
-            /* Known rule: only the expiry can change, and only for a ban that has not been lifted. */
-            if (entry->kind == ACTION_KIND_BAN && !entry->lift)
+            /* Known rule. Only the expiry can change, and only for a ban that has not been lifted -- and only when
+             * the configured lifetime itself changed: the daemon hands the same intents in once a second, so
+             * re-anchoring on every pass would push the expiry a minute further out every second and a one-minute
+             * ban would never end. */
+            if (entry->kind == ACTION_KIND_BAN && entry->lift) {
+                /* The rule came back before its undo went out: cancel the undo, and send the block again. */
+                entry->lift = 0;
+                entry->state = ACTION_PENDING;
+                entry->next = now;
+                entry->minutes = intents[i].minutes;
                 entry->expires = intents[i].minutes ? now + (long)intents[i].minutes * 60 : 0;
+            } else if (entry->kind == ACTION_KIND_BAN && entry->minutes != intents[i].minutes) {
+                entry->minutes = intents[i].minutes;
+                entry->expires = intents[i].minutes ? now + (long)intents[i].minutes * 60 : 0;
+            }
             continue;
         }
         if (table->count >= ACTION_MAX)
@@ -83,6 +95,7 @@ int actions_configure(struct action_table *table, long now, const struct action_
         entry->kind = intents[i].kind;
         entry->state = ACTION_PENDING;
         entry->next = now;
+        entry->minutes = intents[i].minutes;
         if (entry->kind == ACTION_KIND_BAN && intents[i].minutes)
             entry->expires = now + (long)intents[i].minutes * 60;
         if (entry->kind == ACTION_KIND_KICK)

@@ -273,7 +273,8 @@ UCI_TEXT="config zte_mesh 'main'
 	option band_steer_rssi_5g '-110'
 	option roam_rssi_24g '-60'
 	option roam_rssi_5g '-70'
-	option roam_force '0'"
+	option roam_force '0'
+	option ban_minutes '30'"
 run all-options 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=cc
@@ -300,7 +301,8 @@ roam.force=0
 band_steer.rssi24=-60
 band_steer.rssi5=-110
 roam.rssi24=-60
-roam.rssi5=-70"
+roam.rssi5=-70
+ban.minutes=30"
 [ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 128 " ] ||
 	{ echo "FAIL all-options: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 # 8b. without dual-band sync the 5 GHz band keeps its own hidden flag, security and MAC filter policy
@@ -331,7 +333,8 @@ roam.force=0
 band_steer.rssi24=-60
 band_steer.rssi5=-110
 roam.rssi24=-60
-roam.rssi5=-70"
+roam.rssi5=-70
+ban.minutes=30"
 
 # 8c. mesh_role slave: the child side of the same switch, emitted verbatim (the service reads it)
 UCI_TEXT="$BASE
@@ -796,6 +799,70 @@ config zte_mesh_acl
 	option mac '02:00:00:00:00:$(printf %02x $i)'"; i=$((i + 1)); done
 UCI_TEXT="$many"
 run acl-17 1 "more than 16"
+
+# 10b. client actions (zte_mesh_client): ban and kick in file order, lower-cased, plus the one global ban time
+UCI_TEXT="$ACLBASE
+	option ban_minutes '45'
+config zte_mesh_client
+	option mac 'AA:BB:CC:DD:EE:01'
+	option action 'ban'
+config zte_mesh_client 'k'
+	option mac 'aa:bb:cc:dd:ee:02'
+	option action 'kick'
+config zte_mesh_client 'd'
+	option mac 'aa:bb:cc:dd:ee:03'"
+run clients 0 "version_mode=128
+radio0.enabled=1
+radio0.ssid=home
+radio0.key=password-24
+radio1.enabled=1
+radio1.ssid=b
+radio1.key=password-5g
+ban.minutes=45
+ban.mac=aa:bb:cc:dd:ee:01
+kick.mac=aa:bb:cc:dd:ee:02
+ban.mac=aa:bb:cc:dd:ee:03"
+# No ban_minutes: the key is absent and the service's own default (until removed) applies.
+UCI_TEXT="$ACLBASE
+config zte_mesh_client
+	option mac 'aa:bb:cc:dd:ee:01'"
+run client-defaults 0 "version_mode=128
+radio0.enabled=1
+radio0.ssid=home
+radio0.key=password-24
+radio1.enabled=1
+radio1.ssid=b
+radio1.key=password-5g
+ban.mac=aa:bb:cc:dd:ee:01"
+grep -q '^ban.minutes=' "$RUNDIR/config" && { echo "FAIL client-defaults: ban.minutes written without the option"; fail=$((fail + 1)); }
+# Same device twice (the service keeps one row per address, so this would silently fight over it), bad action, bad MAC,
+# a ban time outside the service's own 0..1440, and more rules than the table holds.
+UCI_TEXT="$ACLBASE
+config zte_mesh_client
+	option mac 'aa:bb:cc:dd:ee:01'
+config zte_mesh_client
+	option mac 'AA:BB:CC:DD:EE:01'"
+run client-duplicate 1 "is listed twice"
+UCI_TEXT="$ACLBASE
+config zte_mesh_client
+	option mac 'aa:bb:cc:dd:ee:01'
+	option action 'deauth'"
+run client-action 1 "action must be ban or kick"
+UCI_TEXT="$ACLBASE
+config zte_mesh_client
+	option mac '01:00:5e:00:00:01'"
+run client-multicast 1 "unicast"
+UCI_TEXT="$ACLBASE
+	option ban_minutes '1441'
+config zte_mesh_client
+	option mac 'aa:bb:cc:dd:ee:01'"
+run client-minutes 1 "ban_minutes must be"
+many="$ACLBASE"
+i=1; while [ $i -le 9 ]; do many="$many
+config zte_mesh_client
+	option mac '02:00:00:00:01:$(printf %02x $i)'"; i=$((i + 1)); done
+UCI_TEXT="$many"
+run client-9 1 "more than 8"
 
 # 11. Wi-Fi schedule (zte_mesh_timer) and the extra slot options access_minutes / force_wifi5
 STUB_TZ=+0800

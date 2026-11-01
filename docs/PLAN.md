@@ -4,7 +4,7 @@
 > 功能本身的状态与证据在 [FEATURE_STATUS](FEATURE_STATUS.md)（唯一总账），协议与逆向在
 > [research/](research/)，装机与踩坑在 [LAB](LAB.md)。三处不重复列同一件事。
 >
-> 最后更新：2026-11-01（批次 3 开工：A17a 完成）
+> 最后更新：2026-11-01（批次 3 完成：A17a/A17b；A17c 等真机）
 
 ## 1. 终点：四个可验收的场景
 
@@ -64,7 +64,7 @@ S4 的一半：页面能看见拓扑。数据面不碰无线，只把已经收�
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
 | A17a | **已完成**。`controller-steer.c`：`0x8014` 引导请求（flags/window/timer/STA 列表/目标 BSS 列表）、`0x8016` 封禁（封/放行 + 有效期 + 多 MAC）、`0x8015` BTM 结果与 `0x8017` 引导完成的解码。字段顺序以 Wireshark dissector 为准（flags 在窗口之前、每个列表的计数贴着列表），见 [STEER_1905](research/STEER_1905.md) | H | `tests/controller-steer-codec.c`：整帧字节比对 + 越界/容量/参数拒绝 + 10 万次有界变异；`tests/test_steer_tshark.sh`：tshark 逐字段读回 20 项，且无 malformed/多余 TLV 数据 |
-| A17b | **半做**。已有：`controller-actions.c` 状态机（KICK 5 秒一次最多 3 次、BAN 每 120 秒重发、到期或规则被删时发"放行"、KICK 收到回报即结案）；`controller_client_action()` 把 `0x8014`/`0x8016` 发给每个在线子节点；`0x8015`/`0x8017` 经 trace 落成 `peers/<client>.btm`；`state.json` 加 `clients[]`；`/run/zte-mesh/config` 认 `ban.mac` / `kick.mac` / `ban.minutes`。**未做**：UCI/init 透传与页面字段（下一步），所以现在只能在配置文件里手写这三行 | H | `tests/controller-actions-test.c` 72 断言：假时钟跑完重发、去抖、到期解锁、规则删除的撤销、失败上报 |
+| A17b | **已完成**。状态机 `controller-actions.c`（KICK 5 秒一次最多 3 次、BAN 每 120 秒重发、到期或规则被删时发"放行"、KICK 收到回报即结案）；`controller_client_action()` 把 `0x8014`/`0x8016` 发给每个在线子节点；`0x8015`/`0x8017` 经 trace 落成 `peers/<client>.btm`。配置链：`zte_mesh_client` 区段（`mac` + `action`，最多 8 条，同一地址不许重复）→ `ban.mac`/`kick.mac`，`ban_minutes`（0..1440）→ `ban.minutes`；页面有「封禁 / 踢一次」列表与时长字段，状态框显示每个动作的进度。**顺带修掉两个只在真节奏下才现形的 bug**：配置每秒重读一次会把封禁到期时间每秒往后推（一分钟的封禁永不结束），以及规则撤回后一秒内又加回来会先放行再封 | H | `tests/controller-actions-test.c` 215 断言：假时钟跑完重发、去抖、到期解锁、规则删除的撤销、失败上报、每秒重配置不滑期、改时长重新计时、撤回又加回取消撤销；`sh tests/test_init.sh` 新增 7 项（重复地址、坏动作、多播 MAC、超上限、时长越界）；`node tests/test_luci.js` 新增 2 组 |
 | A17c | 真机确认：一台手机关联后被踢、被拒重连 | D | 见第 5 节 H-03 |
 
 ### 批 4 · 无线回程（H 配置半边 / D 数据面）
@@ -100,7 +100,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 |---|---|---|---|
 | 1 | 子路由侧落地保真 | ✅ B11（210 项主机测试）/ C3 / D0 全做完 | **待触发**（批末一次） |
 | 2 | 主控侧可见性 | ✅ A18a / A18b / A19b 全做完（回程 RSSI 无线索，见 H-05） | **待触发**（批末一次） |
-| 3 | 控制面 | 🔄 A17a 完成（`0x8014` 一族能编能解，tshark 20 项核对）；A17b 状态机与发送已落地、UCI/页面待做；A17c 等真机 | — |
+| 3 | 控制面 | 🔄 A17a/A17b 全做完（能编能解、能发能停、页面能配能看）；**A17c 效果确认等真机**（H-03） | H-03 |
 | 4 | 无线回程 | ⬜ | — |
 | 5 | 多子节点与稳定性 | ⬜ | — |
 | 6 | 发布与工程化 | ⬜（C9 已随本轮下令先做） | — |
@@ -112,13 +112,13 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 命令 | 覆盖 | 基线 |
 |---|---|---|
 | `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci） | 130 passed（批 2 加 5 条；Windows 上约 8 分钟，Linux 上快得多） |
-| `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 87 项（批 1 加 4 条） |
+| `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 94 项（批 3 加 7 条） |
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 18 项 |
-| `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列 | `32 main / 10 slot / 4 ACL / child 5`（批 1 的 `extra_slots` 只在 main/child 渲染；批 2 加节点表断言） |
+| `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `33 main / 10 slot / 4 ACL / 2 client / child 5`（批 2 加节点表断言，批 3 加动作列表与状态框） |
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94` | 101 断言 + 10 万次有界变异（需要一台能编 C 的机器） |
 | `tests/controller-steer-codec.c`（`make test-host`） | 终端动作消息的编码与两种回报的解码 | 整帧字节比对 + 10 万次有界变异（同上） |
 | `sh tests/test_steer_tshark.sh` | 把上面那几帧交给 tshark，逐字段读回 | 20 项；没有 tshark 时输出 SKIP 并退出 0 |
-| `tests/controller-actions-test.c`（`make test-host`） | 终端动作的去抖、重发、超时、回滚 | 72 断言，假时钟 |
+| `tests/controller-actions-test.c`（`make test-host`） | 终端动作的去抖、重发、超时、回滚、每秒重配置 | 215 断言，假时钟 |
 | `python tests/test_runtime.py`、`test_i18n.py`、`test_schema.py out` 等 | 运行包完整性、翻译、表结构 | 各自脚本末尾 |
 | `sh tests/test_frames.py`（`python tests/test_frames.py`） | pcap 帧长/配对/周期 | 4 项 |
 | `sh tools/build/container-make.sh test-host` | C 编解码（含 10 万次变异）+ 沙箱 | 需要容器或 Ubuntu（`192.168.1.191`） |
@@ -134,7 +134,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 |---|---|---|---|---|---|
 | **H-01** | S3：无线回程关联（B13c） | 一台能发 Wi-Fi 的 OpenWrt 当子节点（现在的 VM 没有无线）；中兴主控已开回程 BSS；子节点装 `wpad`（非 basic） | ①`backhaul=multi_ap` ②插上控制器档案后拔网线 ③`iw dev` 看 STA 接口 `4addr`/`Authorized` ④`ping` 上游 ⑤抓 1905 帧 | STA 关联成功且 `4addr` 打开；拔线后仍能 ping；1905 CMDU 在无线侧可见 | 换 `wpad` 可能挤爆 flash；4 地址要求两侧都开，主控是原厂不可控 |
 | **H-02** | B11 在真子路由上不炸：额外槽位落成多个 BSS | ax3600 + 中兴主控（或 OpenWrt 主控） | ①`extra_slots=on` ②主控配一个访客槽位 ③`iw dev`/`uci show wireless` ④客户端连访客 SSID | 多出一个 BSS、名字密钥对、能拿到 IP；关掉后 BSS 消失且 `wlan-sync.status` 有记录 | 信道/带宽被多 BSS 摊薄；`wpad` 版本不支持多 BSS 时会静默失败 |
-| **H-03** | A17 踢终端/封锁真的生效 | S1 拓扑 + 一台测试手机（MAC 已知） | ①封禁该 MAC ②重连 ③解封 ④引导（BTM）观察是否切频段 | 封禁后拒绝关联；解封后恢复；BTM 发出后终端切换（不保证） | 会踢掉用户自己的设备；`EnBtmKickoff` 出厂是关的，可能根本不发 |
+| **H-03** | A17 踢终端/封锁真的生效 | S1 拓扑 + 一台测试手机（MAC 已知）；页面「封禁与踢除设备」里各一条 `ban`（可选时长）与 `kick` | ①封禁该 MAC，`state.json` 的 `clients[]` 应显示 `sent` ②终端重连看是否被拒 ③删除记录，看是否恢复 ④加一条 `kick`，抓 1905 看是否真有 `0x8014` 出门、有无 `0x8015` 回报，`clients[]` 变 `done`/`failed` ⑤必要时开 `EnBtmKickoff` 再试 | 封禁后拒绝关联；解封后恢复；`0x8014` 真的发出；BTM 发出后终端切换（不保证） | 会踢掉用户自己的设备；`EnBtmKickoff` 出厂是关的，可能根本不发；`0x8014` 的 BSSID 目前用广播（还没有"终端挂在哪个 BSS"的表），要确认子节点接受广播 |
 | **H-04** | 多子节点 | 两台子路由 | A23 | 两个节点同时出现在拓扑页，动作按 MAC 不串 | 1905 域 ID 冲突、AL MAC 冲突（`al_last`） |
 | **H-05** | A18 RSSI/终端数的真值来源 | S1 + 一台已关联终端 | 抓 1905 后与 `iw station dump` 对照。**已有负结果**（[CAPTURE_1905](research/CAPTURE_1905.md)）：有线链路的 107 帧里没有任何 RSSI，链路度量应答是 ZTE 定长模板；要看 RSSI 必须走无线回程 | 页面上的数值与真机读数的偏差在 ±3 dB 内或明确标注"来自控制器上报" | 原厂 `StaRssiRptThr` 出厂 -110（等于不上报），可能根本没有值 |
 | **H-06** | B15 `CmWLANMapSsidCfgSync2Repeater` | 真机 + strace | 逆向或动态跟踪 | 沙箱里替身不再需要 | 需要停机窗口；前序项没做完不值得动 |

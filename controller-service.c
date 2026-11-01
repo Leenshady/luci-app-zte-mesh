@@ -1788,6 +1788,16 @@ static void apply_new_config(struct service_config *current, struct config_stamp
                     }
         }
     }
+    /* Client actions (ban / kick). The state machine diffs the new intents against its own table, so a rule that
+     * disappeared turns into the matching "allow" and a kick that already happened is not sent again; that is why
+     * this only copies the numbers. Nothing here needs a restart: the service re-reads this file every second. */
+    if (next.intent_count != current->intent_count || next.ban_minutes != current->ban_minutes ||
+        memcmp(next.intents, current->intents, sizeof(current->intents))) {
+        memcpy(current->intents, next.intents, sizeof(current->intents));
+        current->intent_count = next.intent_count;
+        current->ban_minutes = next.ban_minutes;
+        printf("ZTE_MESH_SERVICE client_actions rules=%u ban_minutes=%u\n", next.intent_count, next.ban_minutes);
+    }
     /* what the schedule and the access-time countdowns are computed from */
     memcpy(current->timer, next.timer, sizeof(current->timer));
     current->timer_count = next.timer_count;

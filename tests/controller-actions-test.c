@@ -248,10 +248,69 @@ static void json_is_bounded(void)
     CHECK(actions_json(NULL, 0, small, sizeof(small)) == -1);
 }
 
+static void ban_does_not_slide(void)
+{
+    struct action_intent intent;
+    char json[256];
+    long t;
+
+    /* The daemon folds the configuration in every second, so the same intents arrive over and over. Re-anchoring
+     * the expiry on each of those passes would keep a one-minute ban alive for ever -- the first version did. */
+    reset();
+    memset(&intent, 0, sizeof(intent));
+    memcpy(intent.mac, phone, 6);
+    intent.kind = ACTION_KIND_BAN;
+    intent.minutes = 1;
+    CHECK(actions_configure(&table, 500, &intent, 1) == 1);
+    CHECK(tick(500) == 1);
+    for (t = 501; t < 560; t++) {
+        CHECK(actions_configure(&table, t, &intent, 1) == 1);
+        CHECK(tick(t) == 0);
+    }
+    CHECK(actions_configure(&table, 560, &intent, 1) == 1);
+    CHECK(tick(560) == 1);
+    CHECK(due[0].allow == 1);
+    CHECK(table.count == 0);
+
+    /* Changing the number in the page does re-anchor: that is the user saying "one more hour from now". The
+     * repeated blocks keep going out in between (that is the refresh), so the deadline is read from state.json
+     * rather than from the number of ticks. */
+    reset();
+    intent.minutes = 1;
+    CHECK(actions_configure(&table, 0, &intent, 1) == 1);
+    CHECK(tick(0) == 1);
+    intent.minutes = 60;
+    CHECK(actions_configure(&table, 100, &intent, 1) == 1);
+    CHECK(actions_json(&table, 100, json, sizeof(json)) > 0);
+    CHECK(strstr(json, "\"left\":3600") != NULL);
+    CHECK(actions_configure(&table, 3700, &intent, 1) == 1);
+    CHECK(actions_json(&table, 3700, json, sizeof(json)) > 0);
+    CHECK(strstr(json, "\"left\":0") != NULL);
+    CHECK(tick(3700) == 1);
+    CHECK(due[0].allow == 1 && table.count == 0);
+
+    /* A rule removed and put back before the undo went out: the undo is cancelled and the block is sent again
+     * instead of the client being let back in a second later. */
+    reset();
+    memcpy(intent.mac, phone, 6);
+    intent.kind = ACTION_KIND_BAN;
+    intent.minutes = 5;
+    CHECK(actions_configure(&table, 0, &intent, 1) == 1);
+    CHECK(tick(0) == 1);
+    CHECK(actions_configure(&table, 10, NULL, 0) == 1);
+    CHECK(table.entry[0].lift == 1);
+    CHECK(actions_configure(&table, 10, &intent, 1) == 1);
+    CHECK(table.entry[0].lift == 0);
+    CHECK(tick(10) == 1);
+    CHECK(due[0].allow == 0 && mac_is(due[0].mac, phone));
+    CHECK(table.count == 1);
+}
+
 int main(void)
 {
     ban_forever();
     ban_expires();
+    ban_does_not_slide();
     ban_removed();
     kick_retries_then_gives_up();
     kick_answered();

@@ -583,3 +583,48 @@ msgstr "经中继"
 
 msgid "%d BSS reported by the router"
 msgstr "路由器上报 %d 个 BSS"
+
+msgid "Blocked devices stay off for (minutes)"
+msgstr "被封禁设备保持禁止的时长（分钟）"
+
+msgid "0 to 1440 minutes, 0 = until the entry is removed (the default). Applies to every entry of the list below, which is blocked for that long after the rule was first sent; the time is not extended by later saves."
+msgstr "0 到 1440 分钟，0 = 直到删除这条记录（默认）。对下面列表里的所有记录生效，从规则第一次下发开始计时；之后再次保存不会延长这个时间。"
+
+msgid "Blocked and kicked devices"
+msgstr "封禁与踢除设备"
+
+msgid "Up to 8 devices. \"Block\" keeps a device off the Wi-Fi until the time below runs out or the entry is removed; the controller repeats the rule so a child router that reboots does not forget it. \"Kick once\" asks the device to move to the better access point and gives up after a few tries. Both need the child routers to support it; the factory default leaves it off, so a device that does not move is not necessarily an error."
+msgstr "最多 8 台设备。「封禁」让设备在设定时间到期或删除记录之前一直上不了 Wi-Fi；控制器会定时重发规则，子路由重启后不会忘记。「踢一次」请设备换到更好的无线接入点，重试几次后放弃。两项都要子路由支持；出厂默认是关的，所以设备没有动不代表出错。"
+
+msgid "Action"
+msgstr "动作"
+
+msgid "Block"
+msgstr "封禁"
+
+msgid "Kick once"
+msgstr "踢一次"
+
+msgid "Device actions"
+msgstr "设备动作"
+
+msgid "Blocked"
+msgstr "已封禁"
+
+msgid "Kicked"
+msgstr "已踢除"
+
+msgid "done"
+msgstr "已成功"
+
+msgid "the router refused or did not answer"
+msgstr "子路由拒绝或没有回应"
+
+msgid "queued"
+msgstr "排队中"
+
+msgid "sent"
+msgstr "已下发"
+
+msgid "%d min left"
+msgstr "剩余 %d 分钟"
