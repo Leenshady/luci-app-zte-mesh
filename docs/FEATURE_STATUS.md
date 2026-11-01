@@ -106,7 +106,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | D3 | 信道扫描 / CAC | 无接收代码 | 有 `SendCAC` / `ChannelScan` **发送**入口，接收侧没查（弱） | `MultiAPMaster.InChannelScanRptFlag=0` + **`MultiAPCfg.EnReportCenterChannel=1`**（均实测）。**上报本来就是开的**，缺口在接收侧 |
 | D4 | VBSS（虚拟 BSS 创建/销毁/迁移） | 无 | `cspd` 有 `EnVbss` / `ToVbssMode` 配置位，但**没有任何 CM/CF 导出**（中） | **`MultiAPMaster.EnVbss=0` / `.ToVbssMode=1`**（实测，与 `EnBtmKickoff` 同表） |
 | D5 | VLAN / 流量分离 / Profile-2 | 无 | `CfMultiAPSetVlanCfg`（152 B 实函数，`ASEND 0xa94e`）——有下发入口（中） | 编译期 `CONFIG_CSP_WLAN_VLAN` + `EBTABLES_{VLAN,FFE_T}` + 下发入口三条都在；**配置层实测为零**，三处落点全关：`EthVlan`(#79) **0 行**、`Brport`(#20) **16 口 × 8 个 VLAN 列全默认**、**`WLANCfg` 每行 7 个 per-VAP VLAN 列全 0**。**入口已定位到两侧：VAP 打/剥 tag 在 `WLANCfg`（`Vlan`/`VlanPriority`/`UpTagEnable`/`DownTagStripEnable`/`McastVlan*`），端口默认 VLAN 在 `Brport` 那 8 列**。厂商启用时写哪侧仍未解（web `.lua`）。另：`MultiapCapability.SupportPackageProduct=0`（若对应 EasyMesh packaged-product 概念则是直接否定，**仅命名联想，弱**） |
-| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） | **四张 per-STA 表全部 0 行**：`P1905StaBind`(#168)、`MultiAPStaCfg`、`MultiAPCacheMac`、`WlanRoamingSta`(#271)。**入口存在、出厂未配**。另：`WLANSetting.ACLIsFrom1905Slave=0` ⇒ 本机**不收** 1905 侧同步的 ACL，同向证据 |
+| D6 | STA 绑定 | 无 | `CmMultiApSetStaBind`，走 `0x2401` wlan 本地命令，**不是 1905 通道**（中） | **五张准入/绑定表全部 0 行**：`P1905StaBind`(#168)、`MultiAPStaCfg`、`MultiAPCacheMac`、`WlanRoamingSta`(#271)、`AclCfg`(#5)。**入口存在、出厂未配**。另：`WLANSetting.ACLIsFrom1905Slave=0` ⇒ 本机**不收** 1905 侧同步的 ACL，同向证据 |
 | D7 | 802.11r/BTM 踢人（部分） | 固件不支持 FT | `handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`、`En11rSteer` 都在（**强**）。内核侧 `br_ieee1905_local_in_handle` 放行本地投递（§5.5），帧能到 `multiapd`；而它自带 `pktdump`，线上取证不必再自带抓包程序 | **`MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1,EnActiveDeauth=1}`** + `MultiAPDomain` 的 106 列状态机参数 + `MultiAPRoamCatonCfg.BtmCacheEn=0`（全部实测）+ `WlanRoamingCfg`（实测，**与 11r 无关**） |
 
 这一节的判据原来只有 Z506（Wi-Fi 5 老固件）。2026-11-01 从一台市售 AX3000（E2631，2026-08 固件）
@@ -234,10 +234,24 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
   「1905/ACD 实际走 `wlan0`+`wlan5g0`（两频段各一）」**对不上**。`P1905Cfg` 可能只是"允许跑"的静态声明
   而非运行时清单 ⇒ **凡拿它当"1905 跑在哪些接口"的证据都要降级成"允许跑在哪些接口"**。
 
-至此**七轮 dump 把库里能读的都读完了**（20 张表 + 276 张表名全集）。dump 到头、只能换手段的只剩四件：
-位图/枚举语义（`SupportStrategies`/`EnRoamModes`/`MapAccessAttr`/`BandWidth` 等，反汇编或规范正文）、
-厂商启用 VLAN 时写哪侧（web `.lua`）、1905 实际跑在哪几个接口（`pktdump`/`/proc/net/dev`）、
-`WLANPSK`/`AclCfg` 两张可选补 dump（仍只读）。
+**第八轮（`WLANPSK` / `AclCfg` + 现场状态）配置库取证收口**：
+
+- **`WLANPSK` 8 行 × 4 列**，行名 `DEV.WIFI.APn.PSK1` 与 [FEATURE_MAP](research/FEATURE_MAP.md) 的
+  `OBJ_WLANPSK_ID(DEV.WIFI.AP1.PSK1)` **逐字对上**——本仓第五次「离线还原被真机命中」。
+  `PreSharedKey`/`KeyPassphrase` **被遮蔽成 `***`**：密钥无泄露路径；但 `MultiAPDomain.ESSID` 是明文，
+  **SSID 名可还原、密钥不行**（遮蔽按表/列做，不是全局策略）。8 个 AP 各有且仅有 `PSK1` 一行，
+  含关着的与隐藏的槽位——密钥出厂全配。
+- **`AclCfg` 0 行**：MAC ACL 一条没有（`FINDINGS` §9 的结构在，数据空）。至此**准入/绑定数据面五张全空**
+  （per-STA 四张 + `AclCfg`），"机制在、数据空"坐实。
+- **「只有 LAN2 插着网线」——预测命中**：用户确认现场 LAN 口只插了 LAN2，与 `Brport` 逐口吻合
+  （`BRPORT11`(LAN2)=4、`BRPORT2`(LAN1)=0、`BRPORT12`(LAN3)=0）。接上一轮 `WLANCfg.Enable` 的配置侧对照，
+  **`PortState=4` = 在跑，配置侧 + 物理侧双证闭合**。WAN 侧 `BRPORT15=4`/`ETH_WAN=0` 的分裂
+  取决于 WAN 口当时插没插线（未确认）。
+
+至此**八轮、22 张表 + 276 张表名全集，`sendcmd 1 DB p` 这条线全部收口**——D3–D7 加角色、band、
+端口拓扑的库侧入口都是实测级。dump 解决不了、要换手段的只剩三件半：位图/枚举语义（反汇编）、
+厂商启用 VLAN 时写哪侧（web `.lua`）、1905 实际跑在哪几个接口（`pktdump`/`/proc/net/dev`），
+外加 WAN 口插线状态这个一句话就能补的尾巴。
 
 一条通用判据：**`isSave=0` 的列是运行时/派生值，写 DB 不落盘**（`WLANSSID` 整表、`WLANCfg.IfName`、
 `MultiAPDomain.ESSID` 都是）。改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"；
@@ -251,7 +265,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 顺序 | 项 | 难度 | 说明 |
 |---|---|---|---|
 | — | B8 / B9 / B10 / B12 / A20 / B5 / B7 / B17 / C4 / C5 / C6 / C7 | — | **已完成**（2026-10-31） |
-| — | `sendcmd 1 DB p` 配置库 schema 取证（七轮、二十张表 + 表名全集） | — | **已完成**（2026-11-01）：`MultiAPMaster` 55 列、`MultiAPDomain` 8×106 列、`MultiAPRoamCatonCfg` 7 列、`MultiAPCfg` 50 列、`P1905Cfg` 12×3 列（`ViewName` = `IGD.P1905CFG1..6`）、`WlanRoamingCfg` 1×6 列、`MultiapCapability` 1×2 列、`Brport` 16×23 列（端口拓扑 + 8 个 VLAN 列全默认）、`MapCooperatorCfg` 1×5 列（**与 SCHEMA 还原逐字同序**）、`WLANSSID` 8×8 列（视图，全列 `isSave=0`）、`WLANBase` 2×68 列（**RD1=2.4G/RD2=5G，MT7916**）、`WLANCfg` 8×49 列（**真 SSID 配置，`IfName`/7 个 VLAN 列**）、`WLANSetting` 1×9 列（**`ACLIsFrom1905Slave=0`**）切对；`P1905ComCfg` 只有 8 列、`MultiAPCacheMac` 那 7 列其实在 `MultiAPRoamCatonCfg`，两处切错已自纠；`EthVlan`/`PortBinding` 与四张 per-STA 表（`MultiAPStaCfg`/`P1905StaBind`/`MultiAPCacheMac`/`WlanRoamingSta`）表在行空；`DB all` 拿到 276 张表名全集。**结案**：11r 为负、D5 配置层为零（三处落点全关、入口定在 `WLANCfg`+`Brport` 两侧）、角色为静态 Slave（六开关同向）、band 归属（RD1=2.4G/RD2=5G）、`PortState=4`=在跑（`WLANCfg.Enable` 交叉证实）。剩 `WLANPSK`/`AclCfg` 两张可选未 dump。见 [E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md)、[E2631_DB_TABLES](research/E2631_DB_TABLES.md) |
+| — | `sendcmd 1 DB p` 配置库 schema 取证（八轮、二十二张表 + 表名全集） | — | **已完成**（2026-11-01）：`MultiAPMaster` 55 列、`MultiAPDomain` 8×106 列、`MultiAPRoamCatonCfg` 7 列、`MultiAPCfg` 50 列、`P1905Cfg` 12×3 列（`ViewName` = `IGD.P1905CFG1..6`）、`WlanRoamingCfg` 1×6 列、`MultiapCapability` 1×2 列、`Brport` 16×23 列（端口拓扑 + 8 个 VLAN 列全默认）、`MapCooperatorCfg` 1×5 列（**与 SCHEMA 还原逐字同序**）、`WLANSSID` 8×8 列（视图，全列 `isSave=0`）、`WLANBase` 2×68 列（**RD1=2.4G/RD2=5G，MT7916**）、`WLANCfg` 8×49 列（**真 SSID 配置，`IfName`/7 个 VLAN 列**）、`WLANSetting` 1×9 列（**`ACLIsFrom1905Slave=0`**）、`WLANPSK` 8×4 列（**密钥被遮蔽，`APn.PSK1` 与 FEATURE_MAP 对上**）切对；`P1905ComCfg` 只有 8 列、`MultiAPCacheMac` 那 7 列其实在 `MultiAPRoamCatonCfg`，两处切错已自纠；`EthVlan`/`PortBinding`/`AclCfg` 与四张 per-STA 表（`MultiAPStaCfg`/`P1905StaBind`/`MultiAPCacheMac`/`WlanRoamingSta`）表在行空；`DB all` 拿到 276 张表名全集。**结案**：11r 为负、D5 配置层为零（三处落点全关、入口定在 `WLANCfg`+`Brport` 两侧）、角色为静态 Slave（六开关同向）、band 归属（RD1=2.4G/RD2=5G）、`PortState=4`=在跑（配置侧 `WLANCfg.Enable` + 物理侧「只有 LAN2 插线」双证）。见 [E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md)、[E2631_DB_TABLES](research/E2631_DB_TABLES.md) |
 | 1 | r10 四包装机验收 | 0 | 产物已在手，两台换上即可 |
 | 2 | ax3600 刷 `CONFIG_COMPAT=y` 固件 | 1 | 彻底摆脱手工模拟器，`.github/workflows/build-firmware.yml` |
 | 3 | C3 统一行尾 | 1 | 影响整个仓库，**需要单独确认** |

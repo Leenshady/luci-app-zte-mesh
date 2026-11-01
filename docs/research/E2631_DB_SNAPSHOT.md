@@ -1,4 +1,4 @@
-# E2631 配置库实测快照：二十张表的真身
+# E2631 配置库实测快照：二十二张表的真身
 
 2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。七轮：
 
@@ -32,6 +32,10 @@ sendcmd 1 DB p WLANBase          # RowCount=2，68 列 —— Band=0/1、Channel
 sendcmd 1 DB p WLANCfg           # RowCount=8，49 列 —— 真正的 SSID 配置 + 7 个 per-VAP VLAN 列
 sendcmd 1 DB p WLANSetting       # RowCount=1，9 列 —— ACLIsFrom1905Slave=0
 sendcmd 1 DB p WlanRoamingSta    # RowCount=0（第四张空表）
+# 第八轮（§12）
+sendcmd 1 DB p WLANPSK           # RowCount=8，4 列 —— 密钥被遮蔽，层级 DEV.WIFI.APn.PSK1
+sendcmd 1 DB p AclCfg            # RowCount=0（准入层第五张空表）
+# 现场状态（用户确认）：LAN 口只有 LAN2 插着网线 —— §9.6 的预测命中
 ```
 
 这份文件的用途只有一个：**它是 [E2631_ROOTFS](E2631_ROOTFS.md) §6 那些离线推断的对照答案**。
@@ -798,6 +802,9 @@ ZTE 没给 `PortState` 的枚举值，4 的含义是**推断**（桥自身与 WA
 >
 > **第七轮结案**（§11.4）：`PortState=4` 的 5 个 BSS 与 `WLANCfg.Enable=1` 的 5 个**逐个相同**，
 > 4 = 在跑。`DomainUsed=0` 的 domain3 与它不矛盾——两个值量的是不同的事。
+>
+> **第八轮物理验证命中**（§12.3）：用户确认 LAN 口**只有 LAN2 插着网线**——与本节"若 4 真是 up，
+> 则应是只有 LAN2 插着线"的预测逐字一致。`PortState` 的语义就此钉死。
 
 ### 9.7 顺带读出的一条：1905 走 `br0`，业务走 `br1`
 
@@ -1148,27 +1155,92 @@ Z506 实际跑 1905/ACD 的是 `wlan0` + `wlan5g0`（**两个频段各取第一�
 
 ---
 
-## 12. 还没 dump 的表（按价值排序）
+## 12. 第八轮：密钥被遮蔽、`AclCfg` 空，「只有 LAN2 插线」证实预测
 
-七轮只读命令已把 mesh 侧、桥/端口侧、无线配置本体都走完了（结果见 §1–§11）。
-`WLANBase` / `WLANCfg` / `WLANSetting` / `WlanRoamingSta` 四张已在 §11 结掉。剩下：
+```sh
+sendcmd 1 DB p WLANPSK           # RowCount=8，4 列
+sendcmd 1 DB p AclCfg            # RowCount=0
+```
 
-| 顺序 | 表 | 为什么要它 |
+外加用户给的一条现场状态：**LAN 口只有 LAN2 插着网线**（§12.3 用它验证 §9.6 的预测）。
+
+### 12.1 `WLANPSK`：8 行 × 4 列 —— 密钥拿不到，但层级拿到
+
+| 列 | 值（8 行一致的形状） | 读法 |
 |---|---|---|
-| 1 | `WLANPSK`(#260) | 唯一还没 dump 的 WLAN 配置表。`WLANCfg` 的 `WPAEAPSecret` 被遮蔽，密钥本体应在 `APn.PSKn`（`FEATURE_MAP` 记的 `OBJ_WLANPSK_ID`） |
-| 2 | `AclCfg` | [`FINDINGS`](../FINDINGS.md) §9 已给结构（`ViewName`/`Name`/`Interface`/`MACAddress`/`ACLCfgPolicy`，268 字节 256 行），本机从未 dump。可验 `ACLPolicy` 与 D6 的关系 |
+| `ViewName` | `DEV.WIFI.AP1.PSK1` … `AP8.PSK1` | 每个 AP 一个 PSK 实例 |
+| `WLANViewName` | `DEV.WIFI.APn` | 指回父 AP，层级显式 |
+| `PreSharedKey` | `***` | **被遮蔽** |
+| `KeyPassphrase` | `***` | **被遮蔽** |
 
-全部只读、不用停机。表名清单见 [E2631_DB_TABLES](E2631_DB_TABLES.md)。
+两条结论：
 
-**已经 dump 到头、只能换手段的四件事**（不要再排 `sendcmd`）：
+- 行名 `DEV.WIFI.APn.PSK1` 与 [`FEATURE_MAP`](FEATURE_MAP.md) §4 早记的
+  `OBJ_WLANPSK_ID(DEV.WIFI.AP1.PSK1)` **逐字对上**——本仓第五次「离线还原被真机命中」
+  （口径同前四次：dump 前写下的结构被证实）。
+- **密钥读不出来**：`PreSharedKey` 与 `KeyPassphrase` 都被 `sendcmd` 打码成 `***`，
+  和 `WLANCfg.ESSID`/`WPAEAPSecret` 一样。但这套遮蔽**不一致**：
+  `MultiAPDomain.ESSID` 是明文（§3.1 的八个名字就是从那读的）。
+  ⇒ **SSID 名能还原，密钥不能**——遮蔽是按表/列做的，不是全局策略，攻击面口径要按这个来记。
+
+另外两条小的：8 个 AP **每个都有且只有 `PSK1` 一行**（含关着的 AP2/6/7 和隐藏的 AP4/8）——
+密钥槽是出厂就给全部槽位配好的，且没有第二把（无轮换密钥）；`isSave=1`，是可写配置（写进去也只落密文/受保护区）。
+
+### 12.2 `AclCfg`：0 行 —— 准入层第五张空表
+
+[`FINDINGS`](../FINDINGS.md) §9 给过结构（`ViewName` 主键、`Name`/`Interface`/`MACAddress`/`ACLCfgPolicy`，
+268 字节 × 256 行容量），本机实测 `RowCount=0` ⇒ **出厂一条 MAC ACL 都没有**。
+
+与之同向的三条早已在手：`WLANCfg.MACAddressControlEnabled` 八行全 0、`WLANSetting.ACLIsFrom1905Slave=0`、
+`WLANCfg.ACLPolicy` 指向的是空表。至此**准入/绑定数据面五张全空**：
+`MultiAPStaCfg`、`MultiAPCacheMac`、`P1905StaBind`、`WlanRoamingSta`、`AclCfg`
+（前四张是 per-STA，这张是 ACL，但"机制在、数据空"是同一个状态）。
+
+`WLANCfg.ACLPolicy` 的值（六个 1、两个 0）到底怎么解释仍不定——列表为空时 1 是"全放行"还是
+"全拒绝"，枚举没解，只登记。
+
+### 12.3 「只有 LAN2 插着网线」——§9.6 的预测命中，`PortState` 钉死
+
+§9.6 当时写的是可检验的预测：
+
+> 若 4 真是 up，则应是**只有 LAN2 插着线**。
+
+用户确认：**LAN 口只有 LAN2 插着网线**。三个以太 LAN 口逐个对：
+
+| 口 | `Brport` 行 | `PortState` | 实际 |
+|---|---|---|---|
+| LAN1 | `BRPORT2` | 0 | 没插线 ✓ |
+| LAN2 | `BRPORT11` | **4** | **插着线** ✓ |
+| LAN3 | `BRPORT12` | 0 | 没插线 ✓ |
+
+加上 §11.4 的配置侧对照（`WLANCfg.Enable` 五个 1 与 `PortState=4` 五个 BSS 逐个相同），
+`PortState=4` = 在跑/链路转发，现在有**配置侧 + 物理侧两路独立验证**。
+枚举值为什么是 4 仍不知道，但**语义已闭合**，这条不再挂任何待办。
+
+一处没跟着闭合的：WAN 侧两条是分裂的——`BRPORT15`（`IF1`，`WanName=Bridge`）是 4，
+`BRPORT16`（`ETH_WAN`，`IF99`）是 0。若 4 = 链路在，说明 dump 时 WAN 口接着线/在转发，
+但**用户只确认了 LAN 口**，WAN 口当时插没插不知道。问一句即可定。
+
+### 12.4 收口：配置库取证到头
+
+`WLANPSK`/`AclCfg` 是上一版清单的最后两张，都在本轮结掉。
+**八轮、22 张表 + 276 张表名全集，`sendcmd 1 DB p` 这条线没有剩下的了**：
+D3–D7 加角色、band、端口拓扑的**库侧入口全部是实测级**。
+
+---
+
+## 13. 换手段的四件事（配置库解决不了的）
 
 | 问题 | 为什么 dump 解决不了 | 该换什么手段 |
 |---|---|---|
 | `SupportStrategies=251` / `EnRoamModes=19` 的位含义 | 值早就在 `MultiAPDomain` 里，缺的是语义 | 反汇编 / Multi-AP 规范正文 |
 | 厂商启用 VLAN 时写哪张表（§11.5） | 三处落点已全 dump，全是出厂默认 | 读 web VLAN 页面的 `.lua` 字节码 |
 | 1905 实际跑在哪几个接口（§11.6） | `P1905Cfg` 只能证明"允许"，不能证明"在跑" | `pktdump 1` 抓 1905 帧看源接口 / `/proc/net/dev` 计数 |
-| `BandWidth`/`Standard`/`MapAccessAttr` 的枚举（§11.8） | 值有了，枚举表不在库里 | 反汇编 / web `.lua` |
+| `BandWidth`/`Standard`/`MapAccessAttr`/`ACLPolicy` 的枚举（§11.8、§12.2） | 值有了，枚举表不在库里 | 反汇编 / web `.lua` |
 
-> `PortState` 的 0/4 语义**已从这张表撤掉**（§11.4 靠 `WLANCfg.Enable` 交叉证实），不需要系统命令了。
+> `PortState` 的 0/4 语义**已闭合**（§11.4 配置侧 + §12.3 物理侧），从这张表撤掉。
+
+`MultiAPCacheMac` / `MultiAPStaCfg` / `P1905StaBind` / `WlanRoamingSta` / `AclCfg` 行空是常态
+（§5、§8.2、§11.7、§12.2），要看到行得先配一条（改配置，不是取证），不排进只读清单。
 
 

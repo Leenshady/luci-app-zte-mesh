@@ -63,7 +63,7 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 | 259 | **`WLANCfg`** | **已 dump（2026-11-01）：8 行 × 49 列**，行名 `DEV.WIFI.AP1..8`。**真正的 SSID 配置**：`IfName`（`wlan0`–`wlan3` / `wlan5g0`–`wlan5g3`）、`Enable`、隐藏、`ACLPolicy`、`BeaconType`、客访/回程标记，以及 **7 个 per-VAP VLAN 列**（D5 的直接落点）。`ESSID` 被遮蔽成 `***`。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.2–11.5 |
 | 261 | **`WLANSSID`** | **已 dump（2026-11-01）**：8 行 × 8 列，行名 `DEV.WIFI.SSID1..8`，`SSID1–4`→`Device.WiFi.Radio.1`、`SSID5–8`→`Radio.2`。**8 列全 `isSave=0`、且没有任何 ESSID/加密字段 ⇒ 是运行时接口视图，不是配置表，写不进去**。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §10.3–10.4 |
 | 258 | **`WLANBase`** | **已 dump（2026-11-01）：2 行 × 68 列**，行名 `DEV.WIFI.RD1/RD2`。**`Band=0/1` + `Channel=4/40` ⇒ `Radio.1`=2.4G、`Radio.2`=5G**（§10.3 的悬案结案）。两行同为 Mediatek **MT7916**（一颗双频芯片，2×2）。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.1 |
-| 260 | `WLANPSK` | 密钥。**唯一还没 dump 的 WLAN 配置表**——`WLANCfg.WPAEAPSecret` 被遮蔽，密钥本体应在此 |
+| 260 | **`WLANPSK`** | **已 dump（2026-11-01）**：8 行 × 4 列，行名 `DEV.WIFI.APn.PSK1`（与 [FEATURE_MAP](FEATURE_MAP.md) 的 `OBJ_WLANPSK_ID` 逐字对上）。密钥两列（`PreSharedKey`/`KeyPassphrase`）**被遮蔽成 `***`**——密钥读不出来，但 SSID 名可从 `MultiAPDomain.ESSID` 还原（遮蔽不一致）。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §12.1 |
 | 263 | **`WLANSetting`** | **已 dump（2026-11-01）：1 行 × 9 列**，`SSIDSync=1`、`DualBandSync=0`、**`ACLIsFrom1905Slave=0`**（D6 相关：不收 1905 侧 ACL）。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.7 |
 | 264 | `WLANWEP` | 老加密 |
 | 265 | `WLANWMM` | WMM |
@@ -217,32 +217,32 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 最后一条要改文档：`MESH→Netsphere→EASYMESH` 不该再写成"DB 视图别名"，
 应降级为"web 层名称映射，与配置库无关"。
 
-## 6. 下一步 dump 的优先级（全部只读）
+## 6. dump 收口（2026-11-01，八轮全部跑完）
 
-前七轮的命令已把 mesh 侧、桥/端口侧、无线配置本体都走完（结果见
-[E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §5–§11）。第五轮结掉
+前八轮的命令把 mesh 侧、桥/端口侧、无线配置本体、密钥与准入全走完（结果见
+[E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §5–§12）。第五轮结掉
 `MultiapCapability` / `EthVlan` / `Brport`，第六轮结掉 `MapCooperatorCfg` / `WLANSSID` / `PortBinding`，
-第七轮结掉 `WLANBase` / `WLANCfg` / `WLANSetting` / `WlanRoamingSta`。剩两张：
+第七轮结掉 `WLANBase` / `WLANCfg` / `WLANSetting` / `WlanRoamingSta`，
+第八轮结掉 `WLANPSK`（8 行 × 4 列，密钥被遮蔽）与 `AclCfg`（0 行，#5）。
+**候选表没有剩下的了——`sendcmd 1 DB p` 这条线到此为止。**
 
-| 顺序 | 命令 | 期望 |
-|---|---|---|
-| 1 | `sendcmd 1 DB p WLANPSK` | 唯一没 dump 的 WLAN 配置表；`WLANCfg.WPAEAPSecret` 被遮蔽，密钥本体应在这里（`OBJ_WLANPSK_ID` = `APn.PSKn`） |
-| 2 | `sendcmd 1 DB p AclCfg` | [FINDINGS](../FINDINGS.md) §9 已给结构，本机从未 dump。可验 `ACLPolicy=1` 与 D6 的 per-STA 准入 |
+另：用户确认 LAN 口**只有 LAN2 插着网线**，`PortState` 的 0/4 语义被物理侧证实
+（[SNAPSHOT](E2631_DB_SNAPSHOT.md) §12.3，接 §11.4 的配置侧对照）。
 
-**dump 已经到头的四件事**（不要再排 `sendcmd`）：
+**dump 解决不了、要换手段的四件事**：
 
 | 问题 | 为什么 dump 解决不了 |
 |---|---|
 | 位图语义（`SupportStrategies=251` / `EnRoamModes=19`） | 缺的是语义不是数据，值就在 `MultiAPDomain` 里 |
 | 厂商启用 VLAN 时写哪张表 | 三处落点全 dump 过（`EthVlan` 0 行 / `PortBinding` 0 行 / `Brport` 与 `WLANCfg` 全默认），需读 web 的 `.lua` |
 | 1905 实际跑在哪几个接口 | `P1905Cfg` 只能证"允许"，证不了"在跑"（[SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.6），需 `pktdump 1` 或 `/proc/net/dev` |
-| `BandWidth` / `Standard` / `MapAccessAttr` 的枚举 | 枚举表不在库里 |
+| `BandWidth` / `Standard` / `MapAccessAttr` / `ACLPolicy` 的枚举 | 枚举表不在库里 |
 
-> **`PortState` 的 0/4 语义已从本清单撤掉**：第七轮用 `WLANCfg.Enable` 交叉证实了 4 = 在跑
-> （[SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.4），不必再上 `brctl show`。
+> **`PortState` 的 0/4 语义已闭合**：配置侧（§11.4 的 `WLANCfg.Enable` 逐个对照）+
+> 物理侧（§12.3 只有 LAN2 插线）两路验证，4 = 在跑。不再挂待办。
 
 `DB all` 已经跑过，不必再跑。`MultiAPStaCfg` / `P1905StaBind` / `MultiAPCacheMac` / `WlanRoamingSta` /
-`EthVlan` / `PortBinding` **行空是常态**，要看到行得先配一条——那是改配置，不是取证。
+`EthVlan` / `PortBinding` / `AclCfg` **行空是常态**，要看到行得先配一条——那是改配置，不是取证。
 
 **一条通用判据**（第五轮读出，第七轮补了反面用法）：`isSave=0` 的列是运行时/派生值，写 DB 不落盘。
 改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"。**反向也要记住：`isSave=0` 的值只能用来
