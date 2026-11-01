@@ -303,6 +303,24 @@ SR1010 自己的 CSPBOOT ASCII 密钥和 4 条 hex-ASCII 串——**全部未命
 「密钥是盘上明文常量」这一支就此排除，剩下的就是本节的 RAM 路线（或控制器/eFuse）；
 全部扫描面与候选数见 [E2633_FIRMWARE](E2633_FIRMWARE.md) §5.4。
 
+**2026-11-01 晚补：第二轮扫描（新构建 + 字节序变换 + 指令立即数），仍全负。**
+编程器包里的 `bootloader.bin`（1 MiB）与 e1630.raw 同源但**不同构建**（内容 +0x58 错位、
+242 处差异区、头带 `128s` 板级标记），是 aesbrute 没见过的新材料；内有 AES S-box（`0x5503c`）、
+`CBC decrypt OK!`/`AES timeout`/`HASH timeout`/`RSA timeout` 双份（cspboot 与 u-boot 各一份
+AES 驱动，**CBC 用于配置/升级包，与 rootfs 的 ECB 不同路**），无任何 eFuse/OTP/KDF 字样。
+对该构建做了 12 遍全窗扫（raw/bswap32/bswap16/reverse/wordrev/halfswap × FF/00 明文假设，
+1 048 561 窗/遍）+ movw/movt 立即数流 + 10 913 个派生候选（hash/拼接/SR1010 hardcode 公式
+`model+"0x05100x0001"`）+ hex-ASCII 解码——**全负**；对解压内核 `vmlinux.bin` 补 5 遍变换扫
+（6 627 665 窗/遍）+ 39 720 个 movw/movt 与 62 176 个 `mov #imm` 立即数流（407 KB）——**全负**。
+
+由此钉死两条：① oracle 块在 E2631（2024-09）与 E2633 6B5 两台设备/两份固件里**逐字相同**
+⇒ 密钥是**平台全局常量**，§4.1 挂点 3 的「按设备 eFuse 唯一密钥」形态排除（若走熔丝也是全局
+出厂熔丝）；② 密钥不是任何 flash/软件产物中可静态构造的 16 字节——明文、字节序/排列变换、
+hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换混淆或未知 KDF」与「控制器/熔丝
+硬件驻留」两支。前者要反汇编 cspboot 的 AES 函数（`CBC decrypt OK!` 附近）或 `zx_denali_nand`
+的引擎初始化，后者走本节的真机 RAM/寄存器路线；`aesbrute.c` 与 `tools/lab/ecb-key-scan.py`
+两套判据工具（FIPS-197 自检）都可直接用于 RAM dump。
+
 两种结果都有信息量，别只看"命中"那一种：
 
 | 结果 | 含义 | 下一步 |
