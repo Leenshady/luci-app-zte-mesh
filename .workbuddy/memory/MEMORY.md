@@ -34,3 +34,5 @@
   接口名：2.4G `wlan0`–`wlan3`、5G `wlan5g0`–`wlan5g3`（`WLANCfg.IfName`）。
 - 出厂默认：**踢人走 `EnActiveDeauth`，不走 BTM**（`EnBtmKickoff=0`）；漫游缓存全关（`BtmCacheEn=0`）。
 - 11r 不存在（`CONFIG_CSP_WLAN_SUPPORT_80211KV`），只有 11k/11v。
+- E2633 rootfs：AES-128-ECB（oracle `9b58…0185` = `FF×16` 块）；密钥非盘上明文常量
+  （SR1010 的 CSPBOOT 常量打法全负，2026-11-01）。WAN 插线时 `IF1=4`/`IF99=0`——`IF99` 是逻辑 WAN。
