@@ -51,7 +51,7 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 | 机器 | 地址 | 角色 | 关键事实 |
 |---|---|---|---|
 | `ax3600` | 192.168.1.1 | 真机，刷 ImmortalWrt 25.12.2 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）。实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static` |
-| `owrt` | 192.168.1.20 | 实验主控（master） | x86_64，同一个内核版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**；`/usr/libexec/zte-mesh/ns-run`（x86_64）和 `root/qemu-arm-static` 目前是手工放的 |
+| `owrt` | 192.168.1.20 | 实验主控（master） | x86_64，同一个内核版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**。缺的两个二进制用 `tools/lab/build-launcher.sh` 补（**必须 `-static`**，见 §7 里 musl 那条）；`root/qemu-arm-static` 仍是手工放的 |
 | `ubuntu` | 192.168.1.191 | 编译机 | 就是本文主角。`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
 
 AX3600 走 qemu 是能长期跑的：`multiapd` 在这条路上连续跑了 22 小时、`daemon_restarts=0`。
@@ -274,6 +274,8 @@ logread | grep -e qemu -e execv                   # 不该再出现 "no qemu-arm
 | `ash: syntax error: unexpected word (expecting ")")` 执行 ARM32 程序时 | 内核没有 `CONFIG_COMPAT`，execve 返回 ENOEXEC，shell 把二进制当脚本读。AX3600 原厂固件就是这样；两条出路见 [BLOB_SHIM](research/BLOB_SHIM.md) 的 qemu 分支和 `build-firmware.yml` |
 | `mount: mounting none on /proc/sys/fs/binfmt_misc failed: No such file or directory` | 同一个原因的另一面：内核也没编 `BINFMT_MISC`，透明执行这条路直接没有 |
 | `error: ignoring return value of 'write' ... -Werror=unused-result` | `(void)write(...)` 从 GCC 9 起不算"用了返回值"。用 `emit()` 辅助函数真赋值再丢弃，别写 `(void)write` |
+| 装上的 `ns-run` 执行报 `not found`，`ls` 明明在 | 编译机 glibc、目标机 musl，动态链接的 ELF 找不到 `/lib64/ld-linux-x86-64.so.2`，`execve` 返回 ENOENT，shell 就报 `not found`。**加 `-static`**，别被 "not found" 骗成路径或权限问题 |
+| 覆盖正在运行的 `ns-run` 得到 `Text file busy` | 先 `/etc/init.d/zte-mesh stop` 再换文件，换完再 start |
 
 
 ## 8. 下一步
