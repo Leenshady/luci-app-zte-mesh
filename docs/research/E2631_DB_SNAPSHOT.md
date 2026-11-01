@@ -1,6 +1,6 @@
-# E2631 配置库实测快照：十三张表的真身
+# E2631 配置库实测快照：十六张表的真身
 
-2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。五轮：
+2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。六轮：
 
 ```sh
 # 第一轮
@@ -23,6 +23,10 @@ sendcmd 1 DB p WlanRoamingCfg    # RowCount=1，6 列 —— 不是 11r，是客
 sendcmd 1 DB p MultiapCapability # RowCount=1，2 列 —— 不是位图对照表
 sendcmd 1 DB p EthVlan           # RowCount=0（表存在、无实例）
 sendcmd 1 DB p Brport            # RowCount=16，23 列 —— 桥端口拓扑 + VLAN 列全默认
+# 第六轮（§10）
+sendcmd 1 DB p MapCooperatorCfg  # RowCount=1，5 列 —— 与 SCHEMA 的还原逐字同序
+sendcmd 1 DB p WLANSSID          # RowCount=8，8 列 —— band 分组首次明确，但全列 isSave=0
+sendcmd 1 DB p PortBinding       # RowCount=0（D5 第三个候选也空）
 ```
 
 这份文件的用途只有一个：**它是 [E2631_ROOTFS](E2631_ROOTFS.md) §6 那些离线推断的对照答案**。
@@ -590,13 +594,13 @@ sendcmd 1 DB p WlanRoamingCfg   # RowCount=1，6 列
 编译期（`/etc/autouserconf` 里只有 `CONFIG_CSP_WLAN_SUPPORT_80211KV`）与配置层（本表无 FT 开关）。
 这条线索到此结案，不必再查。
 
-### 8.4 顺带读出来的：`ViewName` 的三种命名风格
+### 8.4 顺带读出来的：`ViewName` 的三种命名风格（§10.6 补了第四种）
 
 | 风格 | 例子 | 出现在 |
 |---|---|---|
 | 大写无点 | `MULTIAPMASTER`、`MULTIAPDOMAIN1` | `MultiAPMaster`、`MultiAPDomain` |
 | `IGD.` 前缀 | `IGD.P1905CFG1`、`IGD.TpCfg0` | `P1905Cfg`、`TimePolicy` |
-| `DEV.` 前缀 + 点分 | `DEV.WIFI.ROAMING` | `WlanRoamingCfg` |
+| `DEV.` 前缀 + 点分 | `DEV.WIFI.ROAMING`、`DEV.BRIDGING.BR1.BRPORT2` | `WlanRoamingCfg`、`Brport` |
 
 `IGD.` / `DEV.` 都是 **TR-069 数据模型的根对象前缀**（InternetGatewayDevice / Device）。
 所以 `ViewName` 不是随便起的实例名，而是 **TR-069 路径到 DB 行的映射**。
@@ -784,6 +788,9 @@ ZTE 没给 `PortState` 的枚举值，4 的含义是**推断**（桥自身与 WA
 **判据**：dump `WLANSSID`(#261) 看 SSID 实例与 `MULTIAPDOMAINn` 的对应关系，同时问用户当时 LAN1/LAN2/LAN3
 实际插了哪根线——若 4 真是 up，则应是**只有 LAN2 插着线**。这条是可检验的预测，下一轮一并验。
 
+> **第六轮已验一半**：`WLANSSID` 证实了同号关系（§10.3 三方证据），但 `PortState` 的 0/4 语义仍未定，
+> 反而多了一条反证。结论见 §10.5。
+
 ### 9.7 顺带读出的一条：1905 走 `br0`，业务走 `br1`
 
 `MultiAPCfg.IFLink = "br0"`（§6.1），而 `Brport` 全部 16 行都在 `DEV.BRIDGING.BR1` 下——**不是同一个桥**。
@@ -797,20 +804,150 @@ LAN/SSID 用户流量走 `br1`，桥本身就隔开了。这也顺手解释了�
 
 ---
 
-## 10. 还没 dump 的表（按价值排序）
+## 10. 第六轮：`WLANSSID` 解开 band 分组，`MapCooperatorCfg` 让角色线结案
 
-| 顺序 | 表 | 为什么要它 | D 段哪一项 |
+```sh
+sendcmd 1 DB p MapCooperatorCfg   # RowCount=1，5 列
+sendcmd 1 DB p WLANSSID           # RowCount=8，8 列
+sendcmd 1 DB p PortBinding        # RowCount=0
+```
+
+### 10.1 `MapCooperatorCfg`：5 列，与 [SCHEMA](../milestones/SCHEMA.md) 的还原**逐字同序**
+
+| 列 | 值 | 读法 |
+|---|---|---|
+| `AutoSetup` | **0** | 自动配置/自动开局：关 |
+| `WpsActiveDelayTime` | 90 | WPS 激活延迟 |
+| `Addr4EffectDelayTime` | 10 | 见 §10.8（有歧义） |
+| `EnRebootElect` | **0** | 重启后重新选举：关 |
+| `WpsLongPress` | 0 | WPS 长按 |
+
+`SCHEMA.md` 第 140 行记的是「`AutoSetup`、`WpsActiveDelayTime`、`Addr4EffectDelayTime`、
+`EnRebootElect`、`WpsLongPress`」——**五个字段名与顺序全部命中，一个不多一个不少**。
+
+这是本仓**第三次**「离线还原被真机逐字证实」（前两次：`MultiAPCfg` 的 `36+32n` 六锚点、
+`IGD.` 是行名前缀）。三次的共同点：还原物是**有结构约束的东西**（偏移公式、行名层级、字段序列），
+不是「表名像什么」式的联想——后者就是 §9.1 那次翻车的原因。
+
+### 10.2 角色这条线可以结案：静态 Slave，六个开关全关
+
+把散在两张表里的开关并排看：
+
+| 开关 | 所在表 | 值 | 方向 |
 |---|---|---|---|
-| 1 | `MapCooperatorCfg`(#139) | 角色选举触发分支（`AutoSetup`/`EnRebootElect`）—— 本机是 `Mode=1` 的 Slave，选举相关的值**从来没看到过** | 角色 |
-| 2 | `WLANSSID`(#261) | SSID 实例；用来证伪/证实 `MULTIAPDOMAINn ↔ SSIDn` 的 1:1（§3.1），并消掉 §9.6 的张力 | D7 |
-| 3 | `PortBinding`(#182) | `Brport` 已定桥侧入口，这张表是「端口↔服务」的另一种绑法，可用来解释 15/16 的 `ServList` | D5 |
+| `Mode` | `MultiAPCfg` | **1** | = Slave |
+| `SetRoleEnable` | `MultiAPCfg` | **0** | 不参与自适应 |
+| `RoleElect` | `MultiAPCfg` | **0** | 不做角色选举 |
+| `EnMasterOnly` | `MultiAPCfg` | **0** | 无"仅控制器"约束 |
+| `AutoSetup` | `MapCooperatorCfg` | **0** | 不自动开局 |
+| `EnRebootElect` | `MapCooperatorCfg` | **0** | 重启后不重新选举 |
 
-`MultiapCapability` / `EthVlan` / `Brport` **已在 §9 结掉**。
+⇒ **本机角色是静态配置出来的子节点**：既不选举、也不自配，重启也不会改主意。
+这不是"读到一个值"，是六条独立开关同向。**角色这条线到此结案**，除非把它改成 Master 再做实验。
+
+### 10.3 `WLANSSID`：8 行 —— band 分组第一次明确
+
+| 行 | `ViewName` | `Alias` | `LowerLayers`（父对象） |
+|---|---|---|---|
+| 0–3 | `DEV.WIFI.SSID1`…`SSID4` | `SSID1`…`SSID4` | **`Device.WiFi.Radio.1`** |
+| 4–7 | `DEV.WIFI.SSID5`…`SSID8` | `SSID5`…`SSID8` | **`Device.WiFi.Radio.2`** |
+
+**`SSID1`–`SSID4` 归 Radio.1，`SSID5`–`SSID8` 归 Radio.2，4 + 4 对称。**
+
+由此 `MULTIAPDOMAINn ↔ SSIDn` 的同号关系从"推断"升到**强**，现在有三方独立证据：
+
+1. `WLANSSID` 恰好 8 行，行名 `SSID1`–`SSID8`，与 `MULTIAPDOMAIN1`–`MULTIAPDOMAIN8` 数量与编号都对得上；
+2. `Brport` 的 `BRPORT3`–`BRPORT10` 的 `LowerLayers` 逐字是 `DEV.WIFI.SSID1`…`SSID8`（§9.3）；
+3. **对称性**：§3.1 生效的 domain 是 `1/4/5/8`，按 4+4 分组正好是 **Radio.1 侧两个（1、4）+ Radio.2 侧两个（5、8）**，
+   每个 radio 两个生效 BSS。随机凑出这种对称的概率不高。
+
+band 归属**仍未定**（Radio.1 是 2.4G 还是 5G），要从 `WLANBase`/`WLANCfg` 或 `iw dev` 才能定。
+但「哪些 SSID 在同一个 radio 上」这一层现在是硬的——做多频策略、BSS 同步类功能时，这个分组直接可用。
+
+### 10.4 硬结论二：`WLANSSID` 是一张**写不进去**的表
+
+8 行 × 8 列，**`isSave` 全是 0**。列也只有
+`ViewName/LANDViewName/Enable/Status/Alias/Name/LastChange/LowerLayers`——**没有一个字段是 ESSID、加密方式、密钥、隐藏开关**。
+
+⇒ `WLANSSID` 不是配置表，是**运行时生成的接口视图**（"有哪些 BSS 存在"）。
+真正的 SSID 配置在 `WLANCfg`(#259) / `WLANBase`(#258) / `WLANSetting`(#263) / `WLANPSK`(#260)，这四张**都还没 dump**。
+
+对项目的直接意义：**别去写 `WLANSSID`**。按 §8.5 的判据，`isSave=0` 的列写 DB 不落盘；
+而这张表是**整表** 8 列全 0，比"某几列不落盘"更彻底——它连一个可写字段都没有。
+
+### 10.5 上一轮那个"`PortState` vs `DomainUsed`"张力：缩小了，但没消掉
+
+好消息是同号关系已经由 §10.3 的三方证据支撑，所以 §9.6 的第 2 号可能（"domain 与 SSID 并非同号"）
+基本可以划掉，剩下的差集更可能出在 `PortState` 的语义上。
+
+坏消息是这一轮**没能定 `PortState`**，反而多了一条反证：
+
+- `WLANSSID.Enable` 8 行**全是 1**（8 个 BSS 都启用），而 `Brport.PortState` 只有 5 个是 4。
+  若 4 = up，应见到 8 个 4，除非 3 个 BSS 没真正起来——但这跟 `Enable=1` 直接冲突。
+- `WLANSSID.Status` 与 `LastChange` **8 行全 0**。这两个字段也是 `isSave=0`，全表统一为 0 更像是
+  **根本没被填充**（懒实现），而不是"8 个口状态都是 0"。⇒ 不能拿 `Status=0` 去套 TR-181 的
+  「0 = Up」枚举，否则会得出"8 个 SSID 全 Up 但 5 个 PortState=4"这种自相矛盾。
+
+⇒ **`PortState` 的 0/4 语义仍未定，且上一轮"4 = 转发/up"的读法现在更可疑。**
+要定只能从系统侧看：`brctl show` / `ifconfig -a` / `iw dev`。这条从"可 dump 解决"改成"需系统命令"。
+
+### 10.6 一处新的标识风格：`Device.WiFi.Radio.1` 与 `DEV.WIFI.SSID1` 并存
+
+同一行里，`ViewName`/`Name` 写的是缩写 `DEV.WIFI.SSID1`，而 `LowerLayers` 指向父对象时写的是
+**标准 TR-181 全名** `Device.WiFi.Radio.1`（`Device.` 全拼 + 点分 + 数字实例号）。
+
+§8.4 记的三种风格（大写无点 / `IGD.` / `DEV.`）之外，这是**第四种**，而且它与缩写**同表共存**。
+两点影响：
+
+- **引用会跨两套标识**：`DEV.` 是 ZTE 自己缩的别名，`Device.` 是标准全名。做 web 层或 DB 写入时，
+  顺着 `LowerLayers` 去找 `Device.WiFi.Radio.1` 这一行，**在 DB 里很可能找不到**（行名多半是别的形状）。
+- `Radio.1`/`Radio.2` 在配置库里对应哪张表、哪一行，**本轮没有 dump**——`WLANBase`(#258) 是最可能的落点。
+  这也正好是 band 归属的解所在。
+
+### 10.7 `PortBinding` 0 行 ⇒ D5 的三个候选只剩一个
+
+| 候选 | 结果 |
+|---|---|
+| `EthVlan`(#79) | **0 行**（§9.2） |
+| `Brport`(#20) | **16 行**，8 个 VLAN 列全默认（§9.3–9.4） |
+| `PortBinding`(#182) | **0 行**（本轮） |
+
+三取一，**只有 `Brport` 有内容**。D5 的落点因此更可能就在 `Brport` 那 8 列，或者由 web 层在启用时
+**按需给 `EthVlan` 建行**（空表不等于不承载，§9.2 已强调）。这条仍然只能靠读 web 的 `.lua` 来定，dump 到头了。
+
+### 10.8 一个跨条目的意外收获：`Addr4EffectDelayTime`
+
+`MapCooperatorCfg` 里这个 `10` 有两种读法，**仅凭列名分不出来**：
+
+- **IPv4 地址生效延迟**（拿到地址后等 10 秒再生效）；
+- **4-address 模式生效延迟**（WDS/4 地址模式下，客户端 MAC 独立成帧的那套模式）。
+
+如果是后者，它与 **B13（无线回程 STA，要真机看 `4addr`）直接相关**——那是本项目里第一次看到
+"4 地址模式"有专门的时序参数，说明厂商侧这套是**运行时可控**的，不只是编译进去。
+但两种读法都讲得通，这里只登记为歧义，**不当证据用**。判据：`multiapd`/`cpsd` 的字符串里
+`Addr4` 前后出现的上下文，或上机看 `iw` 的 `4addr` 状态与这个值是否联动。
+
+---
+
+## 11. 还没 dump 的表（按价值排序）
+
+前六轮的只读命令已把 mesh 侧与网络侧的骨架走完（结果见 §1–§10）。剩的是**无线配置本体**这一层：
+
+| 顺序 | 表 | 为什么要它 |
+|---|---|---|
+| 1 | `WLANBase`(#258) | `Device.WiFi.Radio.1/2` 在库里怎么命名、**哪个 radio 是 2.4G / 5G**（§10.6 的落点） |
+| 2 | `WLANCfg`(#259) | **真正的 SSID 配置**（ESSID/隐藏/加密方式）——`WLANSSID` 是视图，写不进去（§10.4） |
+| 3 | `WLANSetting`(#263) | 无线总设置，看 band 与 BSS 的启用关系 |
+| 4 | `WlanRoamingSta`(#271) | per-STA 漫游实例，可能能解释 §10.5 的状态差 |
+
 全部只读、不用停机。表名清单见 [E2631_DB_TABLES](E2631_DB_TABLES.md)。
 
-**不再排进 dump 的**：`SupportStrategies=251` / `EnRoamModes=19` 的位含义——
-数据早就有了（在 `MultiAPDomain` 里），缺的是语义，dump 再多表也解不出来（§9.1）。
+**已经 dump 到头、只能换手段的三件事**（不要再排 `sendcmd`）：
 
-`MultiAPCacheMac` / `MultiAPStaCfg` / `P1905StaBind` 已 dump 完但行空（§5、§8.2），
-要看到行得先在网页上配一条绑定，属于**改配置**，不再是只读取证。
+| 问题 | 为什么 dump 解决不了 | 该换什么手段 |
+|---|---|---|
+| `SupportStrategies=251` / `EnRoamModes=19` 的位含义 | 值早就在 `MultiAPDomain` 里，缺的是语义 | 反汇编 / Multi-AP 规范正文 |
+| `PortState` 的 0/4 语义（§10.5） | `Brport` 已给全 16 行，没有更多表可查 | `brctl show` / `iw dev` / `ifconfig -a` |
+| 厂商启用 VLAN 时写哪张表（§10.7） | 三个候选已全部 dump，两个空表一个有内容 | 读 web VLAN 页面的 `.lua` 字节码 |
+
 

@@ -189,8 +189,31 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
   `IF2/3/4` 恰好是 `LAN1/LAN2/LAN3`，与 AX3000"1 WAN + 3 LAN"吻合。但 `DEV.ETH.IFn ↔ ethn` 同号
   **本轮没有证到**，只是间接证据；要定得靠 `ip link`。
 
+**第六轮（`MapCooperatorCfg` / `WLANSSID` / `PortBinding`）结掉两条线，也给"dump 到头"画了边界**：
+
+- **`MapCooperatorCfg` 1 行 5 列，字段名与顺序与 [SCHEMA](milestones/SCHEMA.md) 的还原逐字一致**——
+  本仓第三次「离线还原被真机命中」（前两次：`MultiAPCfg` 的 `36+32n`、`IGD.` 是行名前缀）。
+  `AutoSetup=0`、`EnRebootElect=0`，加上 `Mode=1`/`SetRoleEnable=0`/`RoleElect=0`/`EnMasterOnly=0`，
+  **六个开关同向** ⇒ 本机是静态配置出来的 Slave，不选举、不自动开局、重启也不改主意。**角色这条线结案。**
+- **`WLANSSID` 8 行 × 8 列，band 分组第一次明确**：`SSID1`–`SSID4` 挂 `Device.WiFi.Radio.1`，
+  `SSID5`–`SSID8` 挂 `Radio.2`，**4 + 4**（哪个是 2.4G/5G 仍未定）。`MULTIAPDOMAINn ↔ SSIDn` 的同号关系
+  由此升到**强**，三方证据：8 行的数量与编号、`Brport` 端口指向 `DEV.WIFI.SSIDn`、以及生效 domain
+  `1/4/5/8` 正好是「每个 radio 两个」的对称分布。
+- **但 `WLANSSID` 8 列全 `isSave=0`，且没有任何 ESSID/加密/密钥字段 ⇒ 它是运行时接口视图，不是配置表。**
+  按 §8.5 的判据，**别去写 `WLANSSID`**（整表连一个可写字段都没有）。真正的 SSID 配置在
+  `WLANCfg`(#259)/`WLANBase`(#258)/`WLANSetting`(#263)/`WLANPSK`(#260)，这四张都还没 dump。
+- `PortBinding` 0 行 ⇒ D5 的三个候选（`EthVlan`/`Brport`/`PortBinding`）**只剩 `Brport` 有内容**。
+- 上一轮的 `PortState` 张力**没消掉，反而多了一条反证**：`WLANSSID.Enable` 8 个全是 1，而
+  `PortState` 只有 5 个是 4；且 `WLANSSID.Status`/`LastChange` 8 行全 0 更像"字段没被填充"而不是
+  「0 = Up」。⇒ `PortState` 的 0/4 语义**仍未定**，要从 `brctl show`/`iw dev` 取，不再排进 dump。
+
+至此 mesh 侧与网络侧的骨架**走完**。剩下没 dump 的表是无线配置本体（`WLANBase`/`WLANCfg`/`WLANSetting`/
+`WlanRoamingSta`），而三件真正卡住的事——位图语义、`PortState` 语义、厂商启用 VLAN 时写哪张表——
+**都已确认不是 `sendcmd` 能解决的**，各自有别的取证手段（反汇编或 Multi-AP 规范正文、系统命令、web `.lua`）。
+
 一条通用判据（从 `ViewName`/`ESSID`/`DomainUsed` 全是 `isSave=0` 读出来的）：**`isSave=0` 的列是
 运行时/派生值，写 DB 不落盘**。改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"。
+`WLANSSID` 是这条判据的极端情形——**整表 8 列全 0**，连一个可写字段都没有。
 
 **七项的"入口位置"现在是实测级，但"功能本身"一项都没实测**，所以仍然没有一项改成 ✅。
 
@@ -199,17 +222,16 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 顺序 | 项 | 难度 | 说明 |
 |---|---|---|---|
 | — | B8 / B9 / B10 / B12 / A20 / B5 / B7 / B17 / C4 / C5 / C6 / C7 | — | **已完成**（2026-10-31） |
-| — | `sendcmd 1 DB p` 配置库 schema 取证（五轮、十三张表 + 表名全集） | — | **已完成**（2026-11-01）：`MultiAPMaster` 55 列、`MultiAPDomain` 8×106 列、`MultiAPRoamCatonCfg` 7 列、`MultiAPCfg` 50 列、`P1905Cfg` 12×3 列（`ViewName` = `IGD.P1905CFG1..6`）、`WlanRoamingCfg` 1×6 列、`MultiapCapability` 1×2 列、`Brport` 16×23 列（端口拓扑 + 8 个 VLAN 列全默认）切对；`P1905ComCfg` 只有 8 列、`MultiAPCacheMac` 那 7 列其实在 `MultiAPRoamCatonCfg`，两处切错已自纠；`EthVlan` 与三张 per-STA 表（`MultiAPStaCfg`/`P1905StaBind`/`MultiAPCacheMac`）表在行空；`DB all` 拿到 276 张表名全集。两条线索**结案为负**：11r（`WlanRoamingCfg` 无 FT 开关）、D5 的配置层 VLAN（`EthVlan` 空 + `Brport` 全默认）。见 [E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md)、[E2631_DB_TABLES](research/E2631_DB_TABLES.md) |
+| — | `sendcmd 1 DB p` 配置库 schema 取证（六轮、十六张表 + 表名全集） | — | **已完成**（2026-11-01）：`MultiAPMaster` 55 列、`MultiAPDomain` 8×106 列、`MultiAPRoamCatonCfg` 7 列、`MultiAPCfg` 50 列、`P1905Cfg` 12×3 列（`ViewName` = `IGD.P1905CFG1..6`）、`WlanRoamingCfg` 1×6 列、`MultiapCapability` 1×2 列、`Brport` 16×23 列（端口拓扑 + 8 个 VLAN 列全默认）、`MapCooperatorCfg` 1×5 列（**与 SCHEMA 还原逐字同序**）、`WLANSSID` 8×8 列（**SSID1–4→Radio.1、SSID5–8→Radio.2；全列 `isSave=0`，是视图不是配置表**）切对；`P1905ComCfg` 只有 8 列、`MultiAPCacheMac` 那 7 列其实在 `MultiAPRoamCatonCfg`，两处切错已自纠；`EthVlan`/`PortBinding` 与三张 per-STA 表（`MultiAPStaCfg`/`P1905StaBind`/`MultiAPCacheMac`）表在行空；`DB all` 拿到 276 张表名全集。三条线索**结案**：11r 为负（`WlanRoamingCfg` 无 FT 开关）、D5 配置层为零（`EthVlan` 空 + `Brport` 全默认）、角色为静态 Slave（六开关同向）。见 [E2631_DB_SNAPSHOT](research/E2631_DB_SNAPSHOT.md)、[E2631_DB_TABLES](research/E2631_DB_TABLES.md) |
 | 1 | r10 四包装机验收 | 0 | 产物已在手，两台换上即可 |
 | 2 | ax3600 刷 `CONFIG_COMPAT=y` 固件 | 1 | 彻底摆脱手工模拟器，`.github/workflows/build-firmware.yml` |
 | 3 | C3 统一行尾 | 1 | 影响整个仓库，**需要单独确认** |
-| 4 | 补 dump 剩余三张表：`MapCooperatorCfg` / `WLANSSID` / `PortBinding` | 0 | **只读、不用停机**。第五轮已跑掉 `MultiapCapability`/`EthVlan`/`Brport`。剩下的：角色选举触发分支、`MULTIAPDOMAINn ↔ SSIDn` 的 1:1（顺带消掉"5 个 BSS up vs 4 个 domain 生效"的张力，见 [SNAPSHOT](research/E2631_DB_SNAPSHOT.md) §9.6）、端口↔服务的另一种绑法。若 D5 仍不够，下一步是**读 web VLAN 页面的 `.lua` 字节码**看 `OBJ_*_ID` 指向哪张表（只读，难度 1） |
-| 5 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
-| 6 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
-| 7 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
-| 8 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定 |
-| 9 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 8 项都过了才值得动 |
-| 10 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；取证改用它自带的 `pktdump 1`（落 `/var/tmp`）或 `logcat \| grep "AGENT RECV"`，**不必再自带抓包程序**。停机前先做零成本只读项：`sendcmd 1 DB p`（读 mesh 配置库）、`cat /proc/kallsyms \| grep 1905`、取 `/kmodule/bin/multiapd` 原件。见 [MULTIAPD](research/MULTIAPD.md) §5 与 [E2633_TELNET_BOOT](research/E2633_TELNET_BOOT.md) §11 |
+| 4 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
+| 5 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
+| 6 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
+| 7 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定。**新线索**：`MapCooperatorCfg.Addr4EffectDelayTime=10` 可能就是 4 地址模式的生效延迟（歧义未定，见 [SNAPSHOT](research/E2631_DB_SNAPSHOT.md) §10.8） |
+| 8 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 7 项都过了才值得动 |
+| 9 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；取证改用它自带的 `pktdump 1`（落 `/var/tmp`）或 `logcat \| grep "AGENT RECV"`，**不必再自带抓包程序**。停机前先做零成本只读项：`sendcmd 1 DB p`（读 mesh 配置库）、`cat /proc/kallsyms \| grep 1905`、取 `/kmodule/bin/multiapd` 原件。见 [MULTIAPD](research/MULTIAPD.md) §5 与 [E2633_TELNET_BOOT](research/E2633_TELNET_BOOT.md) §11 |
 
 > **B16 `CurHop` 已结案**（原第 5 项）：`MultiAPCfg.CurHop=2=MaxHop`，且 `EnMasterOnly=0`，
 > 与 [SCHEMA](milestones/SCHEMA.md) "`EnMasterOnly=1` 时 `slave_init` 跳过、`CurHop` 不会被设成 `MaxHop`"

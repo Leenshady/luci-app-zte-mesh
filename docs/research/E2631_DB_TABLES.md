@@ -61,7 +61,7 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 | 270 | **`WlanRoamingCfg`** | **已 dump（2026-11-01）**：6 列，是**客户端弱信号重关联**参数，**没有 11k/11v/11r 开关位**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §8.3 |
 | 271 | `WlanRoamingSta` | 漫游 STA 实例表，未 dump |
 | 259 | `WLANCfg` | 无线总配置 |
-| 261 | `WLANSSID` | SSID 实例；与 `MULTIAPDOMAINn` 的 1:1 关系可交叉验证 |
+| 261 | **`WLANSSID`** | **已 dump（2026-11-01）**：8 行 × 8 列，行名 `DEV.WIFI.SSID1..8`，`SSID1–4`→`Device.WiFi.Radio.1`、`SSID5–8`→`Radio.2`。**8 列全 `isSave=0`、且没有任何 ESSID/加密字段 ⇒ 是运行时接口视图，不是配置表，写不进去**。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §10.3–10.4 |
 | 258 | `WLANBase` | 基础参数 |
 | 260 | `WLANPSK` | 密钥 |
 | 264 | `WLANWEP` | 老加密 |
@@ -82,7 +82,7 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 
 | # | 表 | 说明 |
 |---|---|---|
-| 139 | `MapCooperatorCfg` | [SCHEMA](../milestones/SCHEMA.md) 已记录：`AutoSetup`、`EnRebootElect`、`WpsLongPress` 等，**影响角色选举触发分支** |
+| 139 | **`MapCooperatorCfg`** | **已 dump（2026-11-01）**：1 行 5 列，`AutoSetup=0`、`WpsActiveDelayTime=90`、`Addr4EffectDelayTime=10`、`EnRebootElect=0`、`WpsLongPress=0`。**字段名与顺序与 [SCHEMA](../milestones/SCHEMA.md) 的还原逐字一致**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §10.1 |
 | 154 | **`MultiapCapability`** | **已 dump（2026-11-01）**：只有 2 列 `SupportBSSync=1`、`SupportPackageProduct=0`，**不含任何策略/漫游模式位图**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §9.1 |
 | 206 | `SFUMeshCfg` | SFU（主网关侧）的 mesh 配置 |
 | 207 | `SFUTopoCfg` | SFU 侧拓扑配置 |
@@ -90,6 +90,10 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 **`MultiapCapability` 与 `SupportStrategies=251` 没有对照关系**——上一版这里写"一起看有机会解开那个位图"，
 实测证伪：那张表只有两个 `Support*` 能力位。`SupportStrategies=251` / `EnRoamModes=19` 的值本来就在
 `MultiAPDomain` 里，**缺的是位的语义，不是缺数据**，dump 再多表也解不出来（详见快照 §9.1）。
+
+**角色这条线已结案**：`MapCooperatorCfg.{AutoSetup,EnRebootElect}=0` +
+`MultiAPCfg.{Mode=1,SetRoleEnable=0,RoleElect=0,EnMasterOnly=0}` —— **六个开关同向**，
+本机是静态配置出来的 Slave，不选举、不自动开局、重启也不改主意（快照 §10.2）。
 
 ## 4. 其余表（按字母序全量）
 
@@ -214,22 +218,24 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 
 ## 6. 下一步 dump 的优先级（全部只读）
 
-前五轮列出的命令已跑完 11 条（结果见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §5–§9）。
-其中 `MultiapCapability` / `EthVlan` / `Brport` 三张已在第五轮结掉：**前者否掉了"位图对照"的假设，
-后两者给出 D5 的负结果 + 桥侧可用入口**。剩下这些：
+前六轮的命令已把 mesh 侧与网络侧的骨架走完（结果见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §5–§10）。
+第五轮结掉 `MultiapCapability` / `EthVlan` / `Brport`，第六轮结掉
+`MapCooperatorCfg` / `WLANSSID` / `PortBinding`。剩下的全是**无线配置本体**：
 
 | 顺序 | 命令 | 期望 |
 |---|---|---|
-| 1 | `sendcmd 1 DB p MapCooperatorCfg` | 角色选举触发分支（`AutoSetup`/`EnRebootElect`）——本机是 `Mode=1` 的 Slave，选举相关值从没看到过 |
-| 2 | `sendcmd 1 DB p WLANSSID` | SSID 实例，与 `MULTIAPDOMAINn` 的 1:1 关系交叉验证；同时用来消掉快照 §9.6 的张力（5 个 BSS up vs 4 个 domain 生效） |
-| 3 | `sendcmd 1 DB p PortBinding` | `Brport` 已定桥侧入口，这张表是"端口↔服务"的另一种绑法，可解释 `BRPORT15/16` 的 `ServList=1` |
+| 1 | `sendcmd 1 DB p WLANBase` | `Device.WiFi.Radio.1/2` 在库里怎么命名，**哪个 radio 是 2.4G / 5G** |
+| 2 | `sendcmd 1 DB p WLANCfg` | **真正的 SSID 配置**（ESSID/隐藏/加密）——`WLANSSID` 只是视图 |
+| 3 | `sendcmd 1 DB p WLANSetting` | 无线总设置，band 与 BSS 的启用关系 |
+| 4 | `sendcmd 1 DB p WlanRoamingSta` | per-STA 漫游实例 |
 
-**不再排进 dump 的**：`SupportStrategies=251` / `EnRoamModes=19` 的位含义。数据早就在
-`MultiAPDomain` 里，缺的是语义——位图解释只能从反汇编或 Multi-AP 规范正文来，
-**dump 再多表也解不出来**（快照 §9.1）。
+**dump 已经到头的三件事**（不要再排 `sendcmd`）：位图语义（`SupportStrategies=251`/`EnRoamModes=19`，
+缺的是语义不是数据）、`PortState` 的 0/4 语义（`Brport` 16 行已全给，需 `brctl show`/`iw dev`）、
+厂商启用 VLAN 时写哪张表（三个候选已全部 dump：`EthVlan` 0 行、`PortBinding` 0 行、`Brport` 有内容，
+需读 web 的 `.lua`）。
 
-`DB all` 已经跑过，不必再跑。三张 per-STA 表（`MultiAPStaCfg` / `P1905StaBind` /
-`MultiAPCacheMac`）**行空是常态**，要看到行得先配一条绑定——那是改配置，不是取证。
+`DB all` 已经跑过，不必再跑。`MultiAPStaCfg` / `P1905StaBind` / `MultiAPCacheMac` / `EthVlan` / `PortBinding`
+**行空是常态**，要看到行得先配一条——那是改配置，不是取证。
 
 **一条通用判据**（本轮读出）：`isSave=0` 的列是运行时/派生值，写 DB 不落盘。
 改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"。
