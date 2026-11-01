@@ -32,7 +32,8 @@ DT_PLTRELSZ, DT_PLTREL, DT_JMPREL, DT_SYMTAB, DT_STRTAB = 2, 20, 23, 6, 5
 class Elf:
     def __init__(self, path):
         self.path = path
-        self.d = d = open(path, "rb").read()
+        with open(path, "rb") as f:
+            self.d = d = f.read()
         if d[:4] != b"\x7fELF" or d[4] != 1 or d[5] != 1:
             raise ValueError("只支持 ELF32 小端")
         self.e_type = struct.unpack_from("<H", d, 16)[0]

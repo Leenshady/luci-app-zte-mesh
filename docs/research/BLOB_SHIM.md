@@ -18,6 +18,11 @@
    **68 处 MTK 私有 `ioctl`**，文本层翻译不了。所以最终推荐是「**DB 层垫片**」（选项 A）：
    `multiapd`/`libcmapi` 只写 DB 不碰驱动，而 `libdb.so` 自带 `DBShmSrvInit`，
    服务端不用我们写。§3.1 记录了这个结论两次反转的完整过程，包括我第一版的误判。
+4. **这个 applier 要写多少，已经量出来了（§3.3）。** `Wlan*Db*` 34 个函数的表名 **100% 解出**，
+   两份独立固件共有的 30 个**逐字一致**；整个程序集 **116 个函数、124 条「函数×表」记录、29 张表**；
+   而 `multiapd` 侧**只有 4 个 API 带写路径**。所以 applier 不是"监听 29 张表"，
+   而是"4 个写入口 → 5 张表（`WLANCfg`/`WLANBase`/`WLANPSK`/`WLANSetting`/`AclCfg`）的关键列
+   翻译成 nl80211"。剩下的未知只有**列偏移**。
 
 ## 1. 样本与它和前一份分析的关系
 
@@ -174,11 +179,113 @@ mt7916.ko
 > `system`/`popen`/`exec*`**。厂商固件普遍有自己的 exec 封装（本例 `MonitorPcStartProgram`，
 > 由 `libcfapi.so` 与 `cspd` 各导出一份），正确做法是**先找"程序名字符串被谁引用"**，
 > 再顺着引用点看调用的是什么函数——字符串引用数比调用点扫描更能兜住未知封装。
-## 4. 四个切点，选哪个（§3.1/§3.2 之后重排）
+
+### 3.3 实测：`Cm*` 到底落到哪几张表（2026-11-01 深夜四，本轮）
+
+§3.2 证明了"`Cm*` 是纯 DB 客户端"，但留了一个只有机器码能回答的问题：**落到哪几张表**。
+这个数直接决定 A 方案 applier 的规模 —— 不先量出来，写 applier 就是猜。
+本轮用 `tools/lab/cmapi-tables.py` 从两份**独立构建**里把它读出来了。
+
+#### 怎么读出来的（四次踩坑，前三次都是"0 命中"）
+
+| # | 错误假设 | 真相 |
+|---|---|---|
+| 1 | 字符串地址是 `ldr rX, =<字符串 VA>` 直接加载 | 共享库走 GOT；`.rel.dyn` 的 `R_ARM_RELATIVE` 把真值放在**槽的初始内容**里，文件里不是 0 —— 要先建这张表 |
+| 2 | 字面量就是字符串地址 | GCC 为省字面量池写 `ldr rX, =<**偏移**>` + `add rX, pc, rX`，真实地址 = 偏移 + 该 `add` 的 `PC+8`。`WlanCfgDbRead` 里 `dbAPIGetView("WLANCfg")` 的 r0 是 `0xb72c + 0x506c4 + 8 = 0x5bdf8` |
+| 3 | 收集"函数里出现的所有表名字符串" | 日志串里也有表名（`%s is NULL` 旁边就写着 `(ptViewCfg)`），会把日志函数误记成读写者。**只认 `dbAPIGetView`/`dbAPISetView` 调用那一刻的 r0** |
+| 4 | 只认 `bl` 就算调用图 | 写路径是 `dbAPISetView` 不是 `dbAPIGetView`；`CmWLANSetPsk` 这类是 `ldr ip, =func; bx ip` 尾调用，只认 `bl` 会得到"可达 1 个符号"的假象 |
+
+还有一个自己造的坑值得记：用 `\x00(.*?)\x00` 正则抽字符串表，会把**下一个串的前导 `\x00`
+一起消费掉**，而 `.rodata` 里字符串是紧挨着排的 —— 结果是每隔一个漏一个，`WLANPSK`
+就这么漏了（单独 `re.search` 能找到，批量遍历找不到）。
+
+#### 结果一：`Wlan*Db*` 一共 34 个，表名 100% 读出
+
+E2631 构建 34 个（17 张表 × 读写），SR1010 构建 32 个（16 张表 × 读写），
+**没有一个需要"看调用方才知道表名"**：
+
+| 表 | 读函数 / 写函数 | E2631 | SR1010 |
+|---|---|:-:|:-:|
+| `WLANCfg` | `WlanCfgDbRead` / `WlanCfgDbWrite` | ✓ | ✓ |
+| `WLANBase` | `WlanBaseDbRead` / `WlanBaseDbWrite` | ✓ | ✓ |
+| `WLANPSK` | `WlanPSKDbRead` / `WlanPSKDbWrite` | ✓ | ✓ |
+| `WLANSSID` | `WlanSSIDInstIdDbRead` / `…DbWrite` | ✓ | ✓ |
+| `WLANSetting` | `WlanSettingDbRead` / `WlanSettingDbWrite` | ✓ | ✓ |
+| `WLANWEP` | `WlanWEPInstIdDbRead` / `…DbWrite` | ✓ | ✓ |
+| `WLANWMM` | `WlanWMMInstIdDbRead` / `…DbWrite` | ✓ | ✓ |
+| `WLANWPS` | `WlanWPSDbRead` / `WlanWPSDbWrite` | ✓ | ✓ |
+| `WLANAD` | `WlanADInstIdDbRead` / `…DbWrite` | ✓ | ✓ |
+| `WLANScheduler` | `WlanSchedulerInstIdDbRead` / `…DbWrite` | ✓ | ✓ |
+| `WlanTimeCfg` | `WlanTimeCfgDbRead` / `WlanTimeCfgDbWrite` | ✓ | ✓ |
+| `STAIF` | `WlanSTAIFDbRead` / `WlanSTAIFDbWrite` | ✓ | ✓ |
+| `STAProfile` | `WlanSTAProfileInstIdDbRead` / `…DbWrite` | ✓ | ✓ |
+| `AclCfg` | `WlanAclCfgInstIdDbRead` / `…DbWrite` | ✓ | ✓ |
+| `MultiAPCfg` | `WlanMultiAPCfgDbRead` / `WlanMultiAPCfgDbWrite` | ✓ | ✓ |
+| `WLANMLOAD` | `WlanMLOADInstIdDbRead` / `…DbWrite` | — | ✓ |
+| `WlanRoamingCfg` | `WlanRoamingCfgDbRead` / `…DbWrite` | ✓ | — |
+| `WlanRoamingSta` | `WlanRoamingStaInstIdDbRead` / `…DbWrite` | ✓ | — |
+
+**两份构建共有的 30 个函数，表名逐字相同，零例外。** 这是本文里第一处"两个独立固件给出
+同一个答案"的证据，比单份反汇编硬得多。差异只有两处，且都合理：E2631（2026-08 固件）
+多了漫游四件套，SR1010 多了 MLO 的 `WLANMLOAD`。
+
+#### 结果二：整个程序集里 116 个函数在读写 29 张表
+
+`--tables` 只认 `Wlan*Db*` 这个名字形态，会漏掉 mesh 决策面。反过来做（先挑导入了
+`dbAPIGetView`/`dbAPISetView` 的库，再把每个导出函数扫一遍）得到完整集合：
+
+| 面 | 函数族 | 覆盖的表 |
+|---|---|---|
+| 无线配置 | `Wlan*Db*`（34 个） | 见上表 17 张 |
+| mesh 决策 | `CmMultiAP*`（`libmultiapcmapi.so`） | `MultiAPDomain`、`MultiAPMaster`、`MultiAPRoamCatonCfg`、`MultiAPStaCfg` |
+| mesh 门面 | `Map*DB`（`libmultiapcfapi.so`） | `MultiAPMaster`、`MultiAPCfg`、`MultiAPRoamCatonCfg`、`MultiAPStaCfg` |
+| 1905 拓扑 | `CmMultiAp*`（`libieee1905cmapi.so`） | `P1905ComCfg`、`P1905StaBind`、`MultiAPCfg` |
+| 准入 / 定时 | `CmTpRule*`、`MapAdd/DelStaFilter` | `TimePolicy`、`MultiAPStaCfg` |
+| 桥 / 端口 | `libcmapi` 的 ETH 一族 | `Brport`、`EthLink`、`EthVlan`、`MapCooperatorCfg`、`MultiAPCacheMac` |
+
+合计 **116 个函数、124 条「函数×表」记录、29 张表**（`--db-users` 一条命令，1.2 秒）。
+SR1010 构建是 119 个函数 / 27 张表 —— 少的两张正是它没有的漫游表（`WlanRoamingCfg`/`WlanRoamingSta`）。
+
+#### 结果三：`multiapd` 侧只有 4 个 API 带写路径
+
+把 `multiapd` 实际导入的 61 个配置 API 逐个展开（深度 2，区分"直接调用"与"间接可达"），
+**有写路径的只有四个**：
+
+| API | 直接写的表 | 间接可达 |
+|---|---|---|
+| `CmWLANSetAPConfig` | （无，尾调用内部实现） | `WLANBase`、`WLANCfg`、`WLANWEP` |
+| `CmWLANSetAclList_1905_Slave` | （无） | `AclCfg`、`WLANCfg` |
+| `CmWLANSetWep` | `WLANWEP` | `AclCfg`、`WLANCfg`、`WLANPSK`、`WLANScheduler`、`WLANSetting`、`WLANBase`、`TimePolicy` |
+| `CmWLANSetStaIFONOFF` | `STAIF` | — |
+
+其余 57 个全是读（`CmWLANGetAPConfig` 直接读 `WLANCfg` + `WLANSetting`；
+`CmWLANGetBaseConfig` 直接读 `WLANBase`；`WlanInstId2IfName` 直接读 `WLANCfg`）。
+
+> **这一列必须分离，否则规模会算大**：`CmWLANSetWep` 按"可达"算是 8 张表，
+> 按"它自己让谁去写"是 1 张（`WLANWEP`）——另外 7 张是它调用的
+> `wlan_dualband_sync_*_db_save` 那组同步函数顺手写的。applier 要覆盖的是"直接"那一列。
+
+#### 对 A 方案规模的修正
+
+原估"要写一个 DB 表 → nl80211 的 applier"，现在的边界清楚了：
+
+1. **无线配置面**：17 张表、34 个 `Wlan*Db*`。其中真正需要落到驱动的，是
+   `WLANCfg`（SSID/加密/隐藏/`MapAccessAttr`）、`WLANBase`（信道/带宽/功率）、
+   `WLANPSK`（密钥）、`WLANSetting`、`AclCfg` —— 5 张，其余是查询/调度/时段类。
+2. **mesh 决策面**（`MultiAP*`/`P1905*`）：不进驱动，`multiapd` 自己读写并据此发 1905 消息。
+   这部分**不用写 applier**，只要 DB 服务端在。
+3. **写入口只有 4 个**（上表）。也就是说 applier 的触发点不是"监听 29 张表的变更"，
+   而是"这 4 个写路径发生后，把 5 张表的对应列翻译成 nl80211"。
+
+> 仍未覆盖的一层是**列**。表级映射到这里就是机器码能给的极限了；列级需要结构体字段偏移，
+> 本仓 [`cm-profile-evidence.py`](../../cm-profile-evidence.py) 已经用同一套方法（从机器码推
+> 43 个字段偏移）做过一次 `CmWLANGetAPConfig` 的结构体，可以照搬到这几张表上。
+
+## 4. 四个切点，选哪个（§3.1–§3.3 之后重排）
 
 | 切点 | 位置 | 要写多少 | 风险 | 评价 |
 |---|---|---|---|---|
-| **A** | `libcmapi` 之下（DB 层） | **一个 DB 初始化 + 一个 DB→nl80211 应用器**（服务端由 `libdb.so` 自带） | 中：要还原"哪些表/列真的驱动无线" | ⭐ **推荐**（原判"不划算"是基于"得逆 shm 布局"，实测 `DBShmSrvInit` 随包导出，这条风险不成立） |
+| **A** | `libcmapi` 之下（DB 层） | **一个 DB 初始化 + 一个 DB→nl80211 应用器**（服务端由 `libdb.so` 自带） | 中：表级映射已实测（§3.3，29 张表 / 116 个函数 / 写入口 4 个），**剩列级** | ⭐ **推荐**（原判"不划算"是基于"得逆 shm 布局"，实测 `DBShmSrvInit` 随包导出，这条风险不成立） |
 | **B** | `CmWLAN*`/`Cf*` 层 | 实测 multiapd 只用 **61 个**（33 `Cm*` + 18 `Cf*` + 10 `Wlan*`），不是 1 551 个 | 中 | 次选：只有当 A 的表语义实在还原不出来时才走 |
 | **C** | `iwpriv` 文本层 | 7 条命令的 wrapper（不是 223 key） | 低 | 补充手段：**只覆盖 BA/寄存器**，挡住它等于挡住"BA 协商"这一小块，主配置面挡不住（见 §3.1） |
 | **D** | 1905 报文层 | 0 | 无 | 直接互通，已有基础 |
@@ -284,11 +391,14 @@ multiapd ──► libcmapi / libcfapi / libmultiapcfapi / liboss（原样搬，
 | 未决 | 验证办法 | 成本 |
 |---|---|---|
 | **MM 是谁**（`CmSendMsg2MM` 的对端） | 真机 `ps` 看常驻进程；或扫 `bin/pc`、`liboss.so` 是否导出 `MM` 相关符号 | 一条命令 |
-| 哪些 DB 表真的驱动无线 | 从 `CmWLANGetAPConfig`/`CmWLANSetBaseConfig` 的读写行反推表名，与 `SCHEMA.md` 对齐 | 半天（可静态做） |
+| `WLANCfg`/`WLANBase`/`WLANPSK`/`AclCfg` 的**字段偏移** | 照搬 `cm-profile-evidence.py`：从 `CmWLAN*` 的读写指令反推结构体布局 | 1–2 天（静态） |
 | `CmWLANKickOutSta` 的参数结构 | 写个 5 行的 C 测试程序，链接 `libcmapi.so` 试调用 | 1 天（需交叉编译） |
 
 > **已答（本轮）**：
 > - ~~DB 段由谁创建~~ → `libdb.so` 自带 `DBShmSrvInit`，`cspd` 只是调用者。
+> - ~~哪些 DB 表真的驱动无线~~ → **表级已实测**（§3.3）：`Wlan*Db*` 34 个全部解出表名、
+>   两份独立构建共有的 30 个逐字一致；整个程序集 116 个函数读写 29 张表；
+>   `multiapd` 侧写入口只有 4 个。剩列级（见上表）。工具：`tools/lab/cmapi-tables.py`。
 > - ~~`cspd` 是否真 fork `iwpriv`~~ → **确实 fork，7 处**，但走的是自封装
 >   `MonitorPcStartProgram()` 而非 `system()`，所以第一版扫 `system`/`popen` 得 0 处是**误判**
 >   （完整过程见 §3.1）。原计划的 `mv /kmodule/bin/iwpriv` 在真机上直接失败：
@@ -310,16 +420,19 @@ multiapd ──► libcmapi / libcfapi / libmultiapcfapi / liboss（原样搬，
    在一台能随便重启的机器上试。成功就证明"旁路控制"这条路通，后面所有 mesh 动作都能复用原厂执行器。
    > 看完 §3.2 后这条更值了：`CmWLAN*` 是**纯 DB 客户端**，意味着这个探针不需要碰驱动，
    > 只要 DB 服务端在跑就能成功——比原先估计的更好调试。
-2. **做"DB 表 → 无线"的映射表**：从 `CmWLANGetAPConfig`/`CmWLANSetBaseConfig` 的读写行反推
-   哪些表列真在链路上，与 `SCHEMA.md` 对齐。纯静态活，半天，直接决定 P3 的规模。
+2. ~~**做"DB 表 → 无线"的映射表**~~ —— **本轮已完成（表级）**，见 §3.3：29 张表、116 个函数、
+   `multiapd` 侧写入口只有 4 个。`python3 tools/lab/cmapi-tables.py <libdir> --db-users` 一条命令复现。
+   下一步是**列级**：把 `WLANCfg`/`WLANBase`/`WLANPSK`/`AclCfg` 的字段偏移挖出来
+   （方法照搬 `cm-profile-evidence.py`）。
 3. **需要看 cspd 到底怎么用 ioctl 时**，用 `tools/lab/armcalls.py <cspd> ioctl common_ioctl`
-   把 68 处调用的 `r1`（request 号）与 `r0`（socket）挖出来——这是唯一还没量化的一块。
+   把 68 处调用的 `r1`（request 号）与 `r0`（socket）挖出来——这是最后一块没量化的。
 4. **P1 不停**：互通测试本来就是零成本的证据来源。
 
 ## 8. 工具
 
-本文的依赖数据来自 `tools/lab/elfdeps.py`，调用点数据来自 `tools/lab/armcalls.py`
-（本轮新写，纯 stdlib，不需要 binutils / capstone——后者在本机 pip 无源、装不上）。
+本文的依赖数据来自 `tools/lab/elfdeps.py`，调用点数据来自 `tools/lab/armcalls.py`，
+DB 映射数据来自 `tools/lab/cmapi-tables.py`（后两个纯 stdlib，不需要 binutils / capstone——
+后者在本机 pip 无源、装不上）。
 
 ```sh
 # §2 闭包表
@@ -330,7 +443,26 @@ python3 tools/lab/armcalls.py <kmodule>/bin/cspd system popen --all
 
 # 换符号就能查别的：ioctl / CfIoctlCfg / setsockopt ...
 python3 tools/lab/armcalls.py <kmodule>/lib/libcmapi.so ioctl socket
+
+# §3.3 DB 映射：Db 函数 → 表名（34 条，%100 解出）
+python3 tools/lab/cmapi-tables.py <kmodule>/lib --tables
+
+# §3.3 全程序集：谁读写哪张表（116 个函数 / 29 张表，1.2 秒）
+python3 tools/lab/cmapi-tables.py <kmodule>/lib --db-users
+
+# §3.3 multiapd 侧的写入口（直接 vs 间接自动分离）
+python3 tools/lab/cmapi-tables.py <kmodule>/lib --multiapd-api --multiapd <kmodule>/bin/multiapd
 ```
+
+`cmapi-tables.py` 的四个坑（都在 §3.3 表里，这里只留操作要点）：
+
+1. **字符串走 GOT**：先解 `.rel.dyn` 的 `R_ARM_RELATIVE`（addend 在槽的初始内容里，不是 0）。
+2. **`ldr =偏移` + `add rX, pc, rX` 两段式**：真实地址 = 偏移 + `add` 的 `PC+8`；
+   只认"字面量 = 字符串 VA"会 0 命中。
+3. **表名只认 `dbAPIGetView`/`dbAPISetView` 那一刻的 r0**，不要收集函数内所有表名字符串
+   （日志串里也有）。写路径是 `dbAPISetView`，漏了它所有 `*DbWrite` 都会显示"参数传入"。
+4. **抽字符串表不要用 `\x00(.*?)\x00`**：它会消费掉下一个串的前导 NUL，
+   紧挨着排的字符串会**每隔一个漏一个**（`WLANPSK` 就这么漏的）。
 
 `armcalls.py` 的实现坑（都已踩过，写在这里免得下次重犯）：
 
