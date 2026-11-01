@@ -54,4 +54,11 @@ int controller_autoconfig_response(const uint8_t agent[6], unsigned int band, un
  * Agent declares 1 there (observed from the daemon), so `service` is what the lab has to settle for
  * Controller. */
 int controller_topology_query(const uint8_t agent[6], unsigned int mid, unsigned int service);
+
+/* Send one client action to one agent's private port: kind = ACTION_KIND_KICK (CMDU 0x8014) or
+ * ACTION_KIND_BAN (CMDU 0x8016, `allow` = 1 lifts a ban, `seconds` is its validity, 0 = until lifted).
+ * `bssid` may be the broadcast address to cover every BSS of that agent. 0 = sent, -1 = local error.
+ * The decision of *when* to call this lives in controller-actions.c; this is only the wire. */
+int controller_client_action(const uint8_t agent[6], const uint8_t bssid[6], const uint8_t client[6], int kind,
+                             int allow, unsigned int seconds);
 #endif

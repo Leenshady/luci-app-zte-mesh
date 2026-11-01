@@ -64,7 +64,7 @@ S4 的一半：页面能看见拓扑。数据面不碰无线，只把已经收�
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
 | A17a | **已完成**。`controller-steer.c`：`0x8014` 引导请求（flags/window/timer/STA 列表/目标 BSS 列表）、`0x8016` 封禁（封/放行 + 有效期 + 多 MAC）、`0x8015` BTM 结果与 `0x8017` 引导完成的解码。字段顺序以 Wireshark dissector 为准（flags 在窗口之前、每个列表的计数贴着列表），见 [STEER_1905](research/STEER_1905.md) | H | `tests/controller-steer-codec.c`：整帧字节比对 + 越界/容量/参数拒绝 + 10 万次有界变异；`tests/test_steer_tshark.sh`：tshark 逐字段读回 20 项，且无 malformed/多余 TLV 数据 |
-| A17b | 策略层：`ban`/`kick` 的触发条件、去抖、超时回滚；配置语法与页面字段 | H | `test_policies.py` 新增用例；`test_luci.js` 新增 2 项 |
+| A17b | **半做**。已有：`controller-actions.c` 状态机（KICK 5 秒一次最多 3 次、BAN 每 120 秒重发、到期或规则被删时发"放行"、KICK 收到回报即结案）；`controller_client_action()` 把 `0x8014`/`0x8016` 发给每个在线子节点；`0x8015`/`0x8017` 经 trace 落成 `peers/<client>.btm`；`state.json` 加 `clients[]`；`/run/zte-mesh/config` 认 `ban.mac` / `kick.mac` / `ban.minutes`。**未做**：UCI/init 透传与页面字段（下一步），所以现在只能在配置文件里手写这三行 | H | `tests/controller-actions-test.c` 72 断言：假时钟跑完重发、去抖、到期解锁、规则删除的撤销、失败上报 |
 | A17c | 真机确认：一台手机关联后被踢、被拒重连 | D | 见第 5 节 H-03 |
 
 ### 批 4 · 无线回程（H 配置半边 / D 数据面）
@@ -100,7 +100,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 |---|---|---|---|
 | 1 | 子路由侧落地保真 | ✅ B11（210 项主机测试）/ C3 / D0 全做完 | **待触发**（批末一次） |
 | 2 | 主控侧可见性 | ✅ A18a / A18b / A19b 全做完（回程 RSSI 无线索，见 H-05） | **待触发**（批末一次） |
-| 3 | 控制面 | 🔄 A17a 已完成（`0x8014` 一族能编能解，tshark 20 项核对）；A17b/A17c 待做 | — |
+| 3 | 控制面 | 🔄 A17a 完成（`0x8014` 一族能编能解，tshark 20 项核对）；A17b 状态机与发送已落地、UCI/页面待做；A17c 等真机 | — |
 | 4 | 无线回程 | ⬜ | — |
 | 5 | 多子节点与稳定性 | ⬜ | — |
 | 6 | 发布与工程化 | ⬜（C9 已随本轮下令先做） | — |
@@ -118,6 +118,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94` | 101 断言 + 10 万次有界变异（需要一台能编 C 的机器） |
 | `tests/controller-steer-codec.c`（`make test-host`） | 终端动作消息的编码与两种回报的解码 | 整帧字节比对 + 10 万次有界变异（同上） |
 | `sh tests/test_steer_tshark.sh` | 把上面那几帧交给 tshark，逐字段读回 | 20 项；没有 tshark 时输出 SKIP 并退出 0 |
+| `tests/controller-actions-test.c`（`make test-host`） | 终端动作的去抖、重发、超时、回滚 | 72 断言，假时钟 |
 | `python tests/test_runtime.py`、`test_i18n.py`、`test_schema.py out` 等 | 运行包完整性、翻译、表结构 | 各自脚本末尾 |
 | `sh tests/test_frames.py`（`python tests/test_frames.py`） | pcap 帧长/配对/周期 | 4 项 |
 | `sh tools/build/container-make.sh test-host` | C 编解码（含 10 万次变异）+ 沙箱 | 需要容器或 Ubuntu（`192.168.1.191`） |

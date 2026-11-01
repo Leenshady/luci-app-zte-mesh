@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include "controller-service.h"
+#include "controller-actions.h"
 #include "controller-packet.h"
 #include "agent-sync.h"
 #include "wlan-profiles.h"
@@ -77,6 +78,11 @@ struct service_config {
     struct timer_rule timer[TIMER_RULES];
     unsigned int timer_count;
     int timer_offset;                      /* timer.utc_offset: minutes east of UTC (the sandbox has no time zone) */
+    /* Client actions (controller-actions.c): what to do to individual clients, in config order. `ban.minutes`
+     * turns every ban into a timed one; 0 means the rule stands until it is removed. */
+    struct action_intent intents[ACTION_MAX];
+    unsigned int intent_count;
+    unsigned int ban_minutes;
 };
 
 struct config_stamp { dev_t device; ino_t inode; off_t size; struct timespec modified; };
@@ -134,6 +140,18 @@ static int normalize_mac(char out[18], const char *text)
     return 0;
 }
 
+/* "aa:bb:cc:dd:ee:ff" (already normalized) to bytes. */
+static int text_to_mac(uint8_t mac[6], const char text[18])
+{
+    unsigned int i, value;
+    for (i = 0; i < 6; i++) {
+        if (sscanf(text + i * 3, "%2x", &value) != 1)
+            return -1;
+        mac[i] = (uint8_t)value;
+    }
+    return 0;
+}
+
 /* 0 = automatic channel; otherwise the legal 20 MHz channels of the band (no 2.4G ch14). */
 static int channel_allowed(unsigned int radio, int value)
 {
@@ -163,6 +181,7 @@ static int parse_config(struct service_config *config, struct config_stamp *stam
     uint8_t bss_seen[2][4], style_seen[2] = {0, 0}, timer_seen[TIMER_RULES];
     struct timer_rule timer_tmp[TIMER_RULES];
     unsigned int roam_seen = 0, steer_seen = 0, dual_seen = 0, v2_seen = 0, mlo_seen = 0, force_seen = 0, role_seen = 0, suffix_seen = 0, offset_seen = 0;
+    unsigned int ban_minutes_seen = 0;
     struct wlan_acl_rule acl_slots[WLAN_ACL_RULES];
     unsigned char acl_seen[WLAN_ACL_RULES];
     struct stat info;
@@ -281,6 +300,27 @@ static int parse_config(struct service_config *config, struct config_stamp *stam
                 reject(__LINE__);
             config->mlo_enable = equals[0] - '0';
             mlo_seen = 1;
+            continue;
+        }
+        if (!strcmp(line, "ban.mac") || !strcmp(line, "kick.mac")) {
+            struct action_intent *intent;
+            char text[18];
+            if (config->intent_count >= ACTION_MAX || normalize_mac(text, equals))
+                reject(__LINE__);
+            intent = &config->intents[config->intent_count++];
+            memset(intent, 0, sizeof(*intent));
+            intent->kind = line[0] == 'b' ? ACTION_KIND_BAN : ACTION_KIND_KICK;
+            if (text_to_mac(intent->mac, text))
+                reject(__LINE__);
+            continue;
+        }
+        if (!strcmp(line, "ban.minutes")) {
+            char *end;
+            unsigned long value = strtoul(equals, &end, 10);
+            if (ban_minutes_seen || !*equals || *end || value > 1440)
+                reject(__LINE__);
+            config->ban_minutes = (unsigned int)value;
+            ban_minutes_seen = 1;
             continue;
         }
         if (!strcmp(line, "wifi.dual_band_sync")) {
@@ -814,6 +854,8 @@ static int read_peer(const char *mac, const char *kind, const char *key, time_t 
     return value;
 }
 
+static struct action_table actions;
+
 static int write_state(const struct service_state *state)
 {
     static char json[16384];
@@ -887,6 +929,15 @@ static int write_state(const struct service_state *state)
                                  "%s{\"id\":%s,\"action\":\"%s\",\"mac\":\"%s\",\"value\":%d,\"status\":%d,\"epoch\":%ld}",
                                  i ? "," : "", quoted, r->action, r->mac, r->value, r->status, r->epoch);
     }
+    used += (size_t)snprintf(json + used, sizeof(json) - used, "],\"clients\":[");
+    {
+        char list[1024];
+        int bytes = actions_json(&actions, time(NULL), list, sizeof(list));
+        if (bytes > 0 && used + (size_t)bytes < sizeof(json)) {
+            memcpy(json + used, list, (size_t)bytes);
+            used += (size_t)bytes;
+        }
+    }
     used += (size_t)snprintf(json + used, sizeof(json) - used, "],\"sched\":{\"rules\":%u,\"off_all\":%s,\"off_guest\":%s,\"access\":[",
                              state->sched_rules, state->sched_off_all ? "true" : "false", state->sched_off_guest ? "true" : "false");
     {
@@ -909,6 +960,66 @@ static int write_state(const struct service_state *state)
     if (close(fd) || written != (int)used || rename(STATE_TEMP, STATE_PATH))
         return -1;
     return 0;
+}
+
+/* Client actions, once a second: fold the configured intents into the state machine, then send whatever it says
+ * is due to every agent that is online right now. An agent that has just answered its first frame is the only
+ * one that can act on a request, and the machine below re-sends a ban every couple of minutes, so an agent that
+ * reboots does not stay un-banned for long.
+ *
+ * The request names the broadcast BSSID: without a per-client association table we do not know which BSS a
+ * client is on, and "all of them" is the only answer that covers a client roaming between the agent's BSSes. */
+static void client_actions_reconcile(const struct service_config *config, long now)
+{
+    static const uint8_t every_bss[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    struct controller_node nodes[MAX_NODES];
+    struct action_intent intents[ACTION_MAX];
+    struct action_due due[ACTION_MAX];
+    unsigned int count, i, k, n;
+
+    memcpy(intents, config->intents, sizeof(intents));
+    for (i = 0; i < config->intent_count; i++)
+        if (intents[i].kind == ACTION_KIND_BAN)
+            intents[i].minutes = config->ban_minutes;
+    if (actions_configure(&actions, now, intents, config->intent_count) < 0)
+        return; /* more rules than the table holds; the config parser already refuses that case */
+
+    n = actions_tick(&actions, now, due, ACTION_MAX);
+    if (!n)
+        return;
+    count = controller_read_nodes(nodes, MAX_NODES);
+    for (i = 0; i < n; i++) {
+        for (k = 0; k < count; k++) {
+            char text[18];
+            uint8_t agent[6];
+            if (!nodes[k].zte || !nodes[k].active)
+                continue;
+            snprintf(text, sizeof(text), "%s", nodes[k].mac);
+            if (text_to_mac(agent, text))
+                continue;
+            (void)controller_client_action(agent, every_bss, due[i].mac, due[i].kind, due[i].allow, 0);
+        }
+    }
+}
+
+/* A BTM report or a Steering Completed names the client; the trace library turns those into
+ * peers/<mac>.btm, so a kick learns whether it worked instead of waiting out its timer. */
+static void client_actions_observe(void)
+{
+    unsigned int i;
+    for (i = 0; i < actions.count; i++) {
+        char mac[18];
+        int ok;
+        if (actions.entry[i].kind != ACTION_KIND_KICK || actions.entry[i].state == ACTION_DONE ||
+            actions.entry[i].state == ACTION_FAILED)
+            continue;
+        snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x", actions.entry[i].mac[0],
+                 actions.entry[i].mac[1], actions.entry[i].mac[2], actions.entry[i].mac[3],
+                 actions.entry[i].mac[4], actions.entry[i].mac[5]);
+        ok = read_peer(mac, "btm", "ok", 120, NULL);
+        if (ok >= 0)
+            actions_observe(&actions, actions.entry[i].mac, ok);
+    }
 }
 
 /* Ask the daemon to push the WLAN profile to its agents, exactly as the factory
@@ -1874,6 +1985,8 @@ int controller_service(void)
                 if (!state.respawn_pending)
                     action_reconcile(1);
                 policy_notify_reconcile(&state, now.tv_sec);
+                client_actions_observe();
+                client_actions_reconcile(&config, now.tv_sec);
             } else {
                 /* A child's Wi-Fi profile comes from the M2 the controller sends, which the daemon writes into
                  * WLANCfg/WLANPSK and announces with CmMultiAPWlanRenewNotify. Its subscribers in the factory

@@ -94,6 +94,11 @@ Steering request flags: 0xc0, Mode, BTM disassociation imminent
 | `steer_decode_btm_report()` | 读 `0x8015`：这条踢到底成没成 | A17b 的去抖与回滚 |
 | `steer_decode_completed()` | 读 `0x8017`：终端确实走了 | A17b 的"提前结束等待" |
 
+发送侧只有一条路径：`controller-packet.c` 的 `controller_client_action()`，它把上面两帧交给
+`lab-peer` 上的 1905 套接字，并打印 `ZTE_PACKET action …`。BSSID 目前填广播地址（`ff:ff:ff:ff:ff:ff`），
+因为我们还没有"终端挂在哪台子节点的哪个 BSS"这张表；广播形式的语义是"这台子节点的所有 BSS 都算"，
+**这一点同样只能由 H-03 证实**——若 ZTE 不认，症状是请求被收下但终端照旧在线。
+
 `0x8014` 的 `bssid` 与 `client` 必须来自我们自己的关联表（子节点不认识"不在自己身上的终端"，
 发了也是白发），所以 A17b 的输入不是配置，而是 `state.json` 里已有的节点/终端关系。
 

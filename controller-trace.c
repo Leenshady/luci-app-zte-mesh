@@ -18,6 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "controller-1905.h"
+#include "controller-steer.h"
 #define EXPORT __attribute__((visibility("default")))
 
 static unsigned int lines, packet_lines, trace_all_lines;
@@ -197,6 +198,24 @@ static void note_peer(const unsigned char *f, const size_t n)
     int bytes;
     if (!cmdu_decode(f, n, &header) || !header.last_fragment || header.fragment)
         return;
+    /* The answers to a client action: a BTM report (0x8015) says whether the client accepted, and a Steering
+     * Completed (0x8017) says it left. Both name the client, which is what the action table keys on, so the
+     * file is written for the client's MAC and not for the agent that sent the frame. */
+    if (header.type == STEER_MSG_BTM_REPORT) {
+        struct steer_btm_report report;
+        if (steer_decode_btm_report(f, n, &report)) {
+            bytes = snprintf(text, sizeof(text), "ok=%d\n", report.status == 0 ? 1 : 0);
+            write_peer(report.client, "btm", text, bytes);
+        }
+        return;
+    }
+    if (header.type == STEER_MSG_COMPLETED) {
+        struct steer_completed done;
+        static const char accepted[] = "ok=1\n";
+        if (steer_decode_completed(f, n, &done))
+            write_peer(done.client, "btm", accepted, (int)(sizeof(accepted) - 1));
+        return;
+    }
     tlv_open(&cursor, f, n);
     while (tlv_next(&cursor, &type, &value, &length)) {
         struct zte_cursor zte;

@@ -36,13 +36,14 @@ $(ARTIFACTS)/zte-meshctl: zte-meshctl.c Makefile $(ARTIFACTS)/manifest.json
 database: $(ARTIFACTS)/db-engine-probe $(ARTIFACTS)/zte-meshctl $(ARTIFACTS)/ns-run $(ARTIFACTS)/config-bridge-probe
 
 $(ARTIFACTS)/db-engine-probe: db-engine-probe.c controller-run.c controller-service.c controller-service.h controller-packet.c controller-wsc.c controller-wsc-crypto.c controller-wsc-crypto.h controller-packet.h startup-views.inc multiap-cfg.c multiap-cfg.h multiap_cfg.def \
+                           controller-1905.c controller-1905.h controller-steer.c controller-steer.h controller-actions.c controller-actions.h \
                            agent-sync.c agent-sync.h wlan_cfg.def wlan_psk.def \
                            mesh-policies.c mesh-policies.h multiap_master.def multiap_domain.def vendor-db.h \
                            wlan-profiles.c wlan-profiles.h wlan_base.def wlan_cfg.def wlan_ssid.def \
                            wlan_psk.def dev_info.def mesh-bridge.c mesh-bridge.h Makefile $(ARTIFACTS)/manifest.json
 	$(ARMCC) $(COMMON) -march=armv7-a -mfloat-abi=soft -no-pie -nostdlib \
 	  $(shell $(ARMCC) -print-file-name=crt1.o) $(shell $(ARMCC) -print-file-name=crti.o) \
-	  $(shell $(ARMCC) -print-file-name=crtbegin.o) db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c \
+	  $(shell $(ARMCC) -print-file-name=crtbegin.o) db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-1905.c controller-steer.c controller-actions.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c \
 	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) -Wl,--dynamic-linker=/lib/ld-linux.so.3 \
 	  -Wl,--no-as-needed,--start-group $(VENDOR_LIBS) -lgcc -Wl,--end-group \
 	  $(shell $(ARMCC) -print-file-name=crtend.o) $(shell $(ARMCC) -print-file-name=crtn.o) -o $@
@@ -79,10 +80,10 @@ $(LIBDIR)/libzte_controller_route.so: controller-route.c
 	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) $< \
 	  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o $@
 
-$(LIBDIR)/libzte_controller_trace.so: controller-trace.c controller-1905.c controller-1905.h
+$(LIBDIR)/libzte_controller_trace.so: controller-trace.c controller-1905.c controller-1905.h controller-steer.c controller-steer.h
 	$(ARMCC) $(COMMON) -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
 	  -Wl,-z,defs -Wl,-soname,libzte_controller_trace.so \
-	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) controller-trace.c controller-1905.c \
+	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) controller-trace.c controller-1905.c controller-steer.c \
 	  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o $@
 
 # The child-side configuration-manager stand-in. Only the two WLAN setters are interposed, and each of them only
@@ -134,6 +135,11 @@ $(ARTIFACTS)/tests/controller-1905-codec: tests/controller-1905-codec.c controll
 $(ARTIFACTS)/tests/controller-steer-codec: tests/controller-steer-codec.c controller-steer.c controller-steer.h controller-1905.c controller-1905.h | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/controller-steer-codec.c controller-steer.c controller-1905.c -o $@
 
+# The client action state machine: what to send, when to repeat it, when to give up. Pure timing logic, driven
+# by a made-up clock, so an hour of behaviour costs nothing to test.
+$(ARTIFACTS)/tests/controller-actions-test: tests/controller-actions-test.c controller-actions.c controller-actions.h | $(ARTIFACTS)/tests
+	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/controller-actions-test.c controller-actions.c -o $@
+
 $(ARTIFACTS)/tests/controller-wsc-codec: tests/controller-wsc-codec.c controller-wsc.c controller-packet.h | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
 	  tests/controller-wsc-codec.c controller-wsc.c -Wl,--gc-sections -o $@
@@ -147,12 +153,13 @@ $(ARTIFACTS)/tests/controller-wsc-crypto-codec: tests/controller-wsc-crypto-code
 $(ARTIFACTS)/tests/agent-sync-codec: tests/agent-sync-codec.c agent-sync.c agent-sync.h wlan_cfg.def wlan_psk.def | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -I. tests/agent-sync-codec.c agent-sync.c -o $@
 
-test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-1905-codec $(ARTIFACTS)/tests/controller-steer-codec $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec
+test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-1905-codec $(ARTIFACTS)/tests/controller-steer-codec $(ARTIFACTS)/tests/controller-actions-test $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec
 	$(ARTIFACTS)/tests/controller-wsc-codec
 	$(ARTIFACTS)/tests/controller-wsc-crypto-codec
 	$(ARTIFACTS)/tests/controller-packet-codec
 	$(ARTIFACTS)/tests/controller-1905-codec
 	$(ARTIFACTS)/tests/controller-steer-codec
+	$(ARTIFACTS)/tests/controller-actions-test
 	sh tests/test_steer_tshark.sh $(abspath $(ARTIFACTS))/tests/controller-steer-codec
 	$(ARTIFACTS)/tests/agent-sync-codec
 	$(ARTIFACTS)/tests/cm-profile-codec

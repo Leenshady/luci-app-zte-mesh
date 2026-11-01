@@ -15,7 +15,9 @@
 #include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
+#include "controller-actions.h"
 #include "controller-packet.h"
+#include "controller-steer.h"
 
 static const uint8_t peer[6] = {2, 0, 0, 0, 0x19, 0x0a};
 static unsigned int be16(const uint8_t *p) { return ((unsigned int)p[0] << 8) | p[1]; }
@@ -490,5 +492,69 @@ int controller_topology_query(const uint8_t agent[6], unsigned int mid, unsigned
     saved = errno;
     close(fd);
     errno = saved;
+    return result;
+}
+
+/* One client action to one agent, from the daemon's private port: a Client Steering Request (0x8014) for a
+ * kick, or a Client Association Control Request (0x8016) for a ban and for lifting one.
+ *
+ * `bssid` is the BSS the request is about. This controller has no per-client association table yet, so the
+ * service passes the broadcast address, which asks the agent to apply the request to all of its BSSes. Whether
+ * a ZTE agent honours that form is exactly what H-03 has to answer; the failure mode is a request that is
+ * accepted and does nothing, not a frame that breaks the mesh.
+ *
+ * `seconds` is the ban's validity (0 = until lifted). A kick always asks for disassociation-imminent steering
+ * with a 200 ms opportunity window and a 100 TBTT timer: the variant that moves a client ignoring plain BTM. */
+int controller_client_action(const uint8_t agent[6], const uint8_t bssid[6], const uint8_t client[6], int kind,
+                             int allow, unsigned int seconds)
+{
+    struct sockaddr_ll target = { .sll_family = AF_PACKET, .sll_protocol = htons(0x893a), .sll_halen = 6 };
+    uint8_t frame[STEER_FRAME_MAX];
+    size_t used;
+    int fd, result, saved;
+    const char *private = getenv("ZTE_MESH_DB_SANDBOX");
+    if (!agent || !bssid || !client || !private || strcmp(private, "1"))
+        return -1;
+    if (kind == ACTION_KIND_KICK) {
+        struct steer_request request;
+        memset(&request, 0, sizeof(request));
+        memcpy(request.al_mac, peer, 6);
+        memcpy(request.bssid, bssid, 6);
+        memcpy(request.client, client, 6);
+        request.window = 200;
+        request.disassoc_timer = 100;
+        request.mandate = 1;
+        request.disassoc_imminent = 1;
+        used = steer_build_request(frame, sizeof(frame), (unsigned int)(time(NULL) & 0xffff), agent, &request);
+    } else {
+        struct steer_ban ban;
+        memset(&ban, 0, sizeof(ban));
+        memcpy(ban.al_mac, peer, 6);
+        memcpy(ban.bssid, bssid, 6);
+        memcpy(ban.clients[0], client, 6);
+        ban.count = 1;
+        ban.allow = allow ? 1 : 0;
+        ban.validity_seconds = (uint16_t)(seconds > 0xffff ? 0xffff : seconds);
+        used = steer_build_assoc_control(frame, sizeof(frame), (unsigned int)(time(NULL) & 0xffff), agent, &ban);
+    }
+    if (!used)
+        return -1;
+    target.sll_ifindex = (int)if_nametoindex("lab-peer");
+    if (!target.sll_ifindex)
+        return -1;
+    memcpy(target.sll_addr, agent, 6);
+    fd = socket(AF_PACKET, SOCK_RAW | SOCK_CLOEXEC, htons(0x893a));
+    if (fd < 0)
+        return -1;
+    result = sendto(fd, frame, used, 0, (struct sockaddr *)&target, sizeof(target)) == (ssize_t)used ? 0 : -1;
+    saved = errno;
+    close(fd);
+    errno = saved;
+    if (!result) {
+        printf("ZTE_PACKET action kind=%s allow=%d agent=%02x:%02x:%02x:%02x:%02x:%02x bytes=%u\n",
+               kind == ACTION_KIND_KICK ? "kick" : "ban", allow ? 1 : 0, agent[0], agent[1], agent[2], agent[3],
+               agent[4], agent[5], (unsigned int)used);
+        fflush(NULL);
+    }
     return result;
 }
