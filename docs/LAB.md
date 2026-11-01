@@ -34,6 +34,30 @@ sudo modprobe veth        # ns-run 要求 /sys/module/veth 存在，否则报 pr
 `qemu-user-static` 会注册 `binfmt_misc`，`ns-run` 靠它执行 ARM32 程序，不能省。检查：`cat /proc/sys/fs/binfmt_misc/qemu-arm`
 应有 `flags: PF`。不需要 Docker（`container-make.sh` 在这台机器上用不了，用 `tools/lab/build.sh` 代替）。
 
+## 2.1 另外两台：真机 AX3600 与 x86_64 的 immortalwrt
+
+2026-11-01 起实验台不再只有一台 Ubuntu，三台机器都在 `192.168.1.0/24`，二层互通
+（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。`tools/lab/rssh.py` 是这三台的统一
+SSH 通道（密码登录，本机没有 sshpass）：
+
+```sh
+export MSYS_NO_PATHCONV=1          # Git Bash 会把 /tmp/x 改写成 Windows 路径
+python tools/lab/rssh.py list      # 台账
+python tools/lab/rssh.py ax3600 --bench
+python tools/lab/rssh.py owrt 'uci show zte_mesh'
+python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
+```
+
+| 机器 | 地址 | 角色 | 关键事实 |
+|---|---|---|---|
+| `ax3600` | 192.168.1.1 | 真机，刷 ImmortalWrt 25.12.2 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）。实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static` |
+| `owrt` | 192.168.1.20 | 实验主控（master） | x86_64，同一个内核版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**；`/usr/libexec/zte-mesh/ns-run`（x86_64）和 `root/qemu-arm-static` 目前是手工放的 |
+| `ubuntu` | 192.168.1.191 | 编译机 | 就是本文主角。`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
+
+AX3600 走 qemu 是能长期跑的：`multiapd` 在这条路上连续跑了 22 小时、`daemon_restarts=0`。
+要拿掉这一层只剩一条路——刷一个开了 `CONFIG_COMPAT=y` 的内核，见 `build-firmware.yml`
+（qualcommax/ipq807x 目标，CI 自己编内核，因为 ImageBuilder 改不了内核选项）。
+
 ## 3. 日常流程
 
 ```sh
@@ -243,7 +267,14 @@ logread | grep -e qemu -e execv                   # 不该再出现 "no qemu-arm
 | `trap: EXIT: bad trap` / `case … in` 语法错误 | 脚本被 CRLF 污染。`push.py` 现在会转 LF |
 | `wrong ELF class: ELFCLASS32`（LD_PRELOAD） | 只在沙箱外用 binfmt 跑时出现（宿主 ld.so 看到 ARM 库），无害 |
 | `cannot be preloaded` 之后出现 `ZTE_MESH_SHIM loaded` | shim 在 `root/lib` 里但 `out/runtime/lib` 已被 bootstrap 清掉。重跑 `build.sh all` |
-| `chroot: failed to run command '/bin/sh'` | 手写沙箱时用了宿主 `/bin/sh`；lab root 里只有原厂二进制，用 `chroot ROOT ./bin/...` |
+| `chroot: failed to run command '/bin/sh'` | 手写沙箱时用了宿主 `/bin/sh`；lab root 里只有原厂二进制，用 `chroot ROOT ./bin/...` || `ash: -c requires an argument`（远端什么都没执行） | `tools/lab/rssh.py` 曾用 `argparse.REMAINDER` 收命令，它把 `--all` 这类控制参数也一起吞进命令，远端收到 `--sh echo HI`。改成手动切分选项与命令 |
+| `echo HI` 返回 **127** | dropbear 带 pty 的 exec 会把命令当成登录 shell 的输入。`rssh.py` 默认不开 pty，需要时用 `--pty` |
+| `open_sftp()` 抛 `EOF during negotiation` | AX3600 的固件没有 `openssh-sftp-server`。`rssh.py` 自动退回 `cat` 管道（二进制安全） |
+| 本机 `scp`/参数里的 `/tmp/x` 变成 `C:/Users/.../Temp/x` | **Git Bash 的路径转换**。调用前 `export MSYS_NO_PATHCONV=1`（`MSYS2_ARG_CONV_EXCL='*'` 亦可） |
+| `ash: syntax error: unexpected word (expecting ")")` 执行 ARM32 程序时 | 内核没有 `CONFIG_COMPAT`，execve 返回 ENOEXEC，shell 把二进制当脚本读。AX3600 原厂固件就是这样；两条出路见 [BLOB_SHIM](research/BLOB_SHIM.md) 的 qemu 分支和 `build-firmware.yml` |
+| `mount: mounting none on /proc/sys/fs/binfmt_misc failed: No such file or directory` | 同一个原因的另一面：内核也没编 `BINFMT_MISC`，透明执行这条路直接没有 |
+| `error: ignoring return value of 'write' ... -Werror=unused-result` | `(void)write(...)` 从 GCC 9 起不算"用了返回值"。用 `emit()` 辅助函数真赋值再丢弃，别写 `(void)write` |
+
 
 ## 8. 下一步
 
