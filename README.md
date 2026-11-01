@@ -16,7 +16,8 @@
 
 ## 当前状态
 
-**功能总账只有一份**：[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)（逐项状态与证据、做不到的项、按难度排的推进顺序）。
+**功能总账只有一份**：[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)（逐项状态与证据、做不到的项）；
+**排期只有一份**：[docs/PLAN.md](docs/PLAN.md)（分批做什么、每批的判据、哪些必须等真机、CI 什么时候跑）。
 这里只留三条结论：
 
 - 主控侧在真子路由 Z506（原厂固件）上验证通过：入网、SSID/密码/多 BSS、BeaconInterval、ACL、信道与功率、节点动作、定时窗口。
@@ -70,7 +71,8 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [REAL_CHILD](docs/REAL_CHILD.md) | 真子路由联调：入网门槛、**服务配置语法**、各功能验证记录、风险 |
 | [FINDINGS](docs/FINDINGS.md) | 逆向与真机发现：角色选举、自组网 V2、`VersionMode`、`CurHop`、ACL 等 |
 | [CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md) | 原厂控制器能下发什么、Z506 实际支持什么、本项目覆盖了什么 |
-| [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：状态与证据、做不到的项、推进顺序 |
+| [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：状态与证据、做不到的项 |
+| [PLAN](docs/PLAN.md) | **开发计划**：四个验收场景、分批推进、主机可测与需真机分开、真机待测台账、CI 与装机节奏 |
 | [MESH_INTEROP](docs/research/MESH_INTEROP.md) | 中兴 mesh 的协议归属、外部项目（prplMesh / BBF 1905.1a）能借什么、固件解密的边界（含**内核读路径无解密代码**的实证）、**原厂内核里 1905 的全部字符串/符号**、做功能时的兼容性硬约束（§5.5 已修正为「丢转发、送本机」） |
 | [WIRESHARK_1905](docs/research/WIRESHARK_1905.md) | 用 Wireshark `ieee1905` 逐字段核对线上帧：我们发的 `0x0007`/`0x0008`/`0x8006`、原厂发的 `0x0000`/`0x0001`/`0x0008`/`0x000a`、差异清单与处置 |
 | [VENDOR_MESH_STACK](docs/research/VENDOR_MESH_STACK.md) | 从市售 AX3000（E2631）拿到的**明文原厂 mesh 栈**：cspd 的模块划分、`ASEND`/`SSEND` 内部总线号、和 SR1010 的能力面差异、**D 段（VLAN/绑定/BTM/VBSS）的修订依据**（§2.1 记录了「漏取 multiapd」的自纠） |

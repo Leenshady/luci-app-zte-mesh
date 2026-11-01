@@ -47,28 +47,28 @@ name: Build APK
 # our own packages never invalidates it. First run after a key change is slow;
 # later runs reach the package build in a couple of minutes.
 #
-# Trigger: manual only (workflow_dispatch). Pushes and pull requests used to
-# build as well, but a documentation or memory commit then cost a full 20-30
-# minute toolchain run and produced the same packages as the previous one.
-# Start it explicitly when a change to the packages is worth verifying, and pass
-# `release_tag` (e.g. v0.1.0) if the result should also be published as a GitHub
-# Release -- see the last two steps. Empty `release_tag` keeps a run as a plain
-# build whose output only lives in the Actions artifact.
+# Trigger: manual only (workflow_dispatch), and it builds only. Pushes and pull
+# requests used to build as well, but a documentation or memory commit then cost
+# a full 20-30 minute toolchain run and produced the same packages as the
+# previous one.
+#
+# This workflow does NOT publish releases any more. It used to take a
+# `release_tag` input and run `gh release create`, which made "start a build" and
+# "promise these bytes to the outside world" the same button. Development now
+# runs in batches: a batch ends with one build, the packages are installed and
+# checked on the two lab machines, and only a batch that survives that becomes a
+# release. Publishing is therefore a separate, deliberate act:
+#
+#   gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
+#
+# The artifact below is the per-batch output (four apks + SHA256SUMS.txt).
 
 on:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Publish as a GitHub Release under this tag (e.g. v0.1.0). Empty = build only.'
-        required: false
-        default: ''
 
-# Needed for the optional release step (gh release create/upload). Without it the
-# default GITHUB_TOKEN is read-only on repositories that kept the restricted
-# default, and the release step fails with "Resource not accessible by
-# integration" only after the 20-30 minute build.
+# Read-only on purpose: nothing here writes to the repository or to releases.
 permissions:
-  contents: write
+  contents: read
 
 # A superseded run is worthless: cancel the old one instead of paying for two
 # full toolchain builds in parallel (and fighting over the same cache key).
@@ -103,9 +103,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: zte-mesh
-          # Full history and tags: the release step writes the commit list since
-          # the previous tag into the release notes, and verifies that a tag
-          # entered by hand points at the commit being built.
+          # Full history: the build summary names the commits this run covers,
+          # which is how a batch is identified after the fact.
           fetch-depth: 0
 
       - name: Lint the LuCI view
@@ -540,6 +539,13 @@ jobs:
           find sr1010/immortalwrt/bin -name 'luci-*zte-mesh*.apk' -exec cp -v {} dist/ \;
           ls -la dist
 
+      # Checksums travel with the artifact: whoever installs a batch on the lab
+      # machines can prove the apk they flashed is the one this run produced,
+      # and a release made later from these files carries the same list.
+      - name: Write checksums
+        working-directory: dist
+        run: sha256sum *.apk | tee SHA256SUMS.txt
+
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
@@ -555,88 +561,19 @@ jobs:
           path: build.log
           if-no-files-found: ignore
 
-      # Publishing is opt-in per run: `release_tag` in the dispatch form. The tag
-      # is created at the commit this run built, so a release can never disagree
-      # with the bytes inside it.
-      #
-      # The artifact above is not a distribution channel -- downloading it needs
-      # a GitHub login, it expires, and it arrives as a zip. A release gives one
-      # stable URL per tag plus checksums, which is what a board on the other
-      # side of the LAN can actually fetch.
-
-      - name: Write checksums
-        if: github.event.inputs.release_tag != ''
-        working-directory: dist
-        run: sha256sum *.apk | tee SHA256SUMS.txt
-
-      - name: Publish release
-        if: github.event.inputs.release_tag != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # The feed is checked out into a subdirectory (`path: zte-mesh`), so the
-          # job's working directory is *not* a git repository. Without GH_REPO,
-          # gh discovers the repo from the cwd and dies with
-          # "failed to run git: fatal: not a git repository" -- after the 20-30
-          # minute build, on the last step.
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.event.inputs.release_tag }}
-          SHA: ${{ github.sha }}
+      # One line per file in the run summary, so the batch can be identified
+      # from the Actions page without downloading the artifact.
+      - name: Summarise the batch
+        if: always()
         run: |
-          set -eu
-          case "$TAG" in
-            v[0-9]*) ;;
-            *) echo "release_tag must look like v0.1.0, got '$TAG'" >&2; exit 1 ;;
-          esac
-
-          # A tag that already exists but points at another commit would ship a
-          # release whose assets were built from somewhere else. Refuse instead
-          # of attaching them silently. Fetch first: a tag created by an earlier
-          # run of this same workflow is not in the local refs of this checkout.
-          git -C zte-mesh fetch --tags --quiet origin || true
-          if git -C zte-mesh rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            AT=$(git -C zte-mesh rev-parse "refs/tags/$TAG^{commit}")
-            [ "$AT" = "$SHA" ] || {
-              echo "tag $TAG already points at $AT, this run built $SHA" >&2
-              echo "delete that tag, or publish under a different name" >&2
-              exit 1; }
-          fi
-
-          NOTES="$RUNNER_TEMP/notes.md"
           {
-            echo '四个 apk：`zte-mesh`（arch: all）、`zte-mesh-launcher`（aarch64_cortex-a53）、'
-            echo '`luci-app-zte-mesh`、`luci-i18n-zte-mesh-zh-cn`。'
+            echo "### zte-mesh batch ${{ github.sha }}"
             echo
-            echo '```sh'
-            echo 'apk add --allow-untrusted zte-mesh-*.apk zte-mesh-launcher-*.apk \'
-            echo '    luci-app-zte-mesh-*.apk luci-i18n-zte-mesh-zh-cn-*.apk'
-            echo 'sha256sum -c SHA256SUMS.txt'
+            echo '```'
+            ls -l dist 2>/dev/null || echo "no dist/"
+            cat dist/SHA256SUMS.txt 2>/dev/null || true
             echo '```'
             echo
-            echo '- 这些包**没有签名**，必须带 `--allow-untrusted`。'
-            echo '- `zte-mesh` 是 `arch: all`，任何架构都能装；`zte-mesh-launcher` 只有 aarch64，x86_64 上会被正确拒绝。'
-            echo '- 原厂 `multiapd` 是 32 位 ARM：arm64 需要内核 `CONFIG_COMPAT=y`，其他架构要自己把'
-            echo '  `qemu-arm-static` 放进 `/usr/lib/zte-mesh/root/`。模拟器不随包分发，见 `docs/LAB.md` 第 4.2 节。'
-            echo
-            echo '### 本版提交'
-            echo
-            PREV=$(git -C zte-mesh describe --tags --abbrev=0 --exclude="$TAG" 2>/dev/null || true)
-            if [ -n "$PREV" ]; then
-              git -C zte-mesh log --pretty='- %s (`%h`)' "$PREV..$SHA" | head -60 || true
-            else
-              git -C zte-mesh log --pretty='- %s (`%h`)' -20 "$SHA" | head -60 || true
-            fi
-          } > "$NOTES"
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            # Re-running the same tag replaces the assets instead of failing on
-            # "Release already exists".
-            gh release upload "$TAG" dist/*.apk dist/SHA256SUMS.txt --clobber
-            gh release edit "$TAG" --title "zte-mesh $TAG" --notes-file "$NOTES"
-          else
-            gh release create "$TAG" \
-              --target "$SHA" \
-              --title "zte-mesh $TAG" \
-              --notes-file "$NOTES" \
-              dist/*.apk dist/SHA256SUMS.txt
-          fi
-          gh release view "$TAG" --json url -q .url
+            echo "Publishing is manual: download this artifact, install it on the"
+            echo "lab machines, and only then \`gh release create\` if it holds."
+          } >> "$GITHUB_STEP_SUMMARY"
