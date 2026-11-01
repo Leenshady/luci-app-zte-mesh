@@ -277,9 +277,18 @@ SR1010 构建是 119 个函数 / 27 张表 —— 少的两张正是它没有的
 3. **写入口只有 4 个**（上表）。也就是说 applier 的触发点不是"监听 29 张表的变更"，
    而是"这 4 个写路径发生后，把 5 张表的对应列翻译成 nl80211"。
 
-> 仍未覆盖的一层是**列**。表级映射到这里就是机器码能给的极限了；列级需要结构体字段偏移，
-> 本仓 [`cm-profile-evidence.py`](../../cm-profile-evidence.py) 已经用同一套方法（从机器码推
-> 43 个字段偏移）做过一次 `CmWLANGetAPConfig` 的结构体，可以照搬到这几张表上。
+**列级没有想象中那么空**——查了一下，`WLANCfg` 那一层仓库里已经做好了：
+
+| 层 | 状态 | 出处 |
+|---|---|---|
+| 表级（谁读写哪张表） | ✅ **本轮做出**：34 个 `Wlan*Db*` + 29 张表 + 4 个写入口 | 本文 §3.3 |
+| `WLANCfg` 列级 | ✅ **已有**：`CmWLANGetAPConfig` 的 **44 条 payload copy**，覆盖 `ESSID`/`ESSIDHideEnable`/`ACLPolicy`/`BeaconType`/`WEP*`/`WPA*`/`11i*`/`WPA3*`/`Vlan*`/`McastVlan*`/`GuestSsid`/`GuestOffTime`/`DownRateKbps`/**`MapAccessAttr`**/`ForceWiFi5`/`ForceWiFi6` | [`cm-profile-layout.inc`](../../cm-profile-layout.inc)，证据脚本 [`cm-profile-evidence.py`](../../cm-profile-evidence.py)（`--verify` 可复算） |
+| `WLANBase` 列级（信道/带宽/功率） | ❌ 缺 | `CmWLANGetBaseConfig` 尚未取证 |
+| 写方向（Set 的结构体） | ⚠️ 未单独取证，但 Get/Set 成对、布局通常同构 | 由 `CmWLANSetAPConfig` 的 `WlanCfgDbWrite` 反推 |
+
+所以 applier 真正缺的**只有两件**：`WLANBase` 的字段偏移，和"Set 结构与 Get 结构是否同构"的验证。
+两者都能用 `cm-profile-evidence.py` 同一套方法（从 `oss_strncpy_s` 的调用点推偏移）做出来——
+它的 `CM_SHA256` 只认当前 pin 的那版 `libcmapi.so`，换构建要重跑一次取证。
 
 ## 4. 四个切点，选哪个（§3.1–§3.3 之后重排）
 
