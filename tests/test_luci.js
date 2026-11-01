@@ -105,7 +105,9 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
 	{
 		const m = registered.zte_mesh || {};
-		const forbidden = Object.keys(m).filter(n => n !== 'enabled' && n !== 'bridge' && n !== 'mesh_role' && n !== 'backhaul');
+		/* extra_slots is not a controller setting: on a child it decides whether the slots the controller sends are put
+		 * on this router's own air, which is exactly the child's business. */
+		const forbidden = Object.keys(m).filter(n => n !== 'enabled' && n !== 'bridge' && n !== 'mesh_role' && n !== 'backhaul' && n !== 'extra_slots');
 		if (forbidden.length) { console.log('child form still offers controller settings:', forbidden.join(' ')); bad++; }
 		if (!m.backhaul) { console.log('child form lacks the backhaul choice'); bad++; }
 			if (registered.zte_mesh_bss || registered.zte_mesh_acl || registered.zte_mesh_timer) { console.log('child form still offers the controller grids'); bad++; }
@@ -118,7 +120,7 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		uciRole = 'main';
 		await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
 		const m = registered.zte_mesh || {};
-		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2'].filter(n => !m[n]);
+		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2', 'extra_slots'].filter(n => !m[n]);
 		if (missing.length) { console.log('main router form lacks the controller options:', missing.join(' ')); bad++; }
 		if (m.backhaul) { console.log('main router form offers the child-only backhaul choice'); bad++; }
 	}

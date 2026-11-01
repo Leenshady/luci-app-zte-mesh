@@ -562,3 +562,12 @@ msgstr "本机作为组网控制器对外使用的地址是 02:00:00:00:19:<这�
 
 msgid "Host name"
 msgstr "主机名"
+
+msgid "Extra SSIDs on this router"
+msgstr "本机也启用额外 SSID"
+
+msgid "On (guest, spare and hidden backhaul too)"
+msgstr "开（含访客、备用和隐藏回程）"
+
+msgid "Whether the extra SSID slots are applied to this router as well. Off: only the main SSIDs are applied, as before. On: every enabled slot becomes its own network on the band it belongs to, and a slot that stops arriving is removed again. An extra slot shares the bridge of its band's main network: this image has no VLAN separation yet, so a guest slot is not isolated from the main one."
+msgstr "是否把额外 SSID 槽位也落到本机。关：只应用主 SSID，与之前完全一致。开：每个启用的槽位在所属频段上成为独立网络；不再下发的槽位会被删除。额外槽位与其频段的主网络共用同一个网桥：本镜像还没有做 VLAN 隔离，所以访客槽位并没有和主网络隔开。"

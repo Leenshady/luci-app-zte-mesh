@@ -117,6 +117,8 @@ seed_db() {
 	printf 'radio1' > "$DB/default_radio1.device"; printf 'ap' > "$DB/default_radio1.mode"
 	printf 'old-5g' > "$DB/default_radio1.ssid"; printf 'old-key-5g' > "$DB/default_radio1.key"
 	printf 'psk2' > "$DB/default_radio1.encryption"; printf '0' > "$DB/default_radio1.disabled"
+	# Both main BSSs sit on the LAN, which is the network an extra slot inherits (there is no VLAN separation).
+	printf 'lan' > "$DB/default_radio0.network"; printf 'lan' > "$DB/default_radio1.network"
 	: > "$LOG"
 }
 seed_db
@@ -427,6 +429,162 @@ sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
 check "old plan: fronthaul still marked" 1 "$(val default_radio0.multi_ap)"
 check "old plan: no backhaul section invented" "" "$(val type.zte_backhaul_2g)"
 
+
+# --- extra SSID slots (zte_mesh.main.extra_slots) ---------------------------------------------------------
+# The controller hands out up to three extra SSIDs per band (slot 1 guest, 2 spare, 3 hidden backhaul) and the
+# plan carries one row per slot. Off is the default and must stay byte-for-byte the old behaviour; on turns each
+# enabled slot into its own wifi-iface on the band's radio, and removes the section again when the slot goes away.
+extra_on() { printf '1' > "$DB/zte_mesh.main.extra_slots"; }
+extra_off() { rm -f "$DB/zte_mesh.main.extra_slots"; }
+
+PLAN_SLOTS=$T/plan-slots
+cat > "$PLAN_SLOTS" <<'PLAN'
+rows=3
+0.radio=0
+0.slot=0
+0.instance=DEV.WIFI.AP1
+0.ssid=zte-agent-2g
+0.key=m2-public-2g-key
+0.enabled=1
+0.hidden=0
+0.access=32
+0.beacon_type=6
+1.radio=0
+1.slot=1
+1.instance=DEV.WIFI.AP2
+1.ssid=guest-2g
+1.key=guest-2g-key
+1.enabled=1
+1.hidden=0
+1.access=32
+1.beacon_type=3
+2.radio=1
+2.slot=2
+2.instance=DEV.WIFI.AP7
+2.ssid=spare-5g
+2.key=spare-5g-key
+2.enabled=0
+2.hidden=1
+2.access=32
+2.beacon_type=3
+PLAN
+
+# Off (the default): the slots are reported and skipped, exactly as before this option existed.
+seed_db
+extra_off
+sh "$WLAN_SYNC" "$PLAN_SLOTS" --once >"$T/out" 2>&1
+check "slots off: no extra section" "" "$(val type.zte_extra_2g_1)"
+check "slots off: nothing created for the disabled slot either" "" "$(val type.zte_extra_5g_2)"
+check "slots off: the row is reported" 1 "$(grep -c 'slot 1 of radio 0 is not applied' "$LOG")"
+check "slots off: the log names the option" yes "$(has 'zte_mesh.main.extra_slots is off')"
+check "slots off: the main BSS is still applied" zte-agent-2g "$(val default_radio0.ssid)"
+
+# On: an enabled slot becomes its own BSS on its band's radio.
+seed_db
+extra_on
+sh "$WLAN_SYNC" "$PLAN_SLOTS" --once >"$T/out" 2>&1
+check "slot section type" wifi-iface "$(val type.zte_extra_2g_1)"
+check "slot radio" radio0 "$(val zte_extra_2g_1.device)"
+check "slot mode" ap "$(val zte_extra_2g_1.mode)"
+check "slot name is the controller's" guest-2g "$(val zte_extra_2g_1.ssid)"
+check "slot key is the controller's" guest-2g-key "$(val zte_extra_2g_1.key)"
+check "slot security (beacon 3)" psk2 "$(val zte_extra_2g_1.encryption)"
+check "slot enabled" 0 "$(val zte_extra_2g_1.disabled)"
+check "slot hidden flag" 0 "$(val zte_extra_2g_1.hidden)"
+check "slot inherits the band's network" lan "$(val zte_extra_2g_1.network)"
+check "slot is not a backhaul BSS" "" "$(val zte_extra_2g_1.multi_ap)"
+check "slot row does not touch the main SSID" zte-agent-2g "$(val default_radio0.ssid)"
+check "a disabled slot creates nothing" "" "$(val type.zte_extra_5g_2)"
+check "one commit for the whole plan" 1 "$(grep -c '^commit wireless$' "$LOG")"
+check "the apply says the guest slot is not separated" 1 "$(grep -c 'no VLAN separation' "$LOG")"
+
+# Idempotent: the same plan again writes, commits and reloads nothing.
+: > "$LOG"
+sh "$WLAN_SYNC" "$PLAN_SLOTS" --once >"$T/out" 2>&1
+check "second slot run sets nothing" 0 "$(grep -c '^set ' "$LOG")"
+check "second slot run commits nothing" 0 "$(grep -c '^commit ' "$LOG")"
+check "second slot run reloads nothing" 0 "$(grep -c '^wifi ' "$LOG")"
+
+# A slot the plan no longer carries is removed: the child must not keep broadcasting a network the controller
+# stopped handing out. A slot that is merely disabled is the row's job, not the pruner's.
+cat > "$T/plan-slots-none" <<'PLAN'
+rows=2
+0.radio=0
+0.slot=0
+0.ssid=zte-agent-2g
+0.key=m2-public-2g-key
+0.enabled=1
+0.hidden=0
+0.access=32
+0.beacon_type=6
+1.radio=1
+1.slot=2
+1.ssid=spare-5g
+1.key=spare-5g-key
+1.enabled=0
+1.hidden=1
+1.access=32
+1.beacon_type=3
+PLAN
+: > "$LOG"
+sh "$WLAN_SYNC" "$T/plan-slots-none" --once >"$T/out" 2>&1
+check "slot gone: section removed" "" "$(val type.zte_extra_2g_1)"
+check "slot gone: removal logged" 1 "$(grep -c 'removed zte_extra_2g_1' "$LOG")"
+check "slot gone: the main BSS stays" zte-agent-2g "$(val default_radio0.ssid)"
+
+# Switching the mode back to off removes every extra section this script created, and nothing else.
+seed_db
+extra_on
+sh "$WLAN_SYNC" "$PLAN_SLOTS" --once >"$T/out" 2>&1
+extra_off
+: > "$LOG"
+sh "$WLAN_SYNC" "$PLAN_SLOTS" --once >"$T/out" 2>&1
+check "off again: section removed" "" "$(val type.zte_extra_2g_1)"
+check "off again: removal logged" 1 "$(grep -c 'extra slot mode is off; removed 1' "$LOG")"
+check "off again: the main BSS untouched" zte-agent-2g "$(val default_radio0.ssid)"
+
+# An unknown security mode creates nothing; a slot beyond 3 is refused instead of guessed at.
+sed -e 's/^1.beacon_type=3$/1.beacon_type=9/' "$PLAN_SLOTS" > "$T/plan-slots-bad"
+seed_db
+extra_on
+sh "$WLAN_SYNC" "$T/plan-slots-bad" --once >"$T/out" 2>&1
+check "unknown slot mode creates nothing" "" "$(val type.zte_extra_2g_1)"
+check "unknown slot mode logged" 1 "$(grep -c 'slot 1 on 2g: unknown security mode 9' "$LOG")"
+
+sed -e 's/^1.slot=1$/1.slot=4/' "$PLAN_SLOTS" > "$T/plan-slots-range"
+seed_db
+extra_on
+sh "$WLAN_SYNC" "$T/plan-slots-range" --once >"$T/out" 2>&1
+check "slot 4 refused" "" "$(val type.zte_extra_2g_4)"
+check "slot 4 logged" 1 "$(grep -c 'slot 4 of radio 0 is out of range' "$LOG")"
+
+# A slot row without a name is left alone (an empty SSID would create an unnamed, unconnectable BSS).
+sed -e 's/^1.ssid=guest-2g$/1.ssid=/' "$PLAN_SLOTS" > "$T/plan-slots-noname"
+seed_db
+extra_on
+sh "$WLAN_SYNC" "$T/plan-slots-noname" --once >"$T/out" 2>&1
+check "slot without a name creates nothing" "" "$(val type.zte_extra_2g_1)"
+check "slot without a name logged" 1 "$(grep -c 'slot 1 of radio 0 has no name' "$LOG")"
+
+# An extra slot on a band whose radio cannot be resolved is reported and skipped, not written to a guess. This is
+# the ax3600 shape: two '5g' devices, neither pinned, so the band is ambiguous.
+cat > "$T/plan-slots-5g" <<'PLAN'
+rows=1
+0.radio=1
+0.slot=1
+0.ssid=guest-5g
+0.key=guest-5g-key
+0.enabled=1
+0.hidden=0
+0.access=32
+0.beacon_type=3
+PLAN
+seed_db_two_5g
+extra_on
+sh "$WLAN_SYNC" "$T/plan-slots-5g" --once >"$T/out" 2>&1
+check "ambiguous band: no section" "" "$(val type.zte_extra_5g_1)"
+check "ambiguous band: reported" 1 "$(grep -c 'no usable 5g radio; slot 1 left alone' "$LOG")"
+check "ambiguous band: the old main SSID stays" old-card-5g "$(val default_radio0.ssid)"
 
 # Every run leaves a status file next to the plan (wlan-sync.status): the sandboxed service and the page cannot see
 # what happens outside the sandbox, and without it a failed apply is only a line in the system log.

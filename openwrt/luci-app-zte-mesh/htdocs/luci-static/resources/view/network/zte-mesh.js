@@ -347,6 +347,18 @@ return view.extend({
 
 		}
 
+		/* Extra SSIDs, on the two roles that apply a profile to this router: on a child they are the slots the controller
+		 * sends, on the main router the ones configured below. A controller-only router hands them out and never puts
+		 * them on its own air, so the field would only invite the wrong expectation there. */
+		if (child || local) {
+		o = s.taboption('general', form.ListValue, 'extra_slots', _('Extra SSIDs on this router'));
+		o.value('0', _('Off (main SSIDs only)'));
+		o.value('1', _('On (guest, spare and hidden backhaul too)'));
+		o.default = '0';
+		o.optional = true;
+		o.description = _('Whether the extra SSID slots are applied to this router as well. Off: only the main SSIDs are applied, as before. On: every enabled slot becomes its own network on the band it belongs to, and a slot that stops arriving is removed again. An extra slot shares the bridge of its band\'s main network: this image has no VLAN separation yet, so a guest slot is not isolated from the main one.');
+		}
+
 		/* Controller side: what this router pushes to its child routers. Not rendered on a child, where the service runs
 		 * with these features off (a child has no agents of its own) and changing a value only invites misconfiguration. */
 		if (!child) {

@@ -70,7 +70,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | init `role-slave-borrow` | — |
 | B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | `test_luci.js`（主控 31 项 / 子路由 4 项） | — |
 | B10 | rpcd `status` 返回角色 | ✅ | rpcd 18 项；两台各自读到 `master`/`main`/`slave` | — |
-| B11 | 子路由侧应用额外槽位（slot 1–3 现在只记日志） | ⬜ | `wlan-sync` 明确跳过 | 3 |
+| B11 | **额外槽位（slot 1–3）落到本机**：`extra_slots=1` 时每（频段,槽位）一个 `zte_extra_<band>_<slot>` 段，plan 不再下发的槽位被删除，`extra_slots=0`（默认）与旧行为逐字节相同；`main` 角色的本机 plan 也带上 `zte_mesh_bss` 的行 | ☑️ | `wlan-sync` 123 项（含默认关/开/幂等/删槽位/坏密钥/频段二选一/槽位 4 越界/无名行）、init 87 项（`role-main-slots` 五行的 plan、`role-main-no-slots` 只两行、`role-slave-slots-keeps-plan` 不动子路由 plan、`extra_slots=2` 被拒）。**默认关**，真机效果见 [PLAN](PLAN.md) H-02 | 3 |
 | B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | wlan-sync 86 项、rpcd 18 项 | — |
 | B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | ⬜ | 只做了 AP 侧 | 4 |
 | B14 | 真机：本机当子路由，接真主控（有线回程） | ✅ | 两台实验机打通。抓包确认**子路由自己会发** `0x0007` Search、主控回 `0x0008` 带 WSC；原判断"子路由被 cspd 门控"是错的，真因是 C6。r7 后主控改 SSID，子路由 `wlan-plan` 与 `iw dev` 跟着变成 `MASTERTEST`/`MASTERTEST-5G` | — |
@@ -91,7 +91,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 |---|---|---|---|---|
 | C1 | 单个 apk（runtime + init + wlan-sync + rpcd + LuCI），4.1 MB | ✅ | 真路由器上 procd/rpcd 全通 | — |
 | C2 | 拆包：`zte-mesh`（`arch: all`）+ `zte-mesh-launcher`（aarch64，只装 `ns-run`/`mesh-search`） | ✅ | **只做了"让 x86_64 能直装"这一半**。必须两个目录：`package-pack.mk` 的 `Architecture` 读 Makefile 级全局 `PKGARCH`，一个 Makefile 给不了两个架构。VM 现在 `apk add zte-mesh` 直装且不覆盖自编的 `ns-run`。原方案的 controller/agent 拆分仍未做 | 1 |
-| C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ⬜ | 工作区 CRLF，测试要转 LF 才能跑 | 1 |
+| C3 | 统一行尾（`.gitattributes`，`* text=auto eol=lf`） | ✅ | 规则早在仓库里，2026-11-01 核过：`git ls-files --eol` 210 个文件索引全 `i/lf`，6 个二进制标 `-text`；只剩 Windows 工作区的旧副本是 CRLF（重新检出即消失），Linux/CI 上一直是对的 | — |
 | C4 | **中文翻译包随 CI 构建**：`luci-i18n-zte-mesh-zh-cn` 之前只配 `=m` 没编译，中文从不产出 | ✅ | 两台装完后 `zte-mesh.zh-cn.lmo` 就是包带来的 | — |
 | C5 | **包里的 `ns-run` 与 init 不同步**：tarball 里是旧版，不认 `ZTE_MESH_QEMU`/`ZTE_MESH_EMULATED_LAB`，无 `CONFIG_COMPAT` 的 aarch64 上 `execv` 直接 `errno=8` | ✅ | 修法是消除漂移本身：tarball 额外带 `ns-run.c`/`controller-net.c`/`enroller.c`，`Build/Compile` 用 `$(TARGET_CC)` 现编；`test_runtime.py` 比对源码副本，重打包漏了就在本机失败 | — |
 | C6 | **tarball 里的 `db-engine-probe` 冻结在打包那天**：ARM32 半边只能 `-nostdlib` 对着原厂 glibc 2.26 编，包里编不了；冻住的那份不认 `mesh.role=slave` → 子路由的 controller 实例每 5 秒退一次 | ✅ | 换重编副本（193364 B，sha256 `7ff631a7…`）后 slave 角色 3/3 实例全起；`test_runtime.py` 断言包里那份必须带 `config-reject` 与 `wlan-plan` | — |
@@ -261,6 +261,8 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 
 **七项的"入口位置"现在是实测级，但"功能本身"一项都没实测**，所以仍然没有一项改成 ✅。
 
+> **排期在 [PLAN](PLAN.md)**：分批、每批的判据、哪些等真机、CI 什么时候跑。本表只记状态与证据。
+
 ## 推进顺序（只做下一项，做完打勾再往下）
 
 | 顺序 | 项 | 难度 | 说明 |
@@ -270,7 +272,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 1 | r10 四包装机验收 | 0 | 产物已在手，两台换上即可 |
 | 2 | ax3600 刷 `CONFIG_COMPAT=y` 固件 | 1 | 彻底摆脱手工模拟器，`.github/workflows/build-firmware.yml` |
 | 3 | C3 统一行尾 | 1 | 影响整个仓库，**需要单独确认** |
-| 4 | B11 额外槽位在子路由侧应用 | 3 | 先要把 plan 的槽位与 hostapd 段对上，且有 A6 真机作参照 |
+| 4 | ~~B11 额外槽位在子路由侧应用~~ | — | **已完成**（2026-11-01，批 1）：`extra_slots` 默认关，主机测试 210 项；真机验收见 [PLAN](PLAN.md) H-02。后续批次见 [PLAN](PLAN.md) |
 | 5 | A18 拓扑页 | 3 | 需要 RSSI、终端数先落到 `state.json` |
 | 6 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在，缺策略与 UI |
 | 7 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定。**新线索**：`MapCooperatorCfg.Addr4EffectDelayTime=10` 可能就是 4 地址模式的生效延迟（歧义未定，见 [SNAPSHOT](research/E2631_DB_SNAPSHOT.md) §10.8） |
