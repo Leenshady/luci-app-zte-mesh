@@ -98,6 +98,102 @@ Msg: %d not last fragment.                                  ← CMDU 分片重�
 第二条对我们尤其重要：**帧到了不等于被处理**，目的地址（单播 MAC 或 1905 组播）必须命中。
 第一条则是「网桥上抓到自己刚发的 0x893a」这个现象在进程侧的对应实现。
 
+## 3.1 一条 M1 从函数到网线的完整路径
+
+`_acdcSendApAutoConfigWSCM1`（`0x71188`，756 B，源文件 `source/acd/acd_client.c`）走到 `sendto` 只有五步，
+每一层都能按地址核：
+
+```
+_acdcSendApAutoConfigWSCM1  0x71188
+  acdGetACDConfigByFreq(band)      0x77b74   取本频段 ACD 配置，为 0 直接 return -1
+  acdcRestBssCfg()                 0x77844   清 BSS 暂存
+  I5MessageInit(buf, 0x9a, band)   0x66220   分配消息体（0x9a = 单播目的槽位）
+  I5PacketHeaderInit(msg, 9, seq)  0x68284   messageType = 9 = 0x0009（AP-Autoconfiguration WSC）
+  acdcBuildM1Msg(两个栈缓冲, band)  0x75aa8   非 0 即失败：打 "acdcBuildM1Msg fail" 并 free
+  I5MessageSend(ctx, msg)          0x66bd8   逐 fragment 发送
+    I5MessagePacketSend(ctx, buf, len)  0x66b0c
+      sendto(ctx->fd, buf, len, 0, (sockaddr_ll*)(ctx+44), 20)
+```
+
+### 三层都把返回值丢了
+
+这是读这段代码最要紧的一点：
+
+| 层 | 指令 | 后果 |
+|---|---|---|
+| `sendto` 的结果 | `0x66b74 subs r6, r0, #0` → 失败才打日志 | 失败时打 `sendto [%s] 1905 packet fail,iRet %d errno = %d`，但**返回值只在本函数内用到** |
+| `I5MessagePacketSend` | 循环末尾 `0x66c24 mov r0, r4`，此时 `r4` 恒为 0（循环退出条件） | **永远返回 0** |
+| `I5MessageSend` | 同上，调用方的错误码无处可传 | **永远返回 0** |
+| `_acdcSendApAutoConfigWSCM1` | `0x71438 bl I5MessageSend` 之后 `0x71444 mov r0, r5`，`r5` 在 `0x713fc` 被置 0 | **无条件 `return 0`** |
+
+所以上层打印的 `_acdcSendApAutoConfigWSCM1 success` **只证明函数跑到了最后一行**，不证明任何字节上了网线。
+反过来说，它也**不证明没发出去**——2026-11-01 我们就用这句话配一次错误的抓包统计，得出过
+「M1 根本没上以太网」的错结论（见下面的「怎么量」）。
+
+### 实测：M1 真的在线上，771 / 801 字节
+
+同一台 AX3600（`slave`）+ 沙箱控制器（`master`），一次服务重启的完整交换：
+
+```
+240  e3 -> 广播     0x0007 Search
+230  03 -> e3       0x0008 Response
+771  e3 -> 03       0x0009 M1    tlv 0x11 WSC(539) + 0x85 RadioId(17) + 0x0b Vendor(181) + EOM
+911  03 -> e3       0x0009 M2    tlv 0x11 WSC(656) + 0x82(6) + 0xe0(31) + 0x0b Vendor(181) + EOM
+801  e3 -> 03       0x0009 M1    tlv 0x11 WSC(539) + 0x85 RadioId(47) + 0x0b Vendor(181) + EOM
+911  03 -> e3       0x0009 M2
+```
+
+M1 的 WSC 属性（`frames.py --cmdu 9 --tlv` 原样输出）：`MessageType=0x4`、`PublicKey` **192 字节**
+（1536-bit DH，是真算的，不是占位）、`AuthTypeFlags=0x63`、`EncryptTypeFlags=0x0f`、`ConfigMethods=0x1aa`、
+`WPSState=0x2`(Configured)、`Manufacturer='ZTE'`、`ModelName`/`DeviceName` 为 32 字节定长串、
+`SerialNumber='PUBLIC-NOT-DEVICE-SERIAL'`（原厂写死的占位）、`RFBands` **0x1(2.4G) / 0x2(5G)**。
+M2 侧 `MessageType=0x5`，`EnrolleeNonce` 与对应 M1 逐字节相同——配对是严格的。
+
+两个 M1 的 `0x85` Radio Identifier TLV 长度不同（17 / 47），频段差异就在这里，**不是重复发包**。
+
+### 型号名的来源
+
+`ModelName` 不是从芯片或 `/tmp/sysinfo` 读的，而是环境变量 `ZTE_MESH_REAL_MODEL`
+（`openwrt/zte-mesh/files/zte-mesh.init:638` 固定写 `ZXSLC SR1010`）。所以拓扑页上那个
+「假身份」其实是我们自己给沙箱 rootfs 定的牌子，改这个变量就能改 M1 里申报的型号。
+
+### 它处在哪一步：ACD Client 的五个状态
+
+`_acdcSetRenewStateMachine`（`0x70ff4`）是唯一的转移入口，末尾三句就够读：
+
+```
+71144: ldr  r3, [r7, #64]        ; r3 = ctx->state（每频段一份，ctx+band*4+0x40）
+71154: add  r5, r5, r3, lsl #2   ; r5 = 0xbe98c；+32 之后正好是 g_Acdc_Sm
+7115c: ldr  r5, [r5, #32]        ; handler = g_Acdc_Sm[state]
+71160: blx  r5                   ; handler(band, event, msg, 0)
+```
+
+`g_Acdc_Sm`（`0xbe9ac`）是一张纯函数指针表，按状态号排：
+
+| state | handler | 地址 |
+|---:|---|---|
+| 0 | `_acdcInitialHandler` | `0x72bf8` |
+| 1 | `_acdcSearchHandler` | `0x72000` |
+| 2 | `_acdcConfigHandler` | `0x729cc` |
+| 3 | `_acdcVendorHandler` | `0x7266c` |
+| 4 | `_acdcCompleteHandler` | `0x72408` |
+
+**M1 在 state 2（Config）发出**——`_acdcConfigHandler` 收到 `0x0008` 后就是这条路。所以真机日志
+`acdc current state[0]:3,event:10` 里的 **3 是有意义的**：两个频段都已经过了 Config、发过 M1、
+现在停在 Vendor 处理厂商 TLV。**卡在 3 而不进 4，是「M2 之后」那条链上的问题，不是发送问题。**
+
+### 怎么量（别再用 tcpdump 的文本长度）
+
+| 手段 | 命令 | 给到什么 |
+|---|---|---|
+| trace 库已拦的 `sendto` | `logread \| grep tx1905` | `cmdu=9 bytes=771 sent=771 errno=0`，**长度和返回值都有**，不用抓包 |
+| 进程自带 dump | `pktdump 1` → `/var/tmp/<pid>_multiapd` | 它自己认为收到/发出的帧 |
+| 抓包后精确统计 | `python tools/capture/frames.py <pcap> [--cmdu 9] [--tlv]` | 直接读 pcap 记录头，绕开文本解析 |
+
+**踩过的坑**：`tcpdump -e` 的文本输出在流式管道里会被 hex dump 打断，`awk '{print $NF}'`
+取到的"长度"是 dump 碎片，能把 771 字节的 M1 读成 68 字节。上一节记的「没有大帧」就是这么来的。
+量帧长必须读二进制记录头。
+
 ## 4. M1 / M2：两端都在，且对称
 
 | 方向 | 函数 | 地址 | 大小 |
@@ -206,16 +302,16 @@ CmWLANSetACLIsFrom1905Slave / CmWLANSetAclList_1905_Slave   ← 1905 下发 ACL 
 
 1. **`MESH_INTEROP` §5 要改**：内核不是「只识别、只丢弃」，还有 `br_ieee1905_local_in_handle`
    把帧送给本机——这正好是 `multiapd` 那条 raw socket 的对端。已在 §5.5 补。
-2. **D 段的「M1/M2 走不通」现在有具体下手点**：`0x6edd0`（agent 收 M1，2 388 B）是最大的一支，
-   从它看「什么条件下才回 M2」；`0x71188` 是 controller 发 M1 的形状。二者都有符号边界，
-   可以直接反汇编，不必再猜。
+2. **「M1/M2 走不通」已经证伪**：`0x71188` 已逐函数反汇编（§3.1），M1 在线上是 771 / 801 字节，
+   对端回 911 字节的 M2，`EnrolleeNonce` 严格配对。真正没有证据的是**收下 M2 之后有没有落地**——
+   那条链在 `0x6edd0`（agent 收 M1，2 388 B）与 M2 应用侧，还没反汇编。
 3. **验证成本整体下降**：`pktdump` 替代自带抓包程序，`showMsgStatistics` 替代逐帧人工数，
    `querydev` 直接吐拓扑。原先「需要停机窗口」的几项，至少前两项不再需要。
 
 ## 9. 局限（必须连着读）
 
-- **本文没有逐函数反汇编**。结论来自 `.symtab`（函数名+边界）、`.dynsym`（导入/导出）、
-  `.rodata` 字符串与日志格式串。**函数体行为仍需实证**，特别是 M2 的组装与角色选举取值。
+- **只对 M1 发送链做了逐函数反汇编**（§3.1：`0x71188` → `0x75aa8` → `0x66bd8` → `0x66b0c` → `sendto`）。
+  其余结论仍来自 `.symtab`、`.dynsym`、`.rodata` 字符串。**M2 的组装与角色选举取值仍需实证**。
 - 样本是 **SR1010 版**，不是 E2631 原厂那份；两者差异未知。
 - 命令表只证明「命令存在」，**不证明命令在当前构建/配置下可达**；`pktdump` 的入口尤其未定。
 - `1:SLAVE 2:MASTER` 是日志串里的编码，**没在线上验证过 DB/消息里用的是不是同一套值**。
