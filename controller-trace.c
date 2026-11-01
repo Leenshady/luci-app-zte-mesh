@@ -21,6 +21,17 @@
 
 static unsigned int lines, packet_lines, trace_all_lines;
 static int (*format_real)(char *, size_t, const char *, va_list);
+/* stderr in this sandbox can be a pipe that is already gone, and a dropped
+ * diagnostic is not actionable anyway — but the result still has to be consumed
+ * by something other than a cast: glibc marks write() __warn_unused_result and
+ * GCC rejects `(void)write(...)` under -Werror=unused-result (11.4 does). Assign
+ * to a variable and discard that instead, so the warning stays available for the
+ * calls where the result does matter. */
+static void emit(const char *data, size_t len)
+{
+    ssize_t written = write(STDERR_FILENO, data, len);
+    (void)written;
+}
 /* The firehose switch: a flag file in the one directory the sandbox leaves writable. */
 static int verbose_enabled(void)
 {
@@ -52,7 +63,7 @@ static void message(const char *fmt, ...)
         n = format_real(buffer, sizeof(buffer), fmt, ap);
         va_end(ap);
         if (n > 0)
-            (void)write(STDERR_FILENO, buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
+            emit(buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
         errno = saved;
         return;
     }
@@ -63,7 +74,7 @@ static void message(const char *fmt, ...)
         n = format_real(buffer, sizeof(buffer), fmt, ap);
         va_end(ap);
         if (n > 0)
-            (void)write(STDERR_FILENO, buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
+            emit(buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
         errno = saved;
         return;
     }
@@ -73,8 +84,8 @@ static void message(const char *fmt, ...)
         if (count == limit && !trace_all) {
             static const char ordinary[] = "ZTE_CONTROLLER_TRACE log_budget=ordinary exhausted=1 limit=160\n";
             static const char protocol[] = "ZTE_CONTROLLER_TRACE log_budget=packet exhausted=1 limit=64\n";
-            (void)write(STDERR_FILENO, packet ? protocol : ordinary,
-                        packet ? sizeof(protocol) - 1 : sizeof(ordinary) - 1);
+            emit(packet ? protocol : ordinary,
+                 packet ? sizeof(protocol) - 1 : sizeof(ordinary) - 1);
         }
         errno = saved;
         return;
@@ -83,7 +94,7 @@ static void message(const char *fmt, ...)
     n = format_real(buffer, sizeof(buffer), fmt, ap);
     va_end(ap);
     if (n > 0)
-        (void)write(STDERR_FILENO, buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
+        emit(buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
     errno = saved;
 }
 static void *symbol(const char *name)
