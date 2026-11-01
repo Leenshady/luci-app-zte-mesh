@@ -264,10 +264,14 @@ deauth/disassoc，而不是 11v 的 BTM Request。详见快照 §1.1。
 | `P1905StaBind` | **`RowCount=0`**（#168，表在、无实例） | **D6 绑定的更可能落点**——它是**表名**，我原先当成 `P1905ComCfg` 的列名 |
 | `P1905Cfg` | **`RowCount=12`**，3 列（#164） | **1905 接口使能表**：`eth1`–`eth4`、`wlan0`、`wlan1` 六行全 `EnableP1905=1`，后 6 行空壳。`ViewName` = `IGD.P1905CFG1..6` |
 | `WlanRoamingCfg` | **`RowCount=1`**，6 列（#270） | **不是 11r**：`RoamingEnable=0`、`Interval=60`、`TimeStart=120`、`RssiThresh=-50`、`RssiStart=-30`，是客户端弱信号重关联参数 |
+| `WLANBase` | **`RowCount=2`**，68 列（#258） | 两个射频：`DEV.WIFI.RD1`（`Band=0`、`Channel=4`）与 `RD2`（`Band=1`、`Channel=40`）⇒ **RD1 = 2.4G、RD2 = 5G**。两行同报 Mediatek **MT7916**（一颗双频芯片，2×2） |
+| `WLANCfg` | **`RowCount=8`**，49 列（#259） | **真正的 SSID 配置**：`DEV.WIFI.AP1..8`，`IfName` = `wlan0`–`wlan3` / `wlan5g0`–`wlan5g3`，含 `Enable`/隐藏/`ACLPolicy`/`BeaconType`/客访标记，以及 **7 个 per-VAP VLAN 列**（D5 的 VAP 侧落点）。`ESSID` 被遮蔽成 `***` |
+| `WLANSetting` | **`RowCount=1`**，9 列（#263） | 无线总设置：`SSIDSync=1`、`DualBandSync=0`、**`ACLIsFrom1905Slave=0`**（不收 1905 侧 ACL，D6 同向证据） |
+| `WlanRoamingSta` | **`RowCount=0`**（#271） | per-STA 漫游实例，出厂未填（第四张 per-STA 空表） |
 | `MultiAPALLSta` / `MultiAPTopo` / `MultiAPDualBand` | 未 dump | 拓扑视图（`bSTA, localmac, uplinkDev, uplinkBSS`） |
 
 `RowCount=0` 与 `table not find` 是两件事：前者说明**表存在、入口是真的**，只是没有行
-（三张 per-STA 表出厂全空，`MultiAPCacheMac` 的帧缓存行更是运行时按需填的）；
+（四张 per-STA 表出厂全空，`MultiAPCacheMac` 的帧缓存行更是运行时按需填的）；
 后者才说明**参数不是表名**——`IGD.P1905CFGn` 就是后者，它是 `P1905Cfg` 的行名（§6.4.2）。
 
 > **视图别名那条是错的，已撤**。初版写"另有视图别名 `MESH`→`Netsphere`→`EASYMESH`（`dbMAPPersonBHBSSIndex`
@@ -338,22 +342,28 @@ mesh 相关的表不是我们之前跟踪的 5 张，而是 **19 张**（10 张 
   ② 上机 `sendcmd 1 DB p` 逐表核对；③ `sendcmd 1 DB all` 拿表名全集兜底。
   这一轮证明**①单用会切错表边界**（错了三处），所以②③不能省；
   而且**上机前应先查 [SCHEMA](../milestones/SCHEMA.md) / [POLICIES](../milestones/POLICIES.md) 里已有的还原**。
-- 强度（六轮实测后）：
+- 强度（七轮实测后）：
   - `MultiAPMaster`(55)、`MultiAPDomain`(8×106)、`P1905ComCfg`(8)、`MultiAPCfg`(50)、
     `MultiAPRoamCatonCfg`(7)、`P1905Cfg`(12×3)、`WlanRoamingCfg`(1×6)、`MultiapCapability`(1×2)、
-    `Brport`(16×23)、`MapCooperatorCfg`(1×5)、`WLANSSID`(8×8)
+    `Brport`(16×23)、`MapCooperatorCfg`(1×5)、`WLANSSID`(8×8)、`WLANBase`(2×68)、`WLANCfg`(8×49)、
+    `WLANSetting`(1×9)
     的**列名与列归属 = 强**（真机 dump）；
-  - `MultiAPStaCfg` / `MultiAPCacheMac` / `P1905StaBind` / `EthVlan` / `PortBinding` 的**表存在 = 强**，
-    但列名与列语义 = 中（五张都 0 行，只能靠名字）；
+  - `MultiAPStaCfg` / `MultiAPCacheMac` / `P1905StaBind` / `EthVlan` / `PortBinding` / `WlanRoamingSta`
+    的**表存在 = 强**，但列名与列语义 = 中（六张都 0 行，只能靠名字）；
   - **表名全集 = 强**（276 张，`DB all`）；
   - 所有列的**含义**仍是弱—中：只有列名、出厂值和命名规律，没有反汇编或协议字段级的对应。
   - 第五轮补一条**方法论**：`MultiapCapability` 那次错不是选错表，是**把"缺语义"当成"缺数据"**
     ——`SupportStrategies=251` 的值早在 `MultiAPDomain` 里，位含义只能从反汇编或规范正文来。
     以后遇到"某个位图/枚举的含义不明"，**不要再排 dump**。
   - 第六轮补一条：**同一张表里 `DEV.WIFI.SSID1` 与 `Device.WiFi.Radio.1` 两种标识并存**，
-    前者是 ZTE 缩写的别名、后者是标准 TR-181 全名。顺着 `LowerLayers` 去库里找后者**很可能找不到**。
+    前者是 ZTE 缩写的别名、后者是标准 TR-181 全名。顺着 `LowerLayers` 去库里找后者**很可能找不到**
+    （第七轮在 `WLANBase` 里找到对应行是 `DEV.WIFI.RD1`，见 §6.4）。
+  - 第七轮补一条**方法论**：**`isSave=0` 的列只能读状态，不能当配置比对**。
+    第六轮拿 `WLANSSID.Enable`（全表 `isSave=0`）去反证 `Brport.PortState`，结论正好是反的；
+    换成 `WLANCfg.Enable` 后两表逐字吻合。同一个 `isSave` 判据，正着用是"别写它"，反着用是"别信它当配置"。
 - 一条通用判据：**`isSave=0` 的列是运行时/派生值，写 DB 不落盘**（`MultiAPDomain.ESSID`、
-  `WlanRoamingCfg.ViewName` 都是）。改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"。
+  `WlanRoamingCfg.ViewName`、`WLANSSID` 整表、`WLANCfg.IfName` 都是）。改配置前先看这一列，
+  否则"改了不生效"会被误判成"固件不认"；反过来拿它当配置依据也会判错（见上）。
 - 局限：`cspd` 已 strip，拿不到函数名；列名与代码的对应关系只能靠名字。
 
 ## 7. `/kmodule` 里有什么：squashfs 解开后的地图
@@ -424,21 +434,22 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 | 待办 | 之前 | 现在 |
 |---|---|---|
 | `EnVbss` / `ToVbssMode` 在哪个视图 | 未知，要上机翻 | **`MultiAPMaster`**，与 `EnBtmKickoff`/`EnRoamKick` 同表（实测，`0`/`1`） |
-| D3 信道扫描 / CAC | 只有 `SendCAC` 反汇编推断 | `MultiAPMaster.InChannelScanRptFlag=0` + **`MultiAPCfg.EnReportCenterChannel=1`** + **`P1905Cfg` 六接口全 `EnableP1905=1`**（都实测）。**发送侧全通**，D3 的缺口在接收侧 |
+| D3 信道扫描 / CAC | 只有 `SendCAC` 反汇编推断 | `MultiAPMaster.InChannelScanRptFlag=0` + **`MultiAPCfg.EnReportCenterChannel=1`** + **`P1905Cfg` 六接口全 `EnableP1905=1`**（都实测）。**发送侧全通**，D3 的缺口在接收侧。注意 `P1905Cfg` 只证"允许跑"，不证"在跑"（见下面"1905 接口使能"行） |
 | D4 VBSS | 猜测 | `MultiAPMaster.EnVbss=0` / `ToVbssMode=1`（实测，出厂关） |
-| D5 VLAN / 流量分离 | 靠 `0xa94e` 反推 | 编译期 `CONFIG_CSP_WLAN_VLAN` + `EBTABLES_{VLAN,FFE_T}` + `OBJ_PORTVLAN_ID` + 下发入口都在；**配置层实测为零**：`EthVlan`(#79) **0 行**、`Brport`(#20) 16 口的 `PVID`/`IngressFiltering`/`AcceptableFrameTypes`/`PriorityTagging`/`WanPortVlan*` **八列全默认**。**桥侧入口已定位 = 就是 `Brport` 这八列**（可写、出厂关）；厂商启用时到底往哪张表写，仍未解 |
-| D6 STA 绑定 | 猜测 | 三张 per-STA 表**全部 0 行**：`P1905StaBind`(#168)、`MultiAPStaCfg`、`MultiAPCacheMac`。**入口存在、出厂未配**——要看到行得先配一条绑定（改配置，不是取证）。`P1905ComCfg.STAMac/TargetBand` 不存在，旧写法作废 |
+| D5 VLAN / 流量分离 | 靠 `0xa94e` 反推 | 编译期 `CONFIG_CSP_WLAN_VLAN` + `EBTABLES_{VLAN,FFE_T}` + `OBJ_PORTVLAN_ID` + 下发入口都在；**配置层实测为零**，三处落点全关：`EthVlan`(#79) **0 行**、`Brport`(#20) 16 口的 `PVID`/`IngressFiltering`/`AcceptableFrameTypes`/`PriorityTagging`/`WanPortVlan*` **八列全默认**、**`WLANCfg` 每行 7 个 per-VAP VLAN 列全 0**（`Vlan`/`VlanPriority`/`UpTagEnable`/`DownTagStripEnable`/`McastVlan`/`McastVlanPriority`/`McastDownTagStripEnable`）。**入口已定位到两侧：VAP 打/剥 tag 在 `WLANCfg`，端口默认 VLAN 在 `Brport`**；厂商启用时到底写哪侧，仍未解 |
+| D6 STA 绑定 | 猜测 | 四张 per-STA 表**全部 0 行**：`P1905StaBind`(#168)、`MultiAPStaCfg`、`MultiAPCacheMac`、`WlanRoamingSta`。**入口存在、出厂未配**——要看到行得先配一条绑定（改配置，不是取证）。`P1905ComCfg.STAMac/TargetBand` 不存在，旧写法作废。另：`WLANSetting.ACLIsFrom1905Slave=0` ⇒ 本机**不收** 1905 侧同步的 ACL，同向证据 |
 | D7 BTM 踢人 | 只知字符串在 | `MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1,EnActiveDeauth=1}` + `MultiAPDomain` 五组状态机参数 + `MultiAPRoamCatonCfg.BtmCacheEn=0`（全部实测）+ `WlanRoamingCfg`（实测，**与 11r 无关**） |
 | 角色开关（不在 D 段） | 只有 `libzte_agent_mm.so` 三个导出 | **结案：静态 Slave，六开关同向**。`MultiAPCfg.{Mode=1, SetRoleEnable=0, RoleElect=0, EnMasterOnly=0, MaxHop=2, CurHop=2}` + `MapCooperatorCfg.{AutoSetup=0, EnRebootElect=0}`（全部实测）⇒ 不选举、不自动开局、重启也不改主意 |
-| SSID 与 band 分组 | 未知 | **`WLANSSID` 实测（8 行 × 8 列）**：`SSID1`–`SSID4`→`Device.WiFi.Radio.1`，`SSID5`–`SSID8`→`Radio.2`，**4+4**。哪个 radio 是 2.4G/5G 仍未定（需 `WLANBase`/`iw dev`）。另：**全列 `isSave=0` 且无 ESSID/加密字段 ⇒ 运行时视图，写不进去** |
+| SSID 与 band 分组 | 未知 | **两份实测交叉**：`WLANSSID`（8 行 × 8 列）给出 `SSID1`–`SSID4`→`Device.WiFi.Radio.1`、`SSID5`–`SSID8`→`Radio.2`（**4+4**）；`WLANBase`（2 行 × 68 列）给出 `RD1.Band=0/Channel=4`、`RD2.Band=1/Channel=40` ⇒ **`Radio.1` = 2.4G、`Radio.2` = 5G，且 `Radio.n` ↔ `RDn` 同号**。`WLANSSID` 全列 `isSave=0`（运行时视图，写不进去），真配置在 `WLANCfg` |
 | B16 `CurHop` | 要真机确认 | **结案**：`CurHop=2=MaxHop`，且 `EnMasterOnly=0`，与 SCHEMA 的条件句三者自洽 |
 | 11r/FT 支持 | "固件不支持"（推断） | **结案，两条独立证据**：编译期 `CONFIG_CSP_WLAN_SUPPORT_80211KV`（只有 11k/11v）+ 配置层 `WlanRoamingCfg` 六列里**没有任何 FT 开关**（实测）。`En11rSteer=0`、`SupportRrm=1` 与之吻合。**不必再找 11r 的配置入口** |
-| 1905 接口使能 | 未知 | **`P1905Cfg` 实测**：`eth1`–`eth4`、`wlan0`、`wlan1` 六个接口全 `EnableP1905=1`，行名 `IGD.P1905CFG1..6`，12 行容量 6 用 |
+| 1905 接口使能 | 未知 | **`P1905Cfg` 实测**：`eth1`–`eth4`、`wlan0`、`wlan1` 六个接口全 `EnableP1905=1`，行名 `IGD.P1905CFG1..6`，12 行容量 6 用。**但只能证"允许"，证不了"在跑"**：`wlan0`=`AP1`(主 2.4G, `Enable=1`)、`wlan1`=`AP2`(访客 2.4G, **`Enable=0`**)，两个都在 2.4G、5G 一个没列；而 `REPLAY_RESULTS` §5 在 Z506 上抓到 ACD 实际走 `wlan0`+`wlan5g0`（两频段各一）。见快照 §11.6 |
 | 桥端口拓扑 | 未知 | **`Brport` 实测（16 行 × 23 列）**：`BRPORT1` 是桥自身（`LowerLayers` 列 `BRPORT2`–`BRPORT12`）；`LAN1/2/3` = `DEV.ETH.IF2/IF3/IF4`；`SSID1`–`SSID8` = 8 个 BSS；`APCLI1`/`APCLI5G1` = 回程 STA；WAN 侧两条 = `IF1`(`WanName=Bridge`) 与 `IF99`(`Alias=ETH_WAN`)。**以太口没有 `IF0`** |
+| BSS 启用状态 | 未知 | **两份交叉，逐个吻合**：`WLANCfg.Enable=1` 的是 `AP1/AP3/AP4/AP5/AP8`（= `SSID1/3/4/5/8`），与 `Brport.PortState=4` 的五个 BSS **完全相同** ⇒ **`PortState=4` = 在跑**。`WLANCfg.IfName` 给出 AP↔接口：2.4G `wlan0`–`wlan3`、5G `wlan5g0`–`wlan5g3`（与 [FINDINGS](../FINDINGS.md) §9 的还原逐字一致）。`DomainUsed=0` 的 `SSID3` 虽然 `Enable=1`，但 mesh 域未接管——**两个值量的是不同的事**，不矛盾（快照 §11.4） |
 | 能力声明 | 未知 | **`MultiapCapability` 实测（1 行 2 列）**：`SupportBSSync=1`、`SupportPackageProduct=0`。**不含任何策略/漫游位图** |
 | 1905 报文取证 | 只有 multiapd 的 `pktdump` | **`MultiAPCfg.En1905Msg=1`（实测，开着）** ⇒ 配置层这一路通。上一轮"取证路径落空"的说法**作废** |
 
-**已执行的六轮只读命令**（2026-11-01，结果见快照与全表清单）：
+**已执行的七轮只读命令**（2026-11-01，结果见快照与全表清单）：
 
 ```sh
 sendcmd 1 DB p MultiAPMaster        # 55 列，EnVbss/EnBtmKickoff/En11rSteer 落地
@@ -459,48 +470,56 @@ sendcmd 1 DB p Brport               # 16 行 × 23 列 —— 端口拓扑 + VLA
 sendcmd 1 DB p MapCooperatorCfg     # 1 行 × 5 列 —— 与 SCHEMA 还原逐字同序
 sendcmd 1 DB p WLANSSID             # 8 行 × 8 列 —— SSID1–4→Radio.1、5–8→Radio.2，全列 isSave=0
 sendcmd 1 DB p PortBinding          # RowCount=0
+sendcmd 1 DB p WLANBase             # 2 行 × 68 列 —— Band=0/1、Channel=4/40，band 归属结案
+sendcmd 1 DB p WLANCfg              # 8 行 × 49 列 —— 真 SSID 配置 + 7 个 per-VAP VLAN 列
+sendcmd 1 DB p WLANSetting          # 1 行 × 9 列 —— ACLIsFrom1905Slave=0
+sendcmd 1 DB p WlanRoamingSta       # RowCount=0
 ```
 
-**还没跑的**（同样只读、不用停机；按价值排序）：
+**还没跑的**（同样只读、不用停机）：
 
 ```sh
-sendcmd 1 DB p WLANBase             # Device.WiFi.Radio.1/2 在库里怎么命名、哪个是 2.4G/5G
-sendcmd 1 DB p WLANCfg              # 真正的 SSID 配置（ESSID/隐藏/加密）—— WLANSSID 只是视图
-sendcmd 1 DB p WLANSetting          # 无线总设置
-sendcmd 1 DB p WlanRoamingSta       # per-STA 漫游实例
+sendcmd 1 DB p WLANPSK              # 唯一没 dump 的 WLAN 配置表（ESSID 在 WLANCfg 里被遮蔽成 ***）
+sendcmd 1 DB p AclCfg               # FINDINGS §9 已给结构，本机从未 dump
 ```
 
 ## 10. 局限
 
-- **实测只覆盖"存在与出厂值"**：表名、列名、列归属、行名现在是硬的（五轮真机 dump + 276 张表名全集），
+- **实测只覆盖"存在与出厂值"**：表名、列名、列归属、行名现在是硬的（七轮真机 dump + 276 张表名全集），
   但每一列的**语义**仍只有命名和出厂值可依，没有协议字段级或反汇编级对应。特别是
   `EnRoamModes=19`、`SupportStrategies=251` 这两个位图，位的含义没解——**且不可能靠 dump 解**
   （值早就在库里，缺的是语义；`MultiapCapability` 已经证伪过一次，见快照 §9.1）。
-- **D5 的"厂商启用时写哪张表"未解**：桥侧入口已经定位到 `Brport` 的八个 VLAN 列
+  同类的还有 `BandWidth`(0/4)、`Standard`(7/14)、`MapAccessAttr`(32/64)、`CardMode`(8/9) 的枚举值。
+- **D5 的"厂商启用时写哪张表"未解**：落点已定位到**两侧**——VAP 侧是 `WLANCfg` 每行的 7 个 VLAN 列
+  （`Vlan`/`VlanPriority`/`UpTagEnable`/`DownTagStripEnable`/`McastVlan`/`McastVlanPriority`/
+  `McastDownTagStripEnable`），端口侧是 `Brport` 的八个 VLAN 列
   （`PVID`/`IngressFiltering`/`AcceptableFrameTypes`/`PriorityTagging`/`WanPortVlan{Enable,Mode,ID,Pri}`），
-  出厂全默认；`EthVlan` 是空表。但**空表不等于不承载**（per-STA 三张表也是按需建行），
+  出厂全部为 0/默认；`EthVlan` 与 `PortBinding` 是空表。但**空表不等于不承载**（per-STA 几张表也是按需建行），
   厂商在网页上打开"VLAN/流量分离"时到底往哪写，只读取证看不到。
   两条出路：在网页上真配一次（改配置），或读 web VLAN 页面的 `.lua` 字节码看 `OBJ_*_ID` 指向哪张表（只读）。
 - **`DEV.ETH.IFn ↔ ethn` 的同号关系未证**：`Brport` 给出 `IF1` 在 WAN 侧、`IF2/IF3/IF4` = `LAN1/LAN2/LAN3`、
   `IF99` = `ETH_WAN`，以太口**没有 `IF0`**，与"1 WAN + 3 LAN"的口数吻合；
   `P1905Cfg` 里的 `eth1`–`eth4` 若与 `IF1`–`IF4` 同号，就是"WAN + 3×LAN 全跑 1905"（mesh 里合理）。
   但**这是间接证据**：TR-069 实例号与内核接口名没有必然同号关系，要定得靠 `ip link`。
-- **radio 与 band 的对应仍未验**：`WLANSSID` 已给出 `SSID1–4 → Device.WiFi.Radio.1`、`SSID5–8 → Radio.2`（4+4），
-  所以「哪些 SSID 同频」这一层是硬的；但 **`Radio.1` 是 2.4G 还是 5G、它与 `P1905Cfg` 的 `wlan0`/`wlan1`
-  怎么对，仍未定**——要 `WLANBase` 或 `iw dev` 才能定。
-- **真正的 SSID 配置表还没 dump**：`WLANSSID` 是运行时视图（8 列全 `isSave=0`，没有 ESSID/加密字段），
-  写不进去。要改 SSID 得找 `WLANCfg`(#259)/`WLANBase`(#258)/`WLANSetting`(#263)/`WLANPSK`(#260)。
+- **`P1905Cfg` 与"实际在跑"对不上**：`wlan0`/`wlan1` 已确认为 `AP1`/`AP2`（都在 **2.4G**，
+  且 `wlan1` 对应的访客 VAP `Enable=0`），5G 侧一个都没列；而 `REPLAY_RESULTS` §5 在 Z506 上抓到
+  ACD 实际走 `wlan0`+`wlan5g0`（两频段各一）。⇒ `EnableP1905=1` 只能读作"允许跑"，
+  **不能读作"在跑"**。判据：`pktdump 1` 抓 1905 帧看源接口，或 `/proc/net/dev` 的计数。
+- **`WLANPSK` 仍未 dump**：`WLANCfg.ESSID`/`WPAEAPSecret` 被 cspd 遮蔽成 `***`，
+  看真实 SSID 名要走 `MultiAPDomain.ESSID`（明文），看密钥本体只能读 `WLANPSK`(#260)。
+  `WLANCfg` 是可写的真配置表（`Enable`/隐藏/`ACLPolicy`/`BeaconType` 都可落盘），
+  `WLANSSID` 只是它的运行时视图（8 列全 `isSave=0`）——**两者别混，改配置改前者**。
 - **`MultiAPCfg.IFLink=br0`，而 `Brport` 的 16 行全在 `DEV.BRIDGING.BR1` 下——两个桥**。
   若成立，则 1905 控制面与用户数据面本来就分属不同桥，**不需要 VLAN 就已经隔离**，
   这也顺带解释了 D5 配置层为什么是空的。但 `Brport` 里没有 `BR0` 的实例，
   可能 `br0` 只是内核桥、没有 TR-069 实例。**现象成立、解释未证**，要定靠 `ip link` 看桥成员。
-- **`PortState` 的 0/4 语义未定，且"4 = up"的读法现在更可疑**：`WLANSSID` 显示 8 个 SSID 全部 `Enable=1`，
-  而 `Brport.PortState` 只有 5 个是 4；`WLANSSID.Status`/`LastChange` 8 行全 0 又更像"字段没被填充"，
-  不能拿它当状态用。上一轮"5 个 BSS up vs 4 个 domain 生效、差集 `SSID3`"的张力**没消掉**，
-  只是把「domain 与 SSID 不同号」这个可能性基本排除了（快照 §10.3 三方证据）。
-  判据：`brctl show` / `iw dev` / `ifconfig -a`，不再指望 `sendcmd`。
-- **四张表 + `EthVlan`/`PortBinding` 全空拿不到列语义**：`MultiAPStaCfg` / `MultiAPCacheMac` / `P1905StaBind` /
-  `EthVlan` / `PortBinding` 表存在但行是空的，列语义只能靠名字推——要看到行得先配一条（改配置，不是取证）。
+- **~~`PortState` 的 0/4 语义未定~~ —— 第七轮已结案**：`WLANCfg.Enable=1` 的五个 BSS
+  （`AP1/AP3/AP4/AP5/AP8`）与 `Brport.PortState=4` 的五个**逐个相同** ⇒ 4 = 在跑。
+  上一轮那条"8 个 `Enable=1` vs 5 个 `PortState=4`"的反证不成立，根因是拿 `WLANSSID.Enable`
+  （全表 `isSave=0` 的运行时视图）当成了配置开关。`DomainUsed=0` 的 `SSID3` 与它不矛盾：
+  **BSS 在广播 ≠ 被 mesh 域接管**，两个值量的是不同的事（快照 §11.4）。
+- **五张表全空拿不到列语义**：`MultiAPStaCfg` / `MultiAPCacheMac` / `P1905StaBind` / `WlanRoamingSta` /
+  `EthVlan`（以及 `PortBinding`）表存在但行是空的，列语义只能靠名字推——要看到行得先配一条（改配置，不是取证）。
 - **`MultiAPCfg` 的偏移只在序号 0–26 上验证过**：`36+32n` 六个锚点全中，但 `IFLink`(1444)、
   `NoSteeringOUIs`(1540) 不符，序号 27 起进入变长区，宽度要读 `dbDefMultiAPCfg` 初始化才算得出。
 - **`/etc/init.debug` 判定为废文件**，依据是它引用的驱动/脚本在本机全不存在；**没有实机验证**

@@ -59,11 +59,12 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 | # | 表 | 为什么值得看 |
 |---|---|---|
 | 270 | **`WlanRoamingCfg`** | **已 dump（2026-11-01）**：6 列，是**客户端弱信号重关联**参数，**没有 11k/11v/11r 开关位**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §8.3 |
-| 271 | `WlanRoamingSta` | 漫游 STA 实例表，未 dump |
-| 259 | `WLANCfg` | 无线总配置 |
+| 271 | **`WlanRoamingSta`** | **已 dump（2026-11-01）：0 行**。第四张 per-STA 空表。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.7 |
+| 259 | **`WLANCfg`** | **已 dump（2026-11-01）：8 行 × 49 列**，行名 `DEV.WIFI.AP1..8`。**真正的 SSID 配置**：`IfName`（`wlan0`–`wlan3` / `wlan5g0`–`wlan5g3`）、`Enable`、隐藏、`ACLPolicy`、`BeaconType`、客访/回程标记，以及 **7 个 per-VAP VLAN 列**（D5 的直接落点）。`ESSID` 被遮蔽成 `***`。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.2–11.5 |
 | 261 | **`WLANSSID`** | **已 dump（2026-11-01）**：8 行 × 8 列，行名 `DEV.WIFI.SSID1..8`，`SSID1–4`→`Device.WiFi.Radio.1`、`SSID5–8`→`Radio.2`。**8 列全 `isSave=0`、且没有任何 ESSID/加密字段 ⇒ 是运行时接口视图，不是配置表，写不进去**。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §10.3–10.4 |
-| 258 | `WLANBase` | 基础参数 |
-| 260 | `WLANPSK` | 密钥 |
+| 258 | **`WLANBase`** | **已 dump（2026-11-01）：2 行 × 68 列**，行名 `DEV.WIFI.RD1/RD2`。**`Band=0/1` + `Channel=4/40` ⇒ `Radio.1`=2.4G、`Radio.2`=5G**（§10.3 的悬案结案）。两行同为 Mediatek **MT7916**（一颗双频芯片，2×2）。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.1 |
+| 260 | `WLANPSK` | 密钥。**唯一还没 dump 的 WLAN 配置表**——`WLANCfg.WPAEAPSecret` 被遮蔽，密钥本体应在此 |
+| 263 | **`WLANSetting`** | **已 dump（2026-11-01）：1 行 × 9 列**，`SSIDSync=1`、`DualBandSync=0`、**`ACLIsFrom1905Slave=0`**（D6 相关：不收 1905 侧 ACL）。见 [SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.7 |
 | 264 | `WLANWEP` | 老加密 |
 | 265 | `WLANWMM` | WMM |
 | 266 | `WLANWPS` | WPS（配对） |
@@ -218,24 +219,32 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 
 ## 6. 下一步 dump 的优先级（全部只读）
 
-前六轮的命令已把 mesh 侧与网络侧的骨架走完（结果见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §5–§10）。
-第五轮结掉 `MultiapCapability` / `EthVlan` / `Brport`，第六轮结掉
-`MapCooperatorCfg` / `WLANSSID` / `PortBinding`。剩下的全是**无线配置本体**：
+前七轮的命令已把 mesh 侧、桥/端口侧、无线配置本体都走完（结果见
+[E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §5–§11）。第五轮结掉
+`MultiapCapability` / `EthVlan` / `Brport`，第六轮结掉 `MapCooperatorCfg` / `WLANSSID` / `PortBinding`，
+第七轮结掉 `WLANBase` / `WLANCfg` / `WLANSetting` / `WlanRoamingSta`。剩两张：
 
 | 顺序 | 命令 | 期望 |
 |---|---|---|
-| 1 | `sendcmd 1 DB p WLANBase` | `Device.WiFi.Radio.1/2` 在库里怎么命名，**哪个 radio 是 2.4G / 5G** |
-| 2 | `sendcmd 1 DB p WLANCfg` | **真正的 SSID 配置**（ESSID/隐藏/加密）——`WLANSSID` 只是视图 |
-| 3 | `sendcmd 1 DB p WLANSetting` | 无线总设置，band 与 BSS 的启用关系 |
-| 4 | `sendcmd 1 DB p WlanRoamingSta` | per-STA 漫游实例 |
+| 1 | `sendcmd 1 DB p WLANPSK` | 唯一没 dump 的 WLAN 配置表；`WLANCfg.WPAEAPSecret` 被遮蔽，密钥本体应在这里（`OBJ_WLANPSK_ID` = `APn.PSKn`） |
+| 2 | `sendcmd 1 DB p AclCfg` | [FINDINGS](../FINDINGS.md) §9 已给结构，本机从未 dump。可验 `ACLPolicy=1` 与 D6 的 per-STA 准入 |
 
-**dump 已经到头的三件事**（不要再排 `sendcmd`）：位图语义（`SupportStrategies=251`/`EnRoamModes=19`，
-缺的是语义不是数据）、`PortState` 的 0/4 语义（`Brport` 16 行已全给，需 `brctl show`/`iw dev`）、
-厂商启用 VLAN 时写哪张表（三个候选已全部 dump：`EthVlan` 0 行、`PortBinding` 0 行、`Brport` 有内容，
-需读 web 的 `.lua`）。
+**dump 已经到头的四件事**（不要再排 `sendcmd`）：
 
-`DB all` 已经跑过，不必再跑。`MultiAPStaCfg` / `P1905StaBind` / `MultiAPCacheMac` / `EthVlan` / `PortBinding`
-**行空是常态**，要看到行得先配一条——那是改配置，不是取证。
+| 问题 | 为什么 dump 解决不了 |
+|---|---|
+| 位图语义（`SupportStrategies=251` / `EnRoamModes=19`） | 缺的是语义不是数据，值就在 `MultiAPDomain` 里 |
+| 厂商启用 VLAN 时写哪张表 | 三处落点全 dump 过（`EthVlan` 0 行 / `PortBinding` 0 行 / `Brport` 与 `WLANCfg` 全默认），需读 web 的 `.lua` |
+| 1905 实际跑在哪几个接口 | `P1905Cfg` 只能证"允许"，证不了"在跑"（[SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.6），需 `pktdump 1` 或 `/proc/net/dev` |
+| `BandWidth` / `Standard` / `MapAccessAttr` 的枚举 | 枚举表不在库里 |
 
-**一条通用判据**（本轮读出）：`isSave=0` 的列是运行时/派生值，写 DB 不落盘。
-改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"。
+> **`PortState` 的 0/4 语义已从本清单撤掉**：第七轮用 `WLANCfg.Enable` 交叉证实了 4 = 在跑
+> （[SNAPSHOT](E2631_DB_SNAPSHOT.md) §11.4），不必再上 `brctl show`。
+
+`DB all` 已经跑过，不必再跑。`MultiAPStaCfg` / `P1905StaBind` / `MultiAPCacheMac` / `WlanRoamingSta` /
+`EthVlan` / `PortBinding` **行空是常态**，要看到行得先配一条——那是改配置，不是取证。
+
+**一条通用判据**（第五轮读出，第七轮补了反面用法）：`isSave=0` 的列是运行时/派生值，写 DB 不落盘。
+改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"。**反向也要记住：`isSave=0` 的值只能用来
+读状态，不能拿来当配置比对**——第七轮就是因为拿 `WLANSSID.Enable`（全表 `isSave=0`）当配置开关，
+误判了 `PortState`。

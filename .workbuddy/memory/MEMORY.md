@@ -17,6 +17,9 @@
 5. **"缺语义"不要当"缺数据"去 dump。** `SupportStrategies=251` / `EnRoamModes=19` 的值早在
    `MultiAPDomain` 里，缺的是"第 n 位是什么"；这类问题只能靠反汇编或 Multi-AP 规范正文，
    dump 再多表也解不出来（2026-11-01 第五轮，`MultiapCapability` 只有 2 个能力位，已证伪）。
+6. **`isSave=0` 的列只能读状态，不能当配置比对。** 第六轮拿 `WLANSSID.Enable`（全表 `isSave=0`）
+   去反证 `Brport.PortState`，结论是反的；换成 `WLANCfg.Enable` 后两表逐个吻合。
+   正着用是"别写它"，反着用是"别信它当配置"（2026-11-01 第七轮）。
 
 ## 文档收尾惯例
 
@@ -27,5 +30,7 @@
 ## 事实基线
 
 - 真机：市售 AX3000，自报 `E2631`，2026-08 固件；`rootfs.jffs2` 明文，JFFS2 是 68 字节 inode 变体。
+- 射频：Mediatek **MT7916** 一颗双频（`WLANBase` 实测，2×2 + 2×2）；`DEV.WIFI.RD1`=2.4G(ch 4)、`RD2`=5G(ch 40)。
+  接口名：2.4G `wlan0`–`wlan3`、5G `wlan5g0`–`wlan5g3`（`WLANCfg.IfName`）。
 - 出厂默认：**踢人走 `EnActiveDeauth`，不走 BTM**（`EnBtmKickoff=0`）；漫游缓存全关（`BtmCacheEn=0`）。
 - 11r 不存在（`CONFIG_CSP_WLAN_SUPPORT_80211KV`），只有 11k/11v。

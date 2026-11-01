@@ -1,6 +1,6 @@
-# E2631 配置库实测快照：十六张表的真身
+# E2631 配置库实测快照：二十张表的真身
 
-2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。六轮：
+2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。七轮：
 
 ```sh
 # 第一轮
@@ -27,12 +27,17 @@ sendcmd 1 DB p Brport            # RowCount=16，23 列 —— 桥端口拓扑 +
 sendcmd 1 DB p MapCooperatorCfg  # RowCount=1，5 列 —— 与 SCHEMA 的还原逐字同序
 sendcmd 1 DB p WLANSSID          # RowCount=8，8 列 —— band 分组首次明确，但全列 isSave=0
 sendcmd 1 DB p PortBinding       # RowCount=0（D5 第三个候选也空）
+# 第七轮（§11）
+sendcmd 1 DB p WLANBase          # RowCount=2，68 列 —— Band=0/1、Channel=4/40，band 归属结案
+sendcmd 1 DB p WLANCfg           # RowCount=8，49 列 —— 真正的 SSID 配置 + 7 个 per-VAP VLAN 列
+sendcmd 1 DB p WLANSetting       # RowCount=1，9 列 —— ACLIsFrom1905Slave=0
+sendcmd 1 DB p WlanRoamingSta    # RowCount=0（第四张空表）
 ```
 
 这份文件的用途只有一个：**它是 [E2631_ROOTFS](E2631_ROOTFS.md) §6 那些离线推断的对照答案**。
 §6 是从 `cspd` 字符串表按排列顺序切出来的（当时标"中—强"），这里给出实测结果 —
-**表归属错了三处、数值注释错了一处、命名空间层级错了一处、把"表名像什么"当证据错了一处**，
-错误与成因记在 §4、§5.1、§6.2、§8.1、§9.1。
+**表归属错了三处、数值注释错了一处、命名空间层级错了一处、把"表名像什么"当证据错了一处、
+拿运行时视图当配置源错了一处**，错误与成因记在 §4、§5.1、§6.2、§8.1、§9.1、§11.4。
 表名全集另见 [E2631_DB_TABLES](E2631_DB_TABLES.md)。
 
 > 值都带出处：这一份是出厂状态，机器已组过网（domain 4/8 是自动生成的 `ZMESH-` 专用 SSID）。
@@ -790,6 +795,9 @@ ZTE 没给 `PortState` 的枚举值，4 的含义是**推断**（桥自身与 WA
 
 > **第六轮已验一半**：`WLANSSID` 证实了同号关系（§10.3 三方证据），但 `PortState` 的 0/4 语义仍未定，
 > 反而多了一条反证。结论见 §10.5。
+>
+> **第七轮结案**（§11.4）：`PortState=4` 的 5 个 BSS 与 `WLANCfg.Enable=1` 的 5 个**逐个相同**，
+> 4 = 在跑。`DomainUsed=0` 的 domain3 与它不矛盾——两个值量的是不同的事。
 
 ### 9.7 顺带读出的一条：1905 走 `br0`，业务走 `br1`
 
@@ -891,6 +899,10 @@ band 归属**仍未定**（Radio.1 是 2.4G 还是 5G），要从 `WLANBase`/`WL
 ⇒ **`PortState` 的 0/4 语义仍未定，且上一轮"4 = 转发/up"的读法现在更可疑。**
 要定只能从系统侧看：`brctl show` / `ifconfig -a` / `iw dev`。这条从"可 dump 解决"改成"需系统命令"。
 
+> **第七轮推翻了这一条**（§11.4）：上面两条"反证"都不成立，根因是我拿 `WLANSSID.Enable`（运行时视图、
+> 全表 `isSave=0`）当成了配置开关去比 `Brport.PortState`。真正的配置在 `WLANCfg.Enable`，
+> 它与 `PortState=4` **逐个吻合**。`PortState=4` 仍是"在跑"，这条张力消失。
+
 ### 10.6 一处新的标识风格：`Device.WiFi.Radio.1` 与 `DEV.WIFI.SSID1` 并存
 
 同一行里，`ViewName`/`Name` 写的是缩写 `DEV.WIFI.SSID1`，而 `LowerLayers` 指向父对象时写的是
@@ -915,6 +927,11 @@ band 归属**仍未定**（Radio.1 是 2.4G 还是 5G），要从 `WLANBase`/`WL
 三取一，**只有 `Brport` 有内容**。D5 的落点因此更可能就在 `Brport` 那 8 列，或者由 web 层在启用时
 **按需给 `EthVlan` 建行**（空表不等于不承载，§9.2 已强调）。这条仍然只能靠读 web 的 `.lua` 来定，dump 到头了。
 
+> **第七轮修正**（§11.5）：候选集一开始就选错了。`WLANCfg` 每行有 **7 个 per-VAP 的 VLAN 列**
+> （`Vlan` / `VlanPriority` / `UpTagEnable` / `DownTagStripEnable` / `McastVlan` / `McastVlanPriority` /
+> `McastDownTagStripEnable`），按 SSID 打/剥 tag 就直接落在那里——这比 `Brport` 的桥端口 PVID
+> 更贴近"流量分离"的本义。D5 的入口从"桥侧 8 列"扩成"**VAP 侧 7 列 + 桥侧 8 列**"，两侧都出厂关着。
+
 ### 10.8 一个跨条目的意外收获：`Addr4EffectDelayTime`
 
 `MapCooperatorCfg` 里这个 `10` 有两种读法，**仅凭列名分不出来**：
@@ -929,25 +946,229 @@ band 归属**仍未定**（Radio.1 是 2.4G 还是 5G），要从 `WLANBase`/`WL
 
 ---
 
-## 11. 还没 dump 的表（按价值排序）
+## 11. 第七轮：`WLANBase` 定 band，`WLANCfg` 给出 D5 的真正落点
 
-前六轮的只读命令已把 mesh 侧与网络侧的骨架走完（结果见 §1–§10）。剩的是**无线配置本体**这一层：
+```sh
+sendcmd 1 DB p WLANBase          # RowCount=2，68 列
+sendcmd 1 DB p WLANCfg           # RowCount=8，49 列
+sendcmd 1 DB p WLANSetting       # RowCount=1，9 列
+sendcmd 1 DB p WlanRoamingSta    # RowCount=0
+```
+
+### 11.1 `WLANBase`：2 行 × 68 列 —— `Radio.1` 是 2.4G，`Radio.2` 是 5G
+
+§10.3 留下的"哪个 radio 是 2.4G/5G"这一轮到答案了。两行逐列比：
+
+| 列 | `RD1` | `RD2` | 读法 |
+|---|---|---|---|
+| `ViewName` / `Alias` | `DEV.WIFI.RD1` / `Radio1` | `DEV.WIFI.RD2` / `Radio2` | `Radio.n` ↔ `RDn` 同号 |
+| `Band` | **0** | **1** | 0 = 2.4G，1 = 5G |
+| `Channel` | **4** | **40** | 佐证上面的读法 |
+| `BandWidth` | 0 | 4 | 枚举未定（见下） |
+| `SideBand` | 0 | 1 | 同上 |
+| `Standard` | 7 | 14 | 枚举未定 |
+| `CardMode` | 8 | 9 | 未定 |
+| `Vendor` / `Model` | Mediatek / **MT7916** | Mediatek / **MT7916** | 两行相同 |
+| `SpatialStreams`（`isSave=0`） | 2 | 2 | 2×2 |
+| `RadioStatus` / `SettingStatus` | 1 / 1 | 1 / 1 | 射频已开 |
+| `CardIsIn`（`isSave=0`） | 1 | 1 | 卡在位 |
+| `11nMode` / `SGIEnabled` / `TxPower` | 1 / 1 / 1 | 1 / 1 / 1 | 两行一致 |
+| `TargetPower` / `AntennaGain` / `PowerEnhance` | 36 / 10 / 1 | 36 / 10 / 1 | 两行一致 |
+
+⇒ **`Device.WiFi.Radio.1` = `DEV.WIFI.RD1` = 2.4G（ch 4）；`Radio.2` = `DEV.WIFI.RD2` = 5G（ch 40）。**
+§10.6 那条"`Radio.n` 在库里是哪一行"随之落地：就是 `RDn`，**编号同号**。
+（"同号"仍是推断——没有哪张表把 `Radio.1` 和 `RD1` 写在同一行，只能说两个编号都从 1 起、
+且 2.4G/5G 的顺序与 `WLANSSID` 的 4+4 分组吻合。）
+
+两条顺带读出来的东西：
+
+- **两行 `Vendor`/`Model` 完全相同 ⇒ 是一颗双频芯片（MT7916，DBDC），不是两颗独立射频。**
+  这也解释了为什么两行 `SpatialStreams` 都是 2。
+- **与 `docs/FINDINGS.md` §10 的硬件记录不一致**：那里写"2.4G MT7592（20/40）、5G MT7613（20/40/80），
+  不支持 160"。那台是 Z506，本机是 E2631 且自报 MT7916。**两台的射频不同，带宽/信道能力的结论不能互套**——
+  尤其"不支持 160"那句，对 MT7916 未必成立。
+
+### 11.2 `WLANCfg.IfName` 逐字命中既有还原（本仓第四次）
+
+`docs/FINDINGS.md` §9 末行早就写着：
+
+> AP 到接口：AP1 `wlan0`、AP2 `wlan1`、AP3 `wlan2`、AP4 `wlan3`、AP5 `wlan5g0`、AP6 `wlan5g1`。
+
+实测**逐字一致**，并补齐了后两个：AP7 `wlan5g2`、AP8 `wlan5g3`。命名规律是
+**2.4G 用 `wlan0..3`、5G 用 `wlan5g0..3`，槽号在后缀上不变**。
+
+这是本仓第四次"离线还原被真机命中"（前三次：`MultiAPCfg` 的 `36+32n` 六锚点、`IGD.` 是行名前缀、
+`MapCooperatorCfg` 五字段同序）。
+
+注意 `IfName` 是 `isSave=0`（运行时映射）。但它恰恰是 cspd 自己给出的"AP → 内核接口"对照表，
+比 `ip link` 更直接——**以后要接口名不用上系统命令，dump `WLANCfg` 就有**。
+
+### 11.3 八个槽位的全景（本轮信息密度最高的一张）
+
+`domain ESSID` 一列引自 §3.1，其余全部本轮实测：
+
+| 槽 | AP | `IfName` | `Enable` | 隐藏 | `ACLPolicy` | `BeaconType` | `GuestSsid` | `ForceWiFi5` | `MapAccessAttr` | `LocalSetEnable` | domain `ESSID` | `DomainUsed` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | AP1 | `wlan0` | **1** | 0 | 1 | 3 | 0 | 0 | 32 | 1 | `LLJ_SF` | **1** |
+| 0 | AP5 | `wlan5g0` | **1** | 0 | 1 | 3 | 0 | 0 | 32 | 1 | `LLJ_5G` | **1** |
+| 1 | AP2 | `wlan1` | 0 | 0 | 1 | 6 | **1** | 0 | 32 | 1 | `ZTE-QCuecc_GUEST` | 0 |
+| 1 | AP6 | `wlan5g1` | 0 | 0 | 1 | 6 | **1** | 0 | 32 | 1 | `ZTE-QCuecc_GUEST` | 0 |
+| 2 | AP3 | `wlan2` | **1** | 0 | 1 | 6 | 0 | **1** | 32 | 1 | `SSID3`（占位名） | 0 |
+| 2 | AP7 | `wlan5g2` | 0 | 0 | 1 | 3 | 0 | **1** | 32 | 1 | `SSID7`（占位名） | 0 |
+| 3 | AP4 | `wlan3` | **1** | **1** | **0** | 6 | 0 | 0 | **64** | 1 | `ZMESH-TRx3zR` | **1** |
+| 3 | AP8 | `wlan5g3` | **1** | **1** | **0** | 6 | 0 | 0 | **64** | **0** | `ZMESH-TRx3zR_5G` | **1** |
+
+`InstExist` 八行全 1；`MaxUserNum=64`（`isSave=0`）八行一致，而 `WLANBase.CardMaxUserNum=128`。
+
+三条立刻能用的：
+
+1. **`Enable=1` 的正好五个：AP1 / AP3 / AP4 / AP5 / AP8**（= `SSID1/3/4/5/8`）——与 `Brport.PortState=4`
+   的五个 BSS **逐个相同**。§11.4 处理这件事。
+2. **槽位划分与 `FINDINGS.md` §9 记的"0 主 / 1 访客 / 2 备用 / 3 回程隐藏"对得上**，
+   而且四个槽位的特征是互斥可辨的：槽 1 是唯二 `GuestSsid=1`、槽 3 是唯二隐藏 + `ACLPolicy=0`
+   + `MapAccessAttr=64` + `ZMESH-` SSID。**唯一不齐的是槽 2**：2.4G 的 AP3 开着、5G 的 AP7 关着，
+   而这两个偏偏是唯二 `ForceWiFi5=1` 的。
+3. **`ESSID` 在 `WLANCfg` 里被遮蔽成 `***`**（`WPAEAPSecret` 也是），但 §3.1 的 `MultiAPDomain.ESSID`
+   是明文。⇒ **想看真实 SSID 名，dump `MultiAPDomain`，不是 `WLANCfg`**。这一轮能对上八对名字全靠这个。
+   顺带：八对 `APn ↔ domain n` 的 SSID **全部语义吻合**（`LLJ_SF`/`LLJ_5G` 是用户主网络、
+   `ZTE-QCuecc_GUEST` 两个频段同名、`ZMESH-TRx3zR(_5G)` 是回程专用、`SSID3`/`SSID7` 是从没改过的占位名），
+   这是 §3.1 那条 1:1 关系的**第四方证据，而且从编号级升到语义级**。
+
+### 11.4 第五处自纠：我拿运行时视图当配置源去比 `PortState`
+
+§10.5 我把 `WLANSSID.Enable`（8 行全 1）当成"8 个 BSS 都启用"的配置证据，去反证 `PortState=4` 只有 5 个。
+现在看，这个反证完全立不住：
+
+- `WLANSSID` **整表 8 列全是 `isSave=0`**（§10.4 已经写明它是运行时视图、写不进去）。
+  它的 `Enable` 不是配置开关，只是"这个 BSS 对象存在"的运行时标记。
+- 真正的配置开关在 `WLANCfg.Enable`：**5 个 1、3 个 0**，与 `PortState=4` 的 5 个 BSS **逐个相同**。
+
+⇒ **`PortState=4` = 在跑（转发/up），这条从"推断"升到"两表交叉证实"。**§9.6 的张力随之消失，
+`PortState` 也不必再"从系统侧看"——dump 已经够了。
+
+那么 `DomainUsed=0` 的 domain3（`SSID3`）为什么在跑却"未生效"？**这两个值量的是不同的事**：
+
+| 值 | 量什么 | domain3 的取值 | 含义 |
+|---|---|---|---|
+| `WLANCfg.Enable` / `Brport.PortState` | **BSS 在不在广播** | 1 / 4 | 在广播，名字是出厂占位 `SSID3` |
+| `MultiAPDomain.DomainUsed` | **这个 domain 的 mesh 参数有没有被接管生效** | 0 | 从没配过，mesh 侧不接管 |
+
+所以不矛盾：**一个 BSS 可以开着、却不对应任何生效的 mesh 域**。这也顺手解释了一个现象——
+`DomainUsed=1` 的只有四个（用户主网络两个频段 + 回程专用两个频段），Guest 两个是 `Enable=0`、
+占位两个是没配过。
+
+> 这条自纠的性质和前四处不同：不是判错了表，也不是判错了数值，而是**把 `isSave` 判据用反了**——
+> §8.5 明明写了"`isSave=0` 是运行时/派生值，写 DB 不落盘"，用它去当配置依据正好是反向使用。
+> 以后凡是看到 `isSave=0` 的列，**只能拿来读状态，不能拿来当配置比对**。
+
+### 11.5 D5 的落点要改：`WLANCfg` 每行有 **7 个 per-VAP VLAN 列**
+
+§10.7 我判"D5 三个候选只剩 `Brport`"，是因为候选集一开始就漏了 `WLANCfg`。它每行带：
+
+| 列 | 值（8 行全部） | 作用 |
+|---|---|---|
+| `Vlan` | **0** | 该 VAP 的 VLAN ID |
+| `VlanPriority` | **0** | 802.1p 优先级 |
+| `UpTagEnable` | **0** | 上行打 tag |
+| `DownTagStripEnable` | **0** | 下行剥 tag |
+| `McastVlan` | **0** | 组播 VLAN |
+| `McastVlanPriority` | **0** | 组播优先级 |
+| `McastDownTagStripEnable` | **0** | 组播下行剥 tag |
+
+**这才是"按 SSID 做流量分离"的直接落点**——比 `Brport` 的桥端口 `PVID` 更贴近本义：前者是
+"这个 VAP 出去的帧打哪个 tag"，后者是"这个桥端口默认归属哪个 VLAN"。D5 的入口因此从
+"桥侧 8 列"扩成两侧：
+
+| 侧 | 表 | 列 | 出厂 |
+|---|---|---|---|
+| **VAP** | `WLANCfg` | 上表 7 列 | 全 0 |
+| **桥端口** | `Brport` | `PVID` / `IngressFiltering` / `AcceptableFrameTypes` / `PriorityTagging` / `WanPortVlan{Enable,Mode,ID,Pri}` | 全默认 |
+| **以太 VLAN** | `EthVlan` | — | 0 行 |
+
+三处全空/全默认，加上 §9.7 的 `br0`/`br1` 双桥，D5 的负结果更硬了：
+**出厂是一张单广播域、零 VLAN、VAP 不打 tag 的网**。但落点现在是**明确的三处**，不是"未定位"。
+
+### 11.6 `P1905Cfg` 的 `wlan0`/`wlan1` 解开了，却带出一个新问题
+
+§8.1 记的六个 1905 接口 `eth1`–`eth4` + `wlan0` + `wlan1`，现在知道后两个是谁了：
+
+| `P1905Cfg` 里的接口 | 对应 VAP | 是谁 | `Enable` |
+|---|---|---|---|
+| `wlan0` | AP1 / `SSID1` | `LLJ_SF`（主 2.4G） | **1** |
+| `wlan1` | AP2 / `SSID2` | `ZTE-QCuecc_GUEST`（访客 2.4G） | **0** |
+
+两个都在 **2.4G**，5G 侧一个都没有；而且 `wlan1` 那个 VAP **是关着的**。这与
+`docs/research/REPLAY_RESULTS.md` §5（第 77 行）在 Z506 上抓到的现象**对不上**：
+
+> 子节点的 ACD 客户端在 `wlan0`、`wlan5g0` 上每 60 秒重发一次 AP-autoconfig Search
+> （两个频段各一条）。
+
+Z506 实际跑 1905/ACD 的是 `wlan0` + `wlan5g0`（**两个频段各取第一个 VAP**），
+而本机 `P1905Cfg` 写的是 `wlan0` + `wlan1`（**同一频段的两个 VAP**，且第二个是关的）。
+
+两种解释，都还没证：
+
+1. **`P1905Cfg` 只是静态能力声明**，不是运行时接口清单；实际用哪几个由 `multiapd` 按频段选。
+   若成立，`EnableP1905=1` 六个全开只说明"这个接口允许跑 1905"，不说明它在跑。
+2. 这台 E2631 的 1905 确实只配了 2.4G 的 VAP（与 Z506 的配置不同）。
+
+**这条影响不小**：D5/D3 里凡是拿 `P1905Cfg` 当"1905 跑在哪些接口上"的证据，都要降级成
+"允许跑在哪些接口上"。判据：`pktdump 1` 抓 1905 帧看源接口，或 `cat /proc/net/dev` 看 `wlan*` 的计数。
+
+### 11.7 `WLANSetting` 与 `WlanRoamingSta`
+
+`WLANSetting` 单行 9 列：
+
+| 列 | 值 | 读法 |
+|---|---|---|
+| `SSIDSync` | **1** | SSID 同步开（与 `MultiAPCfg.11rSsidSync=1` 是两处不同开关，别混） |
+| `DualBandSync` | 0 | 双频不联动（改了 2.4G 不会自动改 5G） |
+| **`ACLIsFrom1905Slave`** | **0** | **ACL 不从 1905 从节点同步** —— D6 相关，见下 |
+| `MinScanInterval` / `BootScanDuration` / `ScanInterval` | 30 / 21600 / 86400 | 扫描节律（秒） |
+| `AirMonitorDuration` / `SpecialMode` | 0 / 0 | — |
+| `TimerStatus`（`isSave=0`） | 1 | 定时器在跑 |
+
+`ACLIsFrom1905Slave=0` 值得单独记：它说明本机**不接收** 1905 侧下发/同步的 ACL。这与
+`P1905StaBind` 0 行、`MultiAPStaCfg` 0 行、`WlanRoamingSta` 0 行是同一个方向的证据——
+**per-STA / 准入这一层，出厂状态是"机制在、数据空"**。
+
+`WlanRoamingSta` `RowCount=0` —— 这是**第四张空表**。至此 per-STA 类表四张全空：
+`MultiAPStaCfg`、`MultiAPCacheMac`、`P1905StaBind`、`WlanRoamingSta`。要看到行只能先配一条绑定，
+属于改配置，不再排进只读取证。
+
+### 11.8 三条只登记、不当证据的
+
+| 发现 | 情况 | 为什么不判 |
+|---|---|---|
+| `BandWidth` = 0 / 4，`Standard` = 7 / 14 | 2.4G 与 5G 各一组值 | 没枚举表。若 `BandWidth` 是 20/40/80/160 的序号，4 已越界，说明不是这个排法 |
+| `MapAccessAttr` = 32 / 64 | 只有两个值；**64 的两行正好是隐藏的两行**（AP4/AP8） | 只有两个样本、且与"隐藏"完全共线，分不清它编码的是隐藏、回程、还是 mesh 接入属性 |
+| `BeaconType` = 3 / 6 | 3 可由 `REPLAY_RESULTS` §6.3b 的注释「3（WPA2）」支撑 | 6 没有独立证据；`WPA3AuthMode=2`/`WPA3EncryptType=1` 八行一致，看不出与 3/6 的对应 |
+
+另外 `WEPAuthMode` 只有 AP1 是 0、其余七行是 1 —— 看不出意义，一并登记。
+
+---
+
+## 12. 还没 dump 的表（按价值排序）
+
+七轮只读命令已把 mesh 侧、桥/端口侧、无线配置本体都走完了（结果见 §1–§11）。
+`WLANBase` / `WLANCfg` / `WLANSetting` / `WlanRoamingSta` 四张已在 §11 结掉。剩下：
 
 | 顺序 | 表 | 为什么要它 |
 |---|---|---|
-| 1 | `WLANBase`(#258) | `Device.WiFi.Radio.1/2` 在库里怎么命名、**哪个 radio 是 2.4G / 5G**（§10.6 的落点） |
-| 2 | `WLANCfg`(#259) | **真正的 SSID 配置**（ESSID/隐藏/加密方式）——`WLANSSID` 是视图，写不进去（§10.4） |
-| 3 | `WLANSetting`(#263) | 无线总设置，看 band 与 BSS 的启用关系 |
-| 4 | `WlanRoamingSta`(#271) | per-STA 漫游实例，可能能解释 §10.5 的状态差 |
+| 1 | `WLANPSK`(#260) | 唯一还没 dump 的 WLAN 配置表。`WLANCfg` 的 `WPAEAPSecret` 被遮蔽，密钥本体应在 `APn.PSKn`（`FEATURE_MAP` 记的 `OBJ_WLANPSK_ID`） |
+| 2 | `AclCfg` | [`FINDINGS`](../FINDINGS.md) §9 已给结构（`ViewName`/`Name`/`Interface`/`MACAddress`/`ACLCfgPolicy`，268 字节 256 行），本机从未 dump。可验 `ACLPolicy` 与 D6 的关系 |
 
 全部只读、不用停机。表名清单见 [E2631_DB_TABLES](E2631_DB_TABLES.md)。
 
-**已经 dump 到头、只能换手段的三件事**（不要再排 `sendcmd`）：
+**已经 dump 到头、只能换手段的四件事**（不要再排 `sendcmd`）：
 
 | 问题 | 为什么 dump 解决不了 | 该换什么手段 |
 |---|---|---|
 | `SupportStrategies=251` / `EnRoamModes=19` 的位含义 | 值早就在 `MultiAPDomain` 里，缺的是语义 | 反汇编 / Multi-AP 规范正文 |
-| `PortState` 的 0/4 语义（§10.5） | `Brport` 已给全 16 行，没有更多表可查 | `brctl show` / `iw dev` / `ifconfig -a` |
-| 厂商启用 VLAN 时写哪张表（§10.7） | 三个候选已全部 dump，两个空表一个有内容 | 读 web VLAN 页面的 `.lua` 字节码 |
+| 厂商启用 VLAN 时写哪张表（§11.5） | 三处落点已全 dump，全是出厂默认 | 读 web VLAN 页面的 `.lua` 字节码 |
+| 1905 实际跑在哪几个接口（§11.6） | `P1905Cfg` 只能证明"允许"，不能证明"在跑" | `pktdump 1` 抓 1905 帧看源接口 / `/proc/net/dev` 计数 |
+| `BandWidth`/`Standard`/`MapAccessAttr` 的枚举（§11.8） | 值有了，枚举表不在库里 | 反汇编 / web `.lua` |
+
+> `PortState` 的 0/4 语义**已从这张表撤掉**（§11.4 靠 `WLANCfg.Enable` 交叉证实），不需要系统命令了。
 
 
