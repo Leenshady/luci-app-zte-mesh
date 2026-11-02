@@ -267,7 +267,8 @@ logread | grep -e qemu -e execv                   # 不该再出现 "no qemu-arm
 | `trap: EXIT: bad trap` / `case … in` 语法错误 | 脚本被 CRLF 污染。`push.py` 现在会转 LF |
 | `wrong ELF class: ELFCLASS32`（LD_PRELOAD） | 只在沙箱外用 binfmt 跑时出现（宿主 ld.so 看到 ARM 库），无害 |
 | `cannot be preloaded` 之后出现 `ZTE_MESH_SHIM loaded` | shim 在 `root/lib` 里但 `out/runtime/lib` 已被 bootstrap 清掉。重跑 `build.sh all` |
-| `chroot: failed to run command '/bin/sh'` | 手写沙箱时用了宿主 `/bin/sh`；lab root 里只有原厂二进制，用 `chroot ROOT ./bin/...` || `ash: -c requires an argument`（远端什么都没执行） | `tools/lab/rssh.py` 曾用 `argparse.REMAINDER` 收命令，它把 `--all` 这类控制参数也一起吞进命令，远端收到 `--sh echo HI`。改成手动切分选项与命令 |
+| `chroot: failed to run command '/bin/sh'` | 手写沙箱时用了宿主 `/bin/sh`；lab root 里只有原厂二进制，用 `chroot ROOT ./bin/...` |
+| `ash: -c requires an argument`（远端什么都没执行） | **`rssh.py` 没有 `--sh` 这个选项**：主机名之后以 `--` 开头的参数会被当成命令的一部分发给远端，于是远端收到 `--sh ls -l /tmp`。历史上还有一次是 `argparse.REMAINDER` 把 `--all` 这类控制参数一起吞进命令，症状同一条；现在改成手动切分选项与命令。要把管道和 `&&` 当一条远端命令送，就**整个用一个引号参数**（`rssh.py owrt 'a | head'`）。反过来说：本地每个参数是被 `" ".join` 拼回去的，所以**引号会丢**——`rssh.py owrt grep "a b" f` 到了远端是 `grep a b f`（三个参数），带空格的匹配串要在本地那一层就写成远端语法的引号，而不是靠 shell 的引号。 |
 | `echo HI` 返回 **127** | dropbear 带 pty 的 exec 会把命令当成登录 shell 的输入。`rssh.py` 默认不开 pty，需要时用 `--pty` |
 | `open_sftp()` 抛 `EOF during negotiation` | AX3600 的固件没有 `openssh-sftp-server`。`rssh.py` 自动退回 `cat` 管道（二进制安全） |
 | 本机 `scp`/参数里的 `/tmp/x` 变成 `C:/Users/.../Temp/x` | **Git Bash 的路径转换**。调用前 `export MSYS_NO_PATHCONV=1`（`MSYS2_ARG_CONV_EXCL='*'` 亦可） |

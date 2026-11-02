@@ -91,7 +91,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
 | A21 | 多个 peer 并存：`peers/` 目录、`state.json` 汇总、动作按 MAC 路由 | H | 用两段构造的 CMDU 喂进 trace，断言两个节点都出现 |
-| A22 | 长时间稳定性：服务重启计数、plan 抖动抑制、日志轮转 | H | 实验室跑 30 分钟无 `daemon_restarts`（`dev-service-smoke.py`） |
+| A22 | 长时间稳定性：服务重启计数、plan 抖动抑制、日志轮转 | H | 实验室跑 30 分钟无 `daemon_restarts`（`dev-service-smoke.py`）。**实测到的抖动的样子（2026-11-02，ax3600 装 r15 后重启）**：从服务起到档案收敛用了 8 秒，期间 `ZTE_AGENT_SYNC published` 三次、`wlan-sync: applied` 三次——先是本机默认的两条（`ImmortalWrt`/`ImmortalWrt`），再是主控的 2G 到、5G 后到，每次都 `commit + reload`。收敛之后一分钟再无发布。判据要按"重启允许几次发布"来定，不是按"一次到位" |
 | A23 | 真机：两台子路由同时在线 | D | 见第 5 节 H-04 |
 
 ### 批 6 · 发布与工程化（H）
@@ -100,7 +100,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 |---|---|---|---|
 | C8 | **手册已写**：`docs/INSTALL.md` 九节——三件前置确认、四个包装法、页面与只读命令、两个开关摆出 S1/S2/S3、额外网络、slave 侧、"设了没动静"四条、卸载、红线。README 索引与 `AGENTS.md` 的入口表各加一行 | H | 按文档从裸机走到 S1/S2，中途不查别的文档——**还没跑这一遍**；C10 已在两台实验机跑通装包与验收命令，但那是脚本带着走的，不是"只读文档" |
 | C9 | **已完成**。`build-apk.yml` 去掉 release 发布，只留 artifact + 校验和；release 改为手工 | H | workflow 里 `gh release` 不再是任何一步（只剩注释与 summary 里那句"要发布就手工跑这条"），`permissions: contents: read`；`DEVELOPMENT.md` 第 8 节的发布段同步改成"只构建 + 三条手工发布步骤"（以前写的 `release_tag` 输入已经不存在了） |
-| C10 | **已完成**。`tools/lab/verify-install.sh`：一条命令装四个包（`apk add` 各自一条，架构不合算 `uninstallable` 不算失败）→ 重启 rpcd 与服务 → 读回版本 → 三条冒烟（服务与角色、实例集合、档案落地与主控给的 SSID）。输出 `KEY=VALUE` 证据行 + `RESULT=PASS/FAIL`。判定逻辑由 `tests/test_verify_install.sh`（60 条，桩命令 + fixture）在主机上守 | H | **两台实验机各跑一次，都 `RESULT=PASS`**：owrt（master / apply_local=0，三个实例、无 applier、无 `zte_*` 段）、ax3600（slave，`plan_ssid_0=FRESHR10@default_radio2`、`plan_ssid_1=FRESHR10-5G@default_radio1`）。抓到的三件事：r14 装完没重启（`local` 键缺失＝rpcd 还拿旧插件、`attach` 报 running 而 `zmesh0` 已不存在）、`apk add` 同名同版本也会 Replacing、`uci show` 的值带单引号 |
+| C10 | **已完成**。`tools/lab/verify-install.sh`：一条命令装四个包（`apk add` 各自一条，架构不合算 `uninstallable` 不算失败）→ 重启 rpcd 与服务 → 读回版本 → 三条冒烟（服务与角色、实例集合、档案落地与主控给的 SSID）。输出 `KEY=VALUE` 证据行 + `RESULT=PASS/FAIL`。判定逻辑由 `tests/test_verify_install.sh`（60 条，桩命令 + fixture）在主机上守 | H | **两台实验机各跑一次，都 `RESULT=PASS`**：owrt（master / apply_local=0，三个实例、无 applier、无 `zte_*` 段）、ax3600（slave，`plan_ssid_0=FRESHR10@default_radio2`、`plan_ssid_1=FRESHR10-5G@default_radio1`）。抓到的三件事：r14 装完没重启（`local` 键缺失＝rpcd 还拿旧插件、`attach` 报 running 而 `zmesh0` 已不存在）、`apk add` 同名同版本也会 Replacing、`uci show` 的值带单引号。**补完版本号又跑第二遍（2026-11-02，CI run 41410028326 的 r15/r8/r1）**：同样两台机，owrt 读回 `version_zte-mesh=0.1.0-r15` / `version_luci-app-zte-mesh=0.1.0-r8`、launcher 在 x86_64 上 `uninstallable` 且版本 `absent`（预期），8 项 PASS；ax3600 四个包全装上（`version_zte-mesh-launcher=0.1.0-r1`），两条 SSID 仍跟着主控，9 项 PASS |
 
 ### 插队 · 2026-11-02 装机反馈
 
@@ -119,7 +119,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 3 | 控制面 | 🔄 A17a/A17b 全做完（能编能解、能发能停、页面能配能看）；**A17c 效果确认等真机**（H-03） | H-03 |
 | 4 | 无线回程 | ✅ 主机侧做完（B13a/b/d/e/f/g：回程 STA 的 `wifi-iface` 两端都生成、`wds` 才是 4 地址的开关、换角色会回收对端段、applier 的四个输入都进签名且页面上都有字段）；**B13c 端到端等真机**（H-01） | H-01 |
 | 5 | 多子节点与稳定性 | ⬜ | — |
-| 6 | 发布与工程化 | ✅ C9（CI 只构建、发布手工三步）+ C10（`verify-install.sh`，两台实验机各跑一次都 PASS）；**C8 手册写完，"按文档走一遍"这一遍还没跑** | 装机 |
+| 6 | 发布与工程化 | ✅ C9（CI 只构建、发布手工三步）+ C10（`verify-install.sh`，两台实验机各跑一次都 PASS）；**C8 手册写完，"按文档走一遍"这一遍还没跑** | ✅ 两次：41401349851（r14/r7）与 **41410028326（r15/r8，装机读回一致）** |
 
 ## 4. 主机测试口径
 

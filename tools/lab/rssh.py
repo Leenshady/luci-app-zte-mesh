@@ -12,7 +12,7 @@ CI 里不会散落凭据，改台账只改一处。
 
 用法：
     python tools/lab/rssh.py owrt uname -a
-    python tools/lab/rssh.py owrt --sh 'uci show wireless | head'
+    python tools/lab/rssh.py owrt 'uci show wireless | head'   # 管道要当一整个参数
     python tools/lab/rssh.py ax3600 put zte-mesh.apk /tmp/
     python tools/lab/rssh.py ubuntu get /var/log/x.log ./x.log
     python tools/lab/rssh.py --all uname -a
