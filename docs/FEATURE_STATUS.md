@@ -99,6 +99,9 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | C5 | **包里的 `ns-run` 与 init 不同步**：tarball 里是旧版，不认 `ZTE_MESH_QEMU`/`ZTE_MESH_EMULATED_LAB`，无 `CONFIG_COMPAT` 的 aarch64 上 `execv` 直接 `errno=8` | ✅ | 修法是消除漂移本身：tarball 额外带 `ns-run.c`/`controller-net.c`/`enroller.c`，`Build/Compile` 用 `$(TARGET_CC)` 现编；`test_runtime.py` 比对源码副本，重打包漏了就在本机失败 | — |
 | C6 | **tarball 里的 `db-engine-probe` 冻结在打包那天**：ARM32 半边只能 `-nostdlib` 对着原厂 glibc 2.26 编，包里编不了；冻住的那份不认 `mesh.role=slave` → 子路由的 controller 实例每 5 秒退一次 | ✅ | 换重编副本（193364 B，sha256 `7ff631a7…`）后 slave 角色 3/3 实例全起；`test_runtime.py` 断言包里那份必须带 `config-reject` 与 `wlan-plan` | — |
 | C7 | **全新装包后服务起不来**：`qemu-arm-static` 不在包里，而 `CONFIG_COMPAT` 探测在官方固件上必然误判（不导出 `/proc/config.gz` → `grep -c` 返回 0 → 一律走模拟器） | ✅ | 改成"没有答案不等于不支持"：读不到 config 就 exec 一次 `$ROOT/lib/ld-linux.so.3` 看它有没有打印 usage。模拟器**仍不入包**（取舍，不是待办），判定表与三条出路见 [LAB](LAB.md) 第 4.2 节 | 1 |
+| C8 | 装机手册：装哪四个包、页面点哪里、`mesh_role` / `apply_local` 两个开关怎么摆出 S1/S2/S3、怎么确认成功、卸载与"设了没动静" | 🔄 | [INSTALL](INSTALL.md) 九节写完，README 索引与 `AGENTS.md` 入口表各加一行。**没验的那半是"按文档从裸机走一遍"**：要在两台实验机上照文档操作、不查别的文档，与 C10 同轮 | 1 |
+| C9 | CI 不再发布 release：只构建 + 校验和 + artifact，发布改手工 | ✅ | `.github/workflows/build-apk.yml` 里 `gh release` 只剩注释与 summary 那一句；`permissions: contents: read`；`DEVELOPMENT.md` 第 8 节改成"只构建 + 三条手工发布步骤"（原来写的 `release_tag` 输入早已不存在）。触发方式是手动，push 不发起 CI | — |
+| C10 | 装机验收脚本：一条命令装四个包 + 读回版本 + 跑三条冒烟 | ⬜ | 未开始；需要两台实验机 | 2 |
 
 ## D. 换子路由固件才谈得上的（原判据只有 Z506）
 

@@ -35,8 +35,8 @@
 要手工放进私有根；arm64 设备刷 `CONFIG_COMPAT=y` 的固件即可原生运行。判定逻辑、三种出路和报错含义见
 [docs/LAB.md](docs/LAB.md) 第 4.2 节。
 
-没做或没验证：用已安装的包接真实子节点；LuCI 页面在浏览器里的效果；长时间稳定性；多个子节点；关主 SSID 的路径
-（`radioN.enabled=0`、定时 `scope=all`），后者会断开用户自己的 Wi-Fi。
+没验证的事不在这里再列一份清单——**都在 [docs/PLAN.md](docs/PLAN.md) 第 5 节的真机台账里**（H-01 到 H-11）。
+只提一条会碰到用户设备的：关主 SSID 的两条路径（`radioN.enabled=0`、定时 `scope=all`）会断开使用者自己的 Wi-Fi。
 
 ## 目录
 
@@ -73,6 +73,7 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | 文档 | 内容 |
 |---|---|
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 原理、运行时结构、源文件职责、固件来源与哈希、ABI 与沙箱约束、为什么选这条路线 |
+| [INSTALL](docs/INSTALL.md) | **上手手册**：装哪四个包、页面点哪里、两个开关怎么摆出三种拓扑、怎么确认成功、卸载与"设了没动静" |
 | [DEVELOPMENT](docs/DEVELOPMENT.md) | 机器与连接、构建、打包、跑控制器、测试、真机守则、踩过的坑、**分支与 `prebuilt/`** |
 | [LAB](docs/LAB.md) | x86_64 虚拟机：交叉编译、qemu 模拟、跑服务、测试现状；ARM32 模拟器**不入包**的原因与手工放置（第 4.2 节） |
 | [SERVICE](docs/SERVICE.md) | 服务模式：配置文件、热更新、守护进程重启、节点动作、UCI/LuCI 映射 |
@@ -97,7 +98,8 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [milestones/](docs/milestones/) | 早期里程碑 B.1–B.3.3 的验收记录（存档） |
 | [tools/README.md](tools/README.md) | 各个脚本 |
 
-`docs/research/` 与 `docs/milestones/` 是**证据存档**，按时间保留原始记录、不随结论更新；结论以 `ARCHITECTURE` 到 `E2631_DB_TABLES` 这二十一份为准（机型对照表是外部事实，不是本项目的结论）。
+`docs/research/` 与 `docs/milestones/` 是**证据存档**，按时间保留原始记录、不随结论更新；索引里逐条列出的 22 份中，结论以
+其余二十份为准（`INSTALL` 是操作步骤、机型对照表是外部事实，都不是本项目的结论）。
 
 ## 约定
 

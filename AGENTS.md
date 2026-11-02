@@ -3,13 +3,14 @@
 给 OpenWrt / ImmortalWrt 做的中兴组网插件：把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、CM 函数替身和服务配置文件指挥它，**不重写 mesh 协议**。中兴侧保留原厂固件，不刷机。
 
 - 功能总账只有一份：[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)。排期只有一份：[docs/PLAN.md](docs/PLAN.md)。别处出现的"已完成/未做"都不算数。
-- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档全景见 [README.md](README.md) 的文档索引（21 份为准，`docs/research/` 与 `docs/milestones/` 是证据存档，不随结论更新）。
+- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档全景见 [README.md](README.md) 的文档索引（逐条列出 22 份，其中二十份是本项目的结论——`INSTALL` 是操作步骤、机型对照表是外部事实；`docs/research/` 与 `docs/milestones/` 是证据存档，不随结论更新）。
 
 ## 动手前先读
 
 | 要做什么 | 先读 |
 |---|---|
 | 构建、跑控制器、测试、分支与 `prebuilt/` | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
+| 装机上手、页面两个开关怎么摆出三种拓扑、卸载与"设了没动静" | [docs/INSTALL.md](docs/INSTALL.md) |
 | 碰实验机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器台账的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
 | 上真子路由 Z506 | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的真机红线 |
 | 改服务模式、UCI/LuCI 映射 | [docs/SERVICE.md](docs/SERVICE.md) |
