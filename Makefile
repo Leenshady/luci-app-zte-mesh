@@ -80,10 +80,10 @@ $(LIBDIR)/libzte_controller_route.so: controller-route.c
 	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) $< \
 	  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o $@
 
-$(LIBDIR)/libzte_controller_trace.so: controller-trace.c controller-peer.c controller-peer.h controller-1905.c controller-1905.h controller-steer.c controller-steer.h
+$(LIBDIR)/libzte_controller_trace.so: controller-trace.c controller-log.c controller-log.h controller-peer.c controller-peer.h controller-1905.c controller-1905.h controller-steer.c controller-steer.h
 	$(ARMCC) $(COMMON) -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
 	  -Wl,-z,defs -Wl,-soname,libzte_controller_trace.so \
-	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) controller-trace.c controller-peer.c controller-1905.c controller-steer.c \
+	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) controller-trace.c controller-log.c controller-peer.c controller-1905.c controller-steer.c \
 	  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o $@
 
 # The child-side configuration-manager stand-in. Only the two WLAN setters are interposed, and each of them only
@@ -147,6 +147,12 @@ $(ARTIFACTS)/tests/controller-peer-codec: tests/controller-peer-codec.c controll
 $(ARTIFACTS)/tests/controller-actions-test: tests/controller-actions-test.c controller-actions.c controller-actions.h | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/controller-actions-test.c controller-actions.c -o $@
 
+# How much of the daemon's log stream reaches the device log. Same rule as the two above: the decision is a
+# function of the format text and a clock the caller passes, so a whole configuration push - 1012 lines of it
+# on a real child router - costs one loop to test.
+$(ARTIFACTS)/tests/controller-log-codec: tests/controller-log-codec.c controller-log.c controller-log.h | $(ARTIFACTS)/tests
+	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/controller-log-codec.c controller-log.c -o $@
+
 $(ARTIFACTS)/tests/controller-wsc-codec: tests/controller-wsc-codec.c controller-wsc.c controller-packet.h | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
 	  tests/controller-wsc-codec.c controller-wsc.c -Wl,--gc-sections -o $@
@@ -160,13 +166,14 @@ $(ARTIFACTS)/tests/controller-wsc-crypto-codec: tests/controller-wsc-crypto-code
 $(ARTIFACTS)/tests/agent-sync-codec: tests/agent-sync-codec.c agent-sync.c agent-sync.h wlan_cfg.def wlan_psk.def | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -I. tests/agent-sync-codec.c agent-sync.c -o $@
 
-test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-1905-codec $(ARTIFACTS)/tests/controller-steer-codec $(ARTIFACTS)/tests/controller-peer-codec $(ARTIFACTS)/tests/controller-actions-test $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec
+test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-1905-codec $(ARTIFACTS)/tests/controller-steer-codec $(ARTIFACTS)/tests/controller-peer-codec $(ARTIFACTS)/tests/controller-log-codec $(ARTIFACTS)/tests/controller-actions-test $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec
 	$(ARTIFACTS)/tests/controller-wsc-codec
 	$(ARTIFACTS)/tests/controller-wsc-crypto-codec
 	$(ARTIFACTS)/tests/controller-packet-codec
 	$(ARTIFACTS)/tests/controller-1905-codec
 	$(ARTIFACTS)/tests/controller-steer-codec
 	$(ARTIFACTS)/tests/controller-peer-codec
+	$(ARTIFACTS)/tests/controller-log-codec
 	$(ARTIFACTS)/tests/controller-actions-test
 	sh tests/test_steer_tshark.sh $(abspath $(ARTIFACTS))/tests/controller-steer-codec
 	$(ARTIFACTS)/tests/agent-sync-codec

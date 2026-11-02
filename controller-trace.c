@@ -17,10 +17,11 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+#include "controller-log.h"
 #include "controller-peer.h"
 #define EXPORT __attribute__((visibility("default")))
 
-static unsigned int lines, packet_lines, trace_all_lines;
+static struct log_gate gate;
 static int (*format_real)(char *, size_t, const char *, va_list);
 /* stderr in this sandbox can be a pipe that is already gone, and a dropped
  * diagnostic is not actionable anyway — but the result still has to be consumed
@@ -32,6 +33,22 @@ static void emit(const char *data, size_t len)
 {
     ssize_t written = write(STDERR_FILENO, data, len);
     (void)written;
+}
+/* One formatted line, through the budgets. controller-log.c decides how much of each
+ * class reaches the device log, against CLOCK_MONOTONIC; a host test drives the same
+ * rules with its own clock and its own gate. */
+static void emit_line(const char *line, size_t len)
+{
+    struct timespec monotonic;
+    const char *notice = NULL;
+    if (clock_gettime(CLOCK_MONOTONIC, &monotonic))
+        monotonic.tv_sec = 0;
+    if (!controller_log_admit(&gate, monotonic.tv_sec, line, &notice)) {
+        if (notice)
+            emit(notice, strlen(notice));
+        return;
+    }
+    emit(line, len);
 }
 /* The firehose switch: a flag file in the one directory the sandbox leaves writable. */
 static int verbose_enabled(void)
@@ -46,56 +63,12 @@ static void message(const char *fmt, ...)
     char buffer[384];
     va_list ap;
     int n, saved = errno;
-    unsigned int count, limit;
-    /* Config-push diagnostics get their own small budget so DB noise cannot hide them. */
-    int renew = !!strstr(fmt, "enew");
-    int packet = strstr(fmt, " rx1905 ") || strstr(fmt, " tx1905 ") ||
-                 strstr(fmt, " packet_bind ") || strstr(fmt, " native_dh_keygen ") ||
-                 strstr(fmt, " packet_decision ") || strstr(fmt, " oss_dispatch ") || strstr(fmt, " wsc_status ") || strstr(fmt, " bss_config ");
-    /* The value lines ride the firehose budget: they appear exactly when the firehose does (the M2 arrives
-     * long after the ordinary budget is gone). */
-    int trace_all = !!strstr(fmt, "ZTE_TRACE_ALL") || !!strstr(fmt, "ZTE_TRACE_VALUE");
     if (!format_real) return;
-    if (strstr(fmt, " device_event ")) {
-        /* device on/off announcements: a small budget of their own so the DB chatter cannot hide them */
-        static unsigned int device_lines;
-        if (__sync_fetch_and_add(&device_lines, 1) >= 48) { errno = saved; return; }
-        va_start(ap, fmt);
-        n = format_real(buffer, sizeof(buffer), fmt, ap);
-        va_end(ap);
-        if (n > 0)
-            emit(buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
-        errno = saved;
-        return;
-    }
-    if (renew) {
-        static unsigned int renew_lines;
-        if (__sync_fetch_and_add(&renew_lines, 1) >= 48) { errno = saved; return; }
-        va_start(ap, fmt);
-        n = format_real(buffer, sizeof(buffer), fmt, ap);
-        va_end(ap);
-        if (n > 0)
-            emit(buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
-        errno = saved;
-        return;
-    }
-    limit = trace_all ? 20000 : packet ? 64 : 160;
-    count = __sync_fetch_and_add(trace_all ? &trace_all_lines : packet ? &packet_lines : &lines, 1);
-    if (count >= limit) {
-        if (count == limit && !trace_all) {
-            static const char ordinary[] = "ZTE_CONTROLLER_TRACE log_budget=ordinary exhausted=1 limit=160\n";
-            static const char protocol[] = "ZTE_CONTROLLER_TRACE log_budget=packet exhausted=1 limit=64\n";
-            emit(packet ? protocol : ordinary,
-                 packet ? sizeof(protocol) - 1 : sizeof(ordinary) - 1);
-        }
-        errno = saved;
-        return;
-    }
     va_start(ap, fmt);
     n = format_real(buffer, sizeof(buffer), fmt, ap);
     va_end(ap);
     if (n > 0)
-        emit(buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
+        emit_line(buffer, (size_t)n < sizeof(buffer) ? (size_t)n : sizeof(buffer) - 1);
     errno = saved;
 }
 static void *symbol(const char *name)
@@ -285,19 +258,23 @@ EXPORT int vsnprintf(char *buffer, size_t size, const char *format, va_list ap)
             message("ZTE_CONTROLLER_TRACE wsc_status vendor_format=%.120s\n", format);
         /* Opt-in firehose: while a frame shape is still being matched, the daemon's own objections are the
          * only evidence, and they do not all mention M1/M2/WSC. Enabled by a flag file, not an environment
-         * variable, because the sandbox hands the daemon a single-variable environment. */
-        if (verbose_enabled()) {
-            static unsigned int verbose_lines;
-            if (__sync_fetch_and_add(&verbose_lines, 1) < 20000)
-                message("ZTE_TRACE_ALL vendor_format=%.150s\n", format);
+         * variable, because the sandbox hands the daemon a single-variable environment. Its budget is the
+         * gate's, so turning it on cannot outlast one long run. */
+        if (verbose_enabled())
+            message("ZTE_TRACE_ALL vendor_format=%.150s\n", format);
+        /* Values rather than shapes, for the handful of lines the agent-mode criterion
+         * turns on: whether the M2 was applied (cfgChg), which BSS it went to, what the
+         * WLAN setter returned. controller-log.c owns that list, splits it into the four
+         * per-event lines and the two the state machine repeats every few seconds, and
+         * refuses any text carrying key material - a value line prints the formatted
+         * result, so the format is the only thing checked here. */
+        if (size > 0) {
+            int shape = controller_log_shape(format);
+            if (shape == ZTE_LOG_VALUE)
+                message("ZTE_TRACE_VALUE text=%.200s\n", buffer);
+            else if (shape == ZTE_LOG_POLL)
+                message("ZTE_TRACE_POLL text=%.200s\n", buffer);
         }
-        /* Values rather than shapes, for the handful of lines the agent-mode criterion turns on: whether the
-         * M2 was applied (cfgChg), which BSS it went to, and what the WLAN setter returned. Only formats that
-         * carry no key material are expanded. */
-        if (size > 0 && (strstr(format, "acdcParseM2Msg cfgChg") || strstr(format, "The WSC-%d will cfg") ||
-                         strstr(format, "current state") || strstr(format, "M2 total Length") ||
-                         strstr(format, "WLAN_ASSERT_RET") || strstr(format, "mesh sync for M2")))
-            message("ZTE_TRACE_VALUE text=%.200s\n", buffer);
         if (strstr(format, "Bss") || strstr(format, "bss") || strstr(format, "WLANCFG") ||
             strstr(format, "PWKey") || strstr(format, "WEP") || strstr(format, "Wep") || strstr(format, "BeaconType"))
             message("ZTE_CONTROLLER_TRACE bss_config vendor_format=%.120s\n", format);

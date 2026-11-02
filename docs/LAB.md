@@ -117,7 +117,8 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 `--agent` 换成 `db-engine-probe --agent-startup`：daemon 以 `Mode=1 / SetRoleEnable=0 / EnMasterOnly=0` 启动，探针这一侧
 扮演合成主控，走完 Discovery → Topology Query → Search → Search Response → M1 → M2。关注前缀：`ZTE_AGENT_WIRE`（帧收发）、
-`ZTE_AGENT_WLAN`/`ZTE_AGENT_PSK`（库读回）、`ZTE_TRACE_VALUE`（setter 返回值、`cfgChg`）。
+`ZTE_AGENT_WLAN`/`ZTE_AGENT_PSK`（库读回）、`ZTE_TRACE_VALUE`（M2 有没有落地 `cfgChg`、落到哪个 BSS、M2 多长、同步完成没有——
+四条一次性的证据行）、`ZTE_TRACE_POLL`（daemon 每隔几秒重复的状态行，见下面的采样）。
 
 `--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()`
 把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。
@@ -129,6 +130,24 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 |---|---|
 | `/run/zte-mesh/trace-all` | 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行） |
 | `/run/zte-mesh/mm-off` | 关掉 `libzte_agent_mm.so` 的配置管理器替身，让两个 WLAN setter 报告原厂返回值（诊断用） |
+
+**日志的落点只有一个：logd 那圈环**（两台实验机 `system.@system[0].log_size='128'`，`logread` 当下 1179 行）。服务不写会长大的
+文件——沙箱根只读、`/tmp` 与 `/var/tmp` 是 8 MiB tmpfs、`/run/zte-mesh` 下全是小文件原子替换——所以 `controller-log.c` 管的是
+**打进环的比例**，不是轮转。分类与预算：
+
+| 类别 | 预算 | 打光/采样时说哪一句 |
+|---|---|---|
+| 替身自己的调用与返回（ordinary） | 每进程 160 行 | `log_budget=ordinary exhausted=1 limit=160` |
+| 1905 / WSC / 绑包等协议行（protocol） | 每进程 64 行 | `log_budget=packet exhausted=1 limit=64` |
+| 入网离线（device）/ 配置推送（renew） | 各 48 行 | 不说（量小，静默可接受） |
+| `ZTE_TRACE_VALUE` 四条证据行 | 2 万行 | 不采样——判据就靠它 |
+| `ZTE_TRACE_POLL` 重复状态行 | **每 60 秒 4 行** | `log_budget=poll sampled=1 limit=4 window=60s`，每个超额窗口一句 |
+| `ZTE_TRACE_ALL` 火管 | 2 万行 | 不说 |
+
+两件事别记反：**展开的是值**，所以带密钥 / SSID / BSS 的格式在 `controller_log_shape()` 里先被否决，永不展开；
+**每进程的预算重启就重来**（崩溃循环每次只付一小段），**poll 那一路按 `CLOCK_MONOTONIC` 的分钟采样**，进程重启也变不成无界。
+装机后要看的判据是"推送过去七分钟，`logread` 里还剩不剩用户自己的行"——改之前实测一次推送打进来 1012 行（超过整圈容量），
+四小时后回看仍占 94.5%。
 
 `libzte_agent_mm.so` 已在 `spawn_daemon()` 的 `LD_PRELOAD` 里：它只接管 `CmWLANSetAPConfig` / `CmWLANSetPsk`，并且
 **先把刚写的行读回来比对**，库里已是调用方要的值才把 -3 报成 0（`ZTE_AGENT_MM ... row_applied=1`）。
