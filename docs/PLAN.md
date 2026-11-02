@@ -106,7 +106,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
-| A24 | 有线口掉线自愈（`attach` 兼任看门狗） | H | 主机测试 3 项守住判据；真机复现见 H-10 |
+| A24 | 有线口掉线自愈（`attach` 兼任看门狗） | H | 主机测试 3 项守住判据；**真机已验**（H-10，2026-11-02 owrt：删 `zmesh0` 后 25 秒自愈） |
 | A25 | `wlan-sync` / `search` 的 respawn 预算写成显式 `3600 5 0` | H | ✅ 主机测试；实测 retry 0 = 不限次，裸 `respawn` 半小时后永久放弃 |
 | A13′ | 角色拆成 `mesh_role` + `apply_local`，线上不再发 `auto` | H | ✅ init 103 项 / rpcd 24 项 / luci / i18n；真机对照见 H-11 |
 
@@ -161,7 +161,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | **H-07** | D5 VLAN / D6 绑定 / D7 BTM 在 E2631 上的实际行为 | 一台市售 E2631/AX3000，停机窗口 | 用它自带 `pktdump 1` 抓线上，按 [MULTIAPD](research/MULTIAPD.md) §5 的命令表 | 三处配置入口能被厂商自己的 web 打开（说明运行时真的读） | 动的是别人的家用路由器 |
 | **H-08** | 出厂 `VersionMode` 与"兼容模式"文案的对应 | E2631 页面 | 改页面开关，看 `MultiAPCfg.VersionMode` 与 `P1905ComCfg.Enable` | 文案 ↔ 字段一一对应 | 已有一半结论（[FINDINGS](FINDINGS.md)），缺厂商侧确认 |
 | **H-09** | 长时间稳定性（A22 的真机版） | 两台实验机 | 装 rXX 后放 24 小时，看 `daemon_restarts`、内存、`dmesg` | 重启计数 0、无 OOM | 会占着机器 |
-| **H-10** | A24 有线口自愈：删掉宿主这头的 `zmesh0` 后自己长回来 | 实验室控制器（owrt VM），页面能看到「有线接口」 | ①`ubus call luci.zte-mesh status` 三项都在跑 ②`ip link del zmesh0` ③等 25 秒：页面先「未接入」再恢复「已挂到 LAN 桥」 ④`logread` 里 zte-mesh 先有 `restarting it to rebuild the wire`、随后 `attached zmesh0 to br-lan` ⑤`service list` 里 controller 实例换了 pid ⑥子路由重新出现在拓扑页 | 不需要人重启主控：两分钟内线自愈、拓扑重新填上，`multiapd` 的绑定跟着新 ifindex 走（这正是重启实例的原因） | `attach` 自己也被杀时自愈停摆——它的 respawn 同样是不限次；连续重启会短暂断开子路由的 1905 链路。**2026-11-02 C10 装机抓到现成现场**：`attach` 实例报 running 而 `zmesh0` 已不存在、`attached=false`——但那是重启前的旧进程（自愈代码这一批才刚进包），`/etc/init.d/zte-mesh restart` 之后 `zmesh0` 重新挂回 `br-lan`。所以**症状复现了，自愈本身还没验**，下一步按步骤②主动删线 |
+| **H-10** | **已验（2026-11-02，owrt VM）**：A24 有线口自愈——删掉宿主这头的 `zmesh0` 后自己长回来 | 实验室控制器（owrt VM），页面能看到「有线接口」 | 实测：①删之前 `attached=true`、controller 实例 pid=23117 ②`ip link del zmesh0`（16:06:34）③16:06:53 日志 `no zmesh0 for 20 s while the controller runs in 23146: restarting it to rebuild the wire` ④16:06:58 新沙箱起来（pid 27545，`topology dev_num=0`）⑤16:06:59 `attached zmesh0 to br-lan` ⑥回读 `attached=true`、`daemon_restarts=0`、节点 `IGD.P1905DeviceInfo1` 重新 `online=true` | **25 秒自愈，没有人重启主控**（GRACE=20 + 一个 tick 的落地时间，和脚本里的常数对得上）；重启的是沙箱所属的 controller 实例，`attach` 自己的 pid 没动（23118 前后一样）——这正是"看门狗没被一起带走"的证据 | 只验了"主动删线"这一种丢失；`attach` 自己也被杀时自愈停摆（respawn 不限次），连续重启会短暂断开子路由的 1905 链路（本次重启后 `dev_num=0` 约 1 秒才回填） |
 | **H-11** | A13 角色改成 `master` 后，真中兴子路由照样入网 | ax3600（或 Z506）+ OpenWrt 主控，装机验证 | ①主控 `mesh_role=master`（不再发 `auto`）②子路由开机入网 ③`uci show zte_mesh` 与页面拓扑确认 ④主控改成 `apply_local=1` 再看本机 SSID 与子路由 SSID 同步 ⑤子路由重启一次，等 5 分钟内被 `search` 重新发现（A25 之后才可能） | 入网、下发档案、拓扑填充与 `auto` 时代一致；关键是**没有**出现子路由自当选主控（`MultiAPMaster` 的角色列仍是子） | 改动只在主控写库的 `SetRoleEnable` 与 `Mode`，子路由侧一行没动 |
 
 ## 6. CI 与装机节奏
