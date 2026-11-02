@@ -156,8 +156,13 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 真机摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 
-**版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，只有 `main` 一条分支。`out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz
-在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
+**版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，日常只有 `main` 一条长期分支（`feat/child-node` 是给上游提 PR 用的）。
+批末的那次 CI 走**一次性分支** `ci/batchN`：`main` 直连 ImmortalWrt feed 不能随便推，所以把这一批推成临时分支再在
+那个 ref 上触发，两台实验机装机读回之后就把临时分支删掉（细节见 [PLAN](PLAN.md) 第 6.1 节）。
+`out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
+
+**取产物**：artifact 下载要认证（匿名 401），本机没有 `gh`，走 `git credential fill` 拿到的 token 拼 API——
+token 只留在 shell 变量里，不回显、不落盘。zip 解开是四个 apk，`sha256sum -c SHA256SUMS.txt` 在机器上核对最省事。
 
 **发布 release**：`Build APK` **只构建，不发布**（2026-11-01 起；以前那个 `release_tag` 输入把"开始构建"和"把这些字节承诺给外面"
 做成同一个按钮，而一批的包要先在两台实验机上装机验过才谈得上发布）。它产出两个 artifact：`zte-mesh-apk`（四个 apk +
@@ -230,4 +235,5 @@ cp /tmp/zte-mesh.zh-cn.lmo /usr/lib/lua/luci/i18n/     # 不需要重启服务�
 `raw.githubusercontent.com/<owner>/<repo>/lab-tools/prebuilt/<file>` 直链 `wget`（Actions artifact 要登录且会过期），
 而那个 workflow 每次触发都会把产物提交回分支，不能落在 `main` 上。代价是 `main` 落后 47 个提交、apk CI 一直编的是旧代码，
 且 lab-tools 侧的文件逐渐比 `main` 旧。现在 CI 全手动、直链改指 `main`，两个前提都没了，所以分支已合并、只剩 `main`。
-下次需要"只有某台机器用"的产物，先问它能不能用现编的方式解决，不要再开长期分支。
+下次需要"只有某台机器用"的产物，先问它能不能用现编的方式解决，不要再开长期分支。批末 CI 那个 `ci/batchN`
+不算在内——它不落地任何产物，装机读完就删。

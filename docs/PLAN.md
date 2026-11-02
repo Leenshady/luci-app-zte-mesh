@@ -172,6 +172,10 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 - **不按项触发**。改完一项只在本地跑测试，不烧 CI。
 - **批末触发一次**：`gh workflow run build-apk.yml`（手动 `workflow_dispatch`），产物是
   `zte-mesh-apk` artifact（四个 apk + `SHA256SUMS.txt`）。
+- **走临时分支，不推 `main`**：`main` 直连 ImmortalWrt feed，推上去构建机立刻吃到，所以批末把这一批
+  提交推成 `ci/batchN`，在该 ref 上触发，装机读完就删（批 5 是 `ci/batch5`，批 6 是 `ci/batch6`）。
+  `workflow_dispatch` 跑的是**选中的那个 ref**——2026-11-03 第一次点错在 `main`（旧提交 `9892c91`），
+  构建成功但产物不含本批两个 commit，靠装机读回的 `PKG_RELEASE` 才发现。**发起前核对 ref 的 SHA 与本地 `main` 一致。**
 - **CI 不再创建 GitHub Release**。发布是人的决定：确认某一版要对外，再手工
   `gh release create <tag> dist/*.apk dist/SHA256SUMS.txt`。理由：流水线按批跑，跑出来的字节是
   "这一批的中间态"，不该自动变成对外承诺。
