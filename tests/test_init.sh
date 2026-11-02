@@ -279,7 +279,9 @@ UCI_TEXT="config zte_mesh 'main'
 	option roam_force '0'
 	option ban_minutes '30'
 	option extra_slots '1'
-	option backhaul 'multi_ap'"
+	option backhaul 'multi_ap'
+	option wifi_2g 'radio2'
+	option wifi_5g 'radio1'"
 run all-options 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=cc
@@ -308,7 +310,7 @@ band_steer.rssi5=-110
 roam.rssi24=-60
 roam.rssi5=-70
 ban.minutes=30"
-[ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 128 role=master local=on backhaul=multi_ap extra_slots=1 pin2g= pin5g= " ] ||
+[ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 128 role=master local=on backhaul=multi_ap extra_slots=1 pin2g=radio2 pin5g=radio1 " ] ||
 	{ echo "FAIL all-options: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 # 8b. without dual-band sync the 5 GHz band keeps its own hidden flag, security and MAC filter policy
 UCI_TEXT=$(printf '%s\n' "$UCI_TEXT" | sed "s/wifi_dual_band_sync '1'/wifi_dual_band_sync '0'/")

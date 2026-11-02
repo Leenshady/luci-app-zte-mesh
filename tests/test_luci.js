@@ -161,10 +161,12 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	{
 		const m = registered.zte_mesh || {};
 		/* extra_slots is not a controller setting: on a child it decides whether the slots the controller sends are put
-		 * on this router's own air, which is exactly the child's business. */
-		const forbidden = Object.keys(m).filter(n => n !== 'enabled' && n !== 'bridge' && n !== 'mesh_role' && n !== 'backhaul' && n !== 'extra_slots');
+		 * on this router's own air, which is exactly the child's business. The two radio pins are the same: a child
+		 * with two cards on one band has to name its own. */
+		const forbidden = Object.keys(m).filter(n => n !== 'enabled' && n !== 'bridge' && n !== 'mesh_role' && n !== 'backhaul' && n !== 'extra_slots' && n !== 'wifi_2g' && n !== 'wifi_5g');
 		if (forbidden.length) { console.log('child form still offers controller settings:', forbidden.join(' ')); bad++; }
 		if (!m.backhaul) { console.log('child form lacks the backhaul choice'); bad++; }
+		if (!m.wifi_2g || !m.wifi_5g) { console.log('child form lacks the radio pins'); bad++; }
 			if (registered.zte_mesh_bss || registered.zte_mesh_acl || registered.zte_mesh_timer || registered.zte_mesh_client) { console.log('child form still offers the controller grids'); bad++; }
 		counts.child = Object.keys(registered.zte_mesh || {}).length + ' options';
 	}
@@ -177,21 +179,30 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		uciRole = 'main';
 		await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
 		const m = registered.zte_mesh || {};
-		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2', 'extra_slots', 'apply_local', 'backhaul'].filter(n => !m[n]);
+		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2', 'extra_slots', 'apply_local', 'backhaul', 'wifi_2g', 'wifi_5g'].filter(n => !m[n]);
 		if (missing.length) { console.log('main router form lacks the controller options:', missing.join(' ')); bad++; }
+		/* A pin is a wifi-device section name, and a name wlan-sync cannot match is ignored with a log line -- which is
+		 * the same silent no-op the field exists to avoid, so the shape is refused here, before it is saved. */
+		{
+			const pin = m.wifi_5g;
+			for (const [ok, v] of [[true, ''], [true, 'radio1'], [true, 'radio_hwmode11g'], [false, 'radio-1'], [false, 'radio 1'], [false, 'radio.1'], [false, '"radio1"']]) {
+				const got = pin && pin.validate('main', v);
+				if ((got === true) !== ok) { console.log('pin validate(' + JSON.stringify(v) + ') = ' + JSON.stringify(got) + ', accept=' + ok); bad++; }
+			}
+		}
 		/* The second axis defaults to what the legacy name means, so a page opened on an old `main` configuration shows
 		 * the checkbox ticked and saving it keeps the behaviour instead of quietly dropping the local broadcast. */
 		if (m.apply_local && m.apply_local.default !== '1') { console.log('apply_local default on a legacy main is', m.apply_local.default); bad++; }
 	}
-	// A controller that leaves its own radios alone applies no profile here, so it builds neither end of the backhaul
-	// and no extra SSID: offering those two would invite exactly the "I set it and nothing happened" report.
+	// A controller that leaves its own radios alone applies no profile here, so it builds neither end of the backhaul,
+	// no extra SSID and names no radio: offering those would invite exactly the "I set it and nothing happened" report.
 	{
 		for (const k of Object.keys(registered)) delete registered[k];
 		uciRole = 'master';
 		uciLocal = '0';
 		await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
 		const m = registered.zte_mesh || {};
-		const unwanted = ['backhaul', 'extra_slots'].filter(n => m[n]);
+		const unwanted = ['backhaul', 'extra_slots', 'wifi_2g', 'wifi_5g'].filter(n => m[n]);
 		if (unwanted.length) { console.log('controller-only form offers settings that apply to radios it does not touch:', unwanted.join(' ')); bad++; }
 		if (!m.apply_local) { console.log('controller-only form lost the apply_local switch'); bad++; }
 		uciLocal = null;

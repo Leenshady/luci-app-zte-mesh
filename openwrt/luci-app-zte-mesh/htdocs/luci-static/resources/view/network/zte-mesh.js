@@ -403,6 +403,31 @@ return view.extend({
 		o.description = _('Whether the extra SSID slots are applied to this router as well. Off: only the main SSIDs are applied, as before. On: every enabled slot becomes its own network on the band it belongs to, and a slot that stops arriving is removed again. An extra slot shares the bridge of its band\'s main network: this image has no VLAN separation yet, so a guest slot is not isolated from the main one.');
 		}
 
+		/* Which device of a band the applier writes. A board can carry two on one band (an ax3600 has an unused PCIe
+		 * 5 GHz card next to the SoC radio), and the only way wlan-sync tells the user so is a log line naming these
+		 * two options -- an option the log points at with no field on the page is the same dead end as a switch that
+		 * restarts nothing. */
+		if (child || local) {
+		var pinDesc = _('Which wireless device carries this band. Leave it alone unless the service log says it cannot tell the two apart: a band with one device needs no answer, and a band with several uses the one that is not switched off. The value is a wireless device name of the Wi-Fi settings, such as radio1, and it has to be a device of this band -- a name that is not one is ignored, and the mesh is left off that radio.')
+			+ ' ' + _('Switching this restarts the mesh service (the child routers drop out of the topology for up to a minute).');
+		var pinName = function(section_id, value) {
+			if (value == null || value === '')
+				return true;
+			return /^[A-Za-z0-9_]+$/.test(value) ? true : _('A wireless device name: letters, digits and underscores, like radio1.');
+		};
+		o = s.taboption('general', form.Value, 'wifi_2g', _('2.4 GHz wireless device'));
+		o.optional = true;
+		o.placeholder = 'radio0';
+		o.validate = pinName;
+		o.description = pinDesc;
+
+		o = s.taboption('general', form.Value, 'wifi_5g', _('5 GHz wireless device'));
+		o.optional = true;
+		o.placeholder = 'radio1';
+		o.validate = pinName;   /* the same shape, and one message to translate */
+		o.description = pinDesc;
+		}
+
 		/* Controller side: what this router pushes to its child routers. Not rendered on a child, where the service runs
 		 * with these features off (a child has no agents of its own) and changing a value only invites misconfiguration. */
 		if (!child) {

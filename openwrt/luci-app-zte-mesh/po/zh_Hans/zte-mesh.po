@@ -584,6 +584,18 @@ msgstr "开（含访客、备用和隐藏回程）"
 msgid "Whether the extra SSID slots are applied to this router as well. Off: only the main SSIDs are applied, as before. On: every enabled slot becomes its own network on the band it belongs to, and a slot that stops arriving is removed again. An extra slot shares the bridge of its band's main network: this image has no VLAN separation yet, so a guest slot is not isolated from the main one."
 msgstr "是否把额外 SSID 槽位也落到本机。关：只应用主 SSID，与之前完全一致。开：每个启用的槽位在所属频段上成为独立网络；不再下发的槽位会被删除。额外槽位与其频段的主网络共用同一个网桥：本镜像还没有做 VLAN 隔离，所以访客槽位并没有和主网络隔开。"
 
+msgid "2.4 GHz wireless device"
+msgstr "2.4 GHz 射频设备"
+
+msgid "5 GHz wireless device"
+msgstr "5 GHz 射频设备"
+
+msgid "Which wireless device carries this band. Leave it alone unless the service log says it cannot tell the two apart: a band with one device needs no answer, and a band with several uses the one that is not switched off. The value is a wireless device name of the Wi-Fi settings, such as radio1, and it has to be a device of this band -- a name that is not one is ignored, and the mesh is left off that radio."
+msgstr "这个频段由哪块射频设备承载。除非服务日志说它分不清，否则不用填：一个频段只有一块设备时不需要选，有多块时用的是没被关闭的那块。取值是无线设置里的射频设备名，例如 radio1，而且必须是这个频段的设备——不是的话会被忽略，组网就不会上到那块射频。"
+
+msgid "A wireless device name: letters, digits and underscores, like radio1."
+msgstr "射频设备名：字母、数字和下划线，例如 radio1。"
+
 msgid "Link"
 msgstr "链路"
 

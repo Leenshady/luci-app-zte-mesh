@@ -84,7 +84,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | B13d | **已完成**。页面的 `backhaul` 以前只在子节点角色渲染（`if (child)`），可它在"主控 + `apply_local=1`"上同样有作用（那一端建回程 BSS）。现在和 `extra_slots` 一样按 `child || local` 渲染，标题与描述分两端（子节点=连过去 / 主控=放上天），纯主控两个开关都不显示 | H | `node tests/test_luci.js` 三种角色组合的可见性断言 + i18n 12 项（三条新文案已进 `po/zh_Hans`） |
 | B13e | **已完成**。`backhaul` 的取值校验：`write_config` 只接受 `off` / `multi_ap`。`wlan-sync` 认不出的值当 `off`（应用侧不该为一个拼写停掉整份档案，这条留着），但 `multi-ap`（中兴自己文档里的写法）、`on` 这类会变成"页面开关设过、射频上什么都没有"，而只有 init 还能说清为什么 | H | `sh tests/test_init.sh` 坏取值两条（`multi-ap`、`on`），空值按默认 `off` 收 |
 | B13f | **已完成**。**applier 的四个输入一起进 `restart.sig`**（`backhaul` / `extra_slots` / `wifi_2g` / `wifi_5g`）。判据一条：`wlan-sync` 直接从 UCI 读、又不改 plan 也不改实例集合的东西，改了必须重启才看得见——那个 watcher 比的是 plan 的**内容摘要**（`stamp()`）。最坏的一条不是回程而是 `extra_slots`：子节点的 plan 里槽位行本来就有，关掉开关却不重启，子路由会继续广播一个已经不该存在的 guest。带值的是 `sync_runs` 的两个角色（子节点 / 会落地的主控），与 procd 起 `wlan-sync` 实例那一行共用同一个判据（以前两处各写一遍，抽成 `sync_runs`）；纯主控一个都不带 | H | `sh tests/test_init.sh` 122 项：`sig-*` 十一条（两端各自 off/on、显式默认与不设等价、纯主控四种写法签名相同且不带）+ 三条源码针 |
-| B13g | `wifi_2g` / `wifi_5g` 在包里只有注释掉的一行 UCI，页面上没有字段——可 `wlan-sync` 在"一个频段两块同类型射频"时明确让用户去设它（ax3600 正吃这一条：SoC 的 5G 旁边还有一块 PCIe 5G） | H | 页面按 `child \|\| local` 给两个 `wifi-device` 段名输入，校验段名形状；`test_luci.js` 的可见性与完备性两遍 + i18n 同步 |
+| B13g | **已完成**。`wifi_2g` / `wifi_5g` 以前在包里只有注释掉的一行 UCI，页面上没有字段——可 `wlan-sync` 在"一个频段两块同类型射频"时明确让用户去设它（ax3600 正吃这一条：SoC 的 5G 旁边还有一块 PCIe 5G）。现在和 `backhaul`、`extra_slots` 一样按 `child \|\| local` 渲染两个 `wifi-device` 段名输入，共用一条描述（含"填了会重启 applier"），保存前校验段名形状（字母/数字/下划线；写错的设备名只会被 `wlan-sync` 忽略并留一行日志，那是另一种"设了却不动"） | H | `node tests/test_luci.js`：三处可见性（子节点 7 项含两个 pin、会落地的主控 38 项、纯主控四个都不给）+ 形状校验 7 个取值（空 / `radio1` / `radio_hwmode11g` 收，`radio-1` / `radio 1` / `radio.1` / `"radio1"` 拒）；`test_init.sh` 的"每个可选项都写一遍"用例带上两个 pin，`restart.sig` 期望随之变成 `pin2g=radio2 pin5g=radio1`；i18n 12 项（四条新文案进 `po/zh_Hans`） |
 
 ### 批 5 · 多子节点与稳定性（H + D）
 
@@ -130,7 +130,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci），含回程两端 | 169 项（批 2 加 5 条、批 4 加回程客户端 39 条；Windows 上约 8 分钟，Linux 上快得多） |
 | `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 122 项（批 3 加 7 条、批 4 加回程告警 3 条 + `backhaul` 取值 2 条 + applier 四个输入的签名 11 条 + 共用判据 3 条源码针） |
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 24 项（批 3 加六个 role/`apply_local` 组合；Windows 上要先解决上面那条 `python3` 占位程序） |
-| `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `36 main / 10 slot / 4 ACL / 2 client / child 5`（批 2 加节点表断言，批 3 加动作列表与状态框，批 4 加回程开关的两端可见性——纯主控 `apply_local=0` 时 `backhaul` 与 `extra_slots` 都不渲染；"每个选项都要有表单项"这一遍现在渲染**会落地的**主控，因为纯主控按设计就少两个字段） |
+| `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `38 main / 10 slot / 4 ACL / 2 client / child 7`（批 2 加节点表断言，批 3 加动作列表与状态框，批 4 加回程开关的两端可见性与两个射频点名——纯主控 `apply_local=0` 时 `backhaul`、`extra_slots`、`wifi_2g`、`wifi_5g` 都不渲染；"每个选项都要有表单项"这一遍现在渲染**会落地的**主控，因为纯主控按设计就少几个字段） |
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94` | 101 断言 + 10 万次有界变异（需要一台能编 C 的机器） |
 | `tests/controller-steer-codec.c`（`make test-host`） | 终端动作消息的编码与两种回报的解码 | 整帧字节比对 + 10 万次有界变异（同上） |
 | `sh tests/test_steer_tshark.sh` | 把上面那几帧交给 tshark，逐字段读回 | 20 项；没有 tshark 时输出 SKIP 并退出 0 |
