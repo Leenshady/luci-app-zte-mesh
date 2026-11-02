@@ -156,10 +156,10 @@ msgid "Backhaul to the controller"
 msgstr "回控制器的方式"
 
 msgid "Off (main SSIDs only)"
-msgstr "关闭（只应用主 SSID)"
+msgstr "关闭（只应用主 SSID）"
 
 msgid "Multi-AP (4-address)"
-msgstr "Multi-AP(4 地址）"
+msgstr "Multi-AP（4 地址）"
 
 msgid "Switching this restarts the mesh service (the child routers drop out of the topology for up to a minute)."
 msgstr "切换会重启组网服务（子路由器最多一分钟内掉出拓扑）。"
@@ -231,7 +231,7 @@ msgid "%s channel"
 msgstr "%s 信道"
 
 msgid "%s transmit power (dBm, EIRP)"
-msgstr "%s 发射功率（dBm,EIRP)"
+msgstr "%s 发射功率（dBm，EIRP）"
 
 msgid "%s MAC filter policy"
 msgstr "%s MAC 过滤策略"
