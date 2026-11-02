@@ -43,6 +43,8 @@
 | `prebuilt/` | lab 主机用的预编译件（`ns-run` 两份架构、ARM32 `db-engine-probe` 与 shim），**不进任何 apk**（见 [DEVELOPMENT](docs/DEVELOPMENT.md) 第 10 节） |
 | `tools/build/`、`tools/capture/`、`tools/child/`、`tools/lab/` | 构建容器与打包、抓包重放、子路由 telnet、实验室脚本 |
 | `docs/` | 文档（索引见下） |
+| `docs/journal/` | 开发日志，按天一文件、随 commit 入库（原 `.workbuddy/memory/`，2026-11-02 迁入） |
+| `AGENTS.md` | 编码工具的项目指令：动手前读什么、常用命令、真机与密钥红线、收尾五步 |
 | `out/`、`evidence/` | 构建产物与实验证据，含原厂二进制，**不入库** |
 
 原厂固件镜像不在这里：`prepare.py` 默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，可用 `SR1010_VENDOR_ROOTFS` 指定。

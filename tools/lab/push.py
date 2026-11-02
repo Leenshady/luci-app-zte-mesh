@@ -3,7 +3,7 @@
 
     LAB_HOST=… LAB_USER=… LAB_PASS=… python3 tools/lab/push.py
 
-Packs the repository (minus `out`, `evidence`, `.git`, `.workbuddy`), uploads it
+Packs the repository (minus `out`, `evidence`, `.git`), uploads it
 and unpacks over `$LAB_DIR` (default `~/zte-mesh`).  Unpacking over the previous
 tree is deliberate: it keeps `out/` on the VM, which is expensive to rebuild, and
 `make` only cares about source mtimes, which the upload always refreshes.
@@ -26,7 +26,7 @@ from pathlib import Path
 import paramiko
 
 REPO = Path(__file__).resolve().parents[2]
-EXCLUDE = {".git", "out", "evidence", ".workbuddy", "__pycache__"}
+EXCLUDE = {".git", "out", "evidence", "__pycache__"}
 BINARY_SUFFIX = {
     ".gz", ".tar", ".tgz", ".xz", ".zst", ".zip", ".jffs2", ".img",
     ".so", ".o", ".a", ".elf", ".apk", ".bin", ".png", ".jpg", ".jpeg", ".gif", ".pdf",

@@ -46,7 +46,7 @@ passed as files that stay outside the repository. Unless noted, run them on the 
 | Script | What it does |
 |---|---|
 | `rsh.py` | Runs a command on the lab VM over SSH (`LAB_HOST`/`LAB_USER`/`LAB_PASS`, or `LAB_KEY`); `--stdin` forwards standard input, which is how `sudo -S` gets its password without putting it in the command line. |
-| `push.py` | Packs the working tree (minus `out`, `evidence`, `.git`, `.workbuddy`), uploads it and unpacks over `~/zte-mesh`. Normalises CRLF to LF: a Windows checkout has CRLF in the working tree and the shell tests fail on the target otherwise. |
+| `push.py` | Packs the working tree (minus `out`, `evidence`, `.git`), uploads it and unpacks over `~/zte-mesh`. Normalises CRLF to LF: a Windows checkout has CRLF in the working tree and the shell tests fail on the target otherwise. |
 | `bootstrap-out.py` | Rebuilds `out/runtime` + `out/manifest.json` from `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` (hash-checked against its `SHA256SUMS` and `prepare.MULTIAPD_SHA256`), for a machine that has no factory JFFS2. The manifest is marked `source=runtime-bundle`, so `prepare.py` still refuses it and packaging cannot silently use it. |
 | `build.sh` | `make` wrapper for Ubuntu: adds `-U_FORTIFY_SOURCE` (Ubuntu's gcc defines it by default, Debian's does not) so `-Werror` builds match the audited build. Defaults `ROUTERCC=aarch64-linux-gnu-gcc`; pass `ROUTERCC=cc` for router-side tools that must run on the VM. |
 | `mkroot.sh` | Assembles the tmpfs lab root `/tmp/zte-mesh-svc/root` from a built `out/` (same layout as `make-runtime.py`, which refuses a synthetic `out/`). |

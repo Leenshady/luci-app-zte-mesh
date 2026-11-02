@@ -1,0 +1,71 @@
+# zte-mesh / luci-app-zte-mesh
+
+给 OpenWrt / ImmortalWrt 做的中兴组网插件：把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、CM 函数替身和服务配置文件指挥它，**不重写 mesh 协议**。中兴侧保留原厂固件，不刷机。
+
+- 功能总账只有一份：[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)。排期只有一份：[docs/PLAN.md](docs/PLAN.md)。别处出现的"已完成/未做"都不算数。
+- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档全景见 [README.md](README.md) 的文档索引（18 份为准，`docs/research/` 与 `docs/milestones/` 是证据存档，不随结论更新）。
+
+## 动手前先读
+
+| 要做什么 | 先读 |
+|---|---|
+| 构建、跑控制器、测试、分支与 `prebuilt/` | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
+| 碰实验机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器台账的唯一权威，统一走 `python tools/lab/rssh.py` |
+| 上真子路由 Z506 | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的真机红线 |
+| 改服务模式、UCI/LuCI 映射 | [docs/SERVICE.md](docs/SERVICE.md) |
+| 查原厂数据库字段 | [docs/milestones/SCHEMA.md](docs/milestones/SCHEMA.md)、[docs/milestones/POLICIES.md](docs/milestones/POLICIES.md)、[docs/research/E2631_DB_SNAPSHOT.md](docs/research/E2631_DB_SNAPSHOT.md) |
+
+## 常用命令
+
+```sh
+sh build.sh                                          # 提取运行环境、审计、编译、主机测试、离线加载测试
+sh tools/build/container-make.sh test-host           # 只跑主机测试；单个产物：container-make.sh db-engine-probe
+sh tools/build/runtime.sh svctest                    # 实验室 tmpfs 运行包
+sh tools/build/runtime.sh install                    # 重新生成随仓库提交的 openwrt/zte-mesh/zte-mesh-runtime.tar.gz
+python3 dev-service-smoke.py --no-attach --seconds 24 # 路由器上完全私有地跑一次服务（不接 LAN）
+python tests/test_i18n.py                            # 改了界面文案必须跑（12 项，含 lmo 逐条可查）
+```
+
+`tests/` 里 C 编解码、Python、shell、LuCI JS 各管一段，改哪层跑哪层的测试；CI（`.github/workflows/build-apk.yml`、`build-lab-tools.yml`）**全手动触发**。
+
+## 红线
+
+**真机**（细则见 DEVELOPMENT 第 5 节）
+
+- 向真机推配置会真实且持久地改变设备设置。每轮前后用 `ZTE_TN_PASS=… sh tools/child/childread.sh` 读回 8 行 `WLANCfg`，与 REAL_CHILD 末尾基线逐行比对。
+- **永远不推占位值**：额外 BSS 的 `enabled/ssid/key` 三项必须给齐，同一无线电槽位必须是 1..k。
+- **不改子路由的模式**（`Mode`、自组网 V2、`VersionMode`、MESH 开关）——那是用户在子路由上自己设的。
+- 会让用户设备掉线的测试（关主 SSID、ACL 封禁真实终端、信道/功率、改 SSID、定时 `scope=all`）**先征得同意，测完立即还原**。
+- 不要用 `kill multiapd` 逼子路由重新入网；改控制器重启、`zte-meshctl renew-acd <band>` 或重启子路由。
+
+**秘密**
+
+- 仓库里不放任何密码和密钥。telnet 口令只从环境变量 `ZTE_TN_PASS` 读；Wi-Fi 密钥只写进 0600 临时文件，用完删除。
+- `evidence/`、`out/` 含原厂二进制与 WSC 材料，不入库、不外传。
+
+**版本控制**
+
+- 默认**只 commit，不推送**。`main` 直连 ImmortalWrt feed，推上去构建机立刻吃到。仓库只有 `main` 一条分支，不要开长期分支。
+
+## 取证流程（重活前三遍核对，别再犯）
+
+1. 上机 `sendcmd 1 DB p` 之前先查 `SCHEMA.md` / `POLICIES.md`——字段级还原多数已经做过，重新从 `cspd` 字符串表推断边界会重做已完成的活还做错。
+2. **表名不许猜**：先 `sendcmd 1 DB all` 列全集（`DB l` 不存在）。`IGD.P1905CFGn` 是行名不是表名。
+3. `RowCount=0` ≠ 表不存在（表在行空、按需建行、运行时填充都算存在）；只有 `table(X) not find` 才是表名错。
+4. 列名以实测为准，离线切分只能当假设。
+5. "缺语义"不是"缺数据"：位定义类问题靠反汇编或 Multi-AP 规范正文，dump 再多表也解不出来。
+6. `isSave=0` 的列只能读状态，不能当配置比对。
+
+## 收尾
+
+改完一个结论，五处同步，一处不落：
+
+1. 受影响的具体文档
+2. `E2631_DB_SNAPSHOT` / `E2631_ROOTFS` / `FEATURE_STATUS` 里受影响的表或功能项
+3. `README.md` 文档索引，并核对"这 N 份"的数字
+4. `docs/journal/YYYY-MM-DD.md`——开发日志写在这里，**随 commit 走**
+5. `git commit`（不推送）
+
+提交前跑坏链与行尾检查；新文件用 LF（`.gitattributes` 已全局 `text=auto eol=lf`）。
+
+> `docs/journal/` 原名 `.workbuddy/memory/`，2026-11-02 迁入仓库。工具自带的会话记忆是本机文件，不随 clone 走——能让下一个人看到的只有这个目录。
