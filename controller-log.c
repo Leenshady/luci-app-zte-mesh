@@ -8,15 +8,19 @@
  * That is sampled against the clock instead of counted once per process, so a long run
  * keeps seeing the transitions and no single window can outwrite the device's log ring.
  *
- * Nothing here formats a value: the notices are fixed strings and the decision reads
- * only the format text, which is what keeps SSIDs and keys out of the log.
+ * Nothing here formats a value from the daemon: the notices are our own sentences and the
+ * decision reads only the format text, which is what keeps SSIDs and keys out of the log.
  */
+#include <stdio.h>
 #include <string.h>
 #include "controller-log.h"
 
 static const char notice_ordinary[] = "ZTE_CONTROLLER_TRACE log_budget=ordinary exhausted=1 limit=160\n";
 static const char notice_protocol[] = "ZTE_CONTROLLER_TRACE log_budget=packet exhausted=1 limit=64\n";
-static const char notice_poll[] = "ZTE_CONTROLLER_TRACE log_budget=poll sampled=1 limit=4 window=60s\n";
+/* The rate is fixed text; only the count is formatted, so a reader can tell how much the
+ * sampler cut. Nothing here is ever copied from the line that triggered it. */
+static const char notice_poll_head[] =
+    "ZTE_CONTROLLER_TRACE log_budget=poll sampled=1 limit=4 window=60s dropped_total=";
 
 /* The markers the preload prints its own lines with. Classifying by the marker rather
  * than by the daemon's wording keeps the decision in one place: the value lines the
@@ -138,9 +142,15 @@ int controller_log_admit(struct log_gate *gate, long now, const char *format, co
             gate->kept[class]++;
             return 1;
         }
+        /* Every line this window loses, counted - including the ones in a window that
+         * already got its notice, so the number between two notices is what the earlier
+         * window dropped. */
+        gate->poll_dropped++;
         if (notice && gate->poll_notice_window != window) {
             gate->poll_notice_window = window;
-            *notice = notice_poll;
+            snprintf(gate->notice, sizeof(gate->notice), "%s%u\n",
+                     notice_poll_head, gate->poll_dropped);
+            *notice = gate->notice;
         }
         return 0;
     }

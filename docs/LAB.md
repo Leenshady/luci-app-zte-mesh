@@ -141,13 +141,17 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 | 1905 / WSC / 绑包等协议行（protocol） | 每进程 64 行 | `log_budget=packet exhausted=1 limit=64` |
 | 入网离线（device）/ 配置推送（renew） | 各 48 行 | 不说（量小，静默可接受） |
 | `ZTE_TRACE_VALUE` 四条证据行 | 2 万行 | 不采样——判据就靠它 |
-| `ZTE_TRACE_POLL` 重复状态行 | **每 60 秒 4 行** | `log_budget=poll sampled=1 limit=4 window=60s`，每个超额窗口一句 |
+| `ZTE_TRACE_POLL` 重复状态行 | **每 60 秒 4 行** | `log_budget=poll sampled=1 limit=4 window=60s dropped_total=N`，每个超额窗口一句 |
 | `ZTE_TRACE_ALL` 火管 | 2 万行 | 不说 |
 
 两件事别记反：**展开的是值**，所以带密钥 / SSID / BSS 的格式在 `controller_log_shape()` 里先被否决，永不展开；
 **每进程的预算重启就重来**（崩溃循环每次只付一小段），**poll 那一路按 `CLOCK_MONOTONIC` 的分钟采样**，进程重启也变不成无界。
 装机后要看的判据是"推送过去七分钟，`logread` 里还剩不剩用户自己的行"——改之前实测一次推送打进来 1012 行（超过整圈容量），
 四小时后回看仍占 94.5%。
+
+`dropped_total=` 是**这个进程开始以来累计丢掉**的 poll 行数：某一分钟丢了多少，看**相邻两句的差**。最后一句之后还在涨，
+所以它是下界，不是总量。**读设备日志先按 pid 切代**——logd 的环不随升级或重启清空，2026-11-03 装机后环里同时留着旧进程
+（r15）的 122 行 `ZTE_TRACE_VALUE text=acdc current state…` 和新进程（r16）的 8 行 `ZTE_TRACE_POLL`，混在一起读会得出"采样没生效"的反结论。
 
 `libzte_agent_mm.so` 已在 `spawn_daemon()` 的 `LD_PRELOAD` 里：它只接管 `CmWLANSetAPConfig` / `CmWLANSetPsk`，并且
 **先把刚写的行读回来比对**，库里已是调用方要的值才把 -3 报成 0（`ZTE_AGENT_MM ... row_applied=1`）。

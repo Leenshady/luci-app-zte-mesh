@@ -211,6 +211,57 @@ static void test_lines_that_are_not_poll_are_never_sampled(void)
     CHECK(t.kept == ZTE_LOG_POLL_LIMIT);
 }
 
+static unsigned int notice_dropped(const char *notice)
+{
+    static const char key[] = "dropped_total=";
+    const char *at = strstr(notice, key);
+    CHECK(at != NULL);
+    return (unsigned int)strtoul(at + (sizeof(key) - 1), NULL, 10);
+}
+
+/* Measured 2026-11-03 on the lab slave: the sampled notice proved the four-a-minute cap was
+ * holding, but a reader could not tell "four kept, five dropped" from "four kept, a thousand
+ * dropped" - and that difference is the whole point of the cap. The count is cumulative, so
+ * two consecutive notices differ by exactly what the earlier window lost. */
+static void test_the_notice_reports_what_it_dropped(void)
+{
+    struct log_gate gate;
+    const char *notice;
+    unsigned int minute, line, notices = 0, previous = 0;
+    long base = 6000;
+    /* One push at the measured rate: 145 lines a window, four of them kept. */
+    const unsigned int per_window = 145, lost = per_window - ZTE_LOG_POLL_LIMIT;
+
+    controller_log_open(&gate);
+    for (minute = 0; minute < 7; minute++) {
+        for (line = 0; line < per_window; line++) {
+            unsigned int value;
+            notice = NULL;
+            controller_log_admit(&gate, base + (long)minute * ZTE_LOG_POLL_WINDOW, poll_line, &notice);
+            if (!notice)
+                continue;
+            /* One notice per over-full window, and it counts from the first dropped line. */
+            value = notice_dropped(notice);
+            CHECK(value == (minute == 0 ? 1u : previous + lost));
+            previous = value;
+            notices++;
+        }
+    }
+    CHECK(notices == 7);
+    /* The last window was still dropping when its notice went out, so the number a reader
+     * sees last is a lower bound for the push, not the total. */
+    CHECK(previous == 1 + 6 * lost);
+    CHECK(previous < 7 * per_window - 7 * ZTE_LOG_POLL_LIMIT);
+    /* A window that stays under the cap says nothing - no notice, no count. */
+    controller_log_open(&gate);
+    for (line = 0; line < ZTE_LOG_POLL_LIMIT; line++) {
+        notice = NULL;
+        controller_log_admit(&gate, 7000, poll_line, &notice);
+        CHECK(notice == NULL);
+    }
+    CHECK(gate.poll_dropped == 0);
+}
+
 #define MUTATIONS (1u << 17)
 
 static unsigned int seed = 20261103u;
@@ -310,6 +361,7 @@ int main(void)
     test_notices_say_what_stopped();
     test_one_push_leaves_the_ring_alone();
     test_lines_that_are_not_poll_are_never_sampled();
+    test_the_notice_reports_what_it_dropped();
     test_mutated_formats();
     printf("log gate rules hold: %u checks\n", checks);
     return 0;

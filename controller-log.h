@@ -38,6 +38,8 @@ enum zte_log_class {
  * push at 28 lines plus one notice per minute. */
 #define ZTE_LOG_POLL_LIMIT 4
 #define ZTE_LOG_POLL_WINDOW 60
+/* Long enough for the sampled notice with a 32-bit count at full width. */
+#define ZTE_LOG_NOTICE_SIZE 96
 
 struct log_gate {
     /* Lines seen per class. The budgets are generous enough that a racing duplicate never
@@ -47,6 +49,13 @@ struct log_gate {
     int ordinary_announced, protocol_announced; /* already said these stopped */
     long poll_window;         /* first second of the window being sampled */
     long poll_notice_window;  /* window that already got the "sampled" notice */
+    /* Poll lines dropped since this process started. Measured 2026-11-03 on the lab slave:
+     * the notice proved the cap was holding, but a reader could not tell "four kept, five
+     * dropped" from "four kept, a thousand dropped" - the rate alone does not say how much
+     * of the daemon's story was cut. The count is cumulative, so two consecutive notices
+     * differ by exactly what the earlier window lost. */
+    unsigned int poll_dropped;
+    char notice[ZTE_LOG_NOTICE_SIZE]; /* the last formatted notice */
 };
 
 /* Prepares a gate: budgets at zero, and the notice marker moved off the first window so
@@ -68,8 +77,11 @@ int controller_log_shape(const char *format);
 
 /* Decides one line at monotonic second `now`. Returns non-zero when the line may be
  * written. When a budget has just run out, or a sampling window has just begun dropping,
- * `*notice` points at a fixed sentence for the caller to write instead - a reader must be
- * able to tell "nothing happened" from "the log stopped telling". */
+ * `*notice` points at a sentence for the caller to write instead - a reader must be able
+ * to tell "nothing happened" from "the log stopped telling". The text is fixed except for
+ * the count in the sampled notice, so it never carries anything from the line that
+ * triggered it; the pointer is into the gate and lives until the next call on that gate,
+ * which is why callers write it immediately. */
 int controller_log_admit(struct log_gate *gate, long now, const char *format, const char **notice);
 
 #endif

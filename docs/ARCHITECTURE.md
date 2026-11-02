@@ -65,7 +65,7 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 | `controller-profile.c`、`cm-profile-layout.inc` | 沙箱，preload | CM 替身；43 个字段偏移由 `cm-profile-evidence.py` 从机器码推出 |
 | `controller-route.c` | 沙箱，preload | 接口身份；`SSEND(0xa96e)` 启动计数替身 |
 | `controller-trace.c` | 沙箱，preload | 受限日志、ASEND 记录、把收到的 1905 帧交给 `controller-peer.c`；每一行先过 `controller-log.c` 的预算 |
-| `controller-log.c`、`controller-log.h` | 沙箱，preload + 主机测试 | 纯函数：一段格式文本 + 调用方给的时钟 → 这一行打不打、打不成时发哪条固定提示。设备的日志落点是 logd 那圈 128 KiB 环，一次配置推送里原厂 daemon 重复的状态行能把它占满，所以按类分预算、重复行按分钟采样；带密钥/SSID/BSS 的格式永不展开值 |
+| `controller-log.c`、`controller-log.h` | 沙箱，preload + 主机测试 | 纯函数：一段格式文本 + 调用方给的时钟 → 这一行打不打、打不成时发哪条提示（措辞固定，只有采样那句带一个累计丢弃数——值行打的是 daemon 格式化好的结果，提示里绝不掺它）。设备的日志落点是 logd 那圈 128 KiB 环，一次配置推送里原厂 daemon 重复的状态行能把它占满，所以按类分预算、重复行按分钟采样；带密钥/SSID/BSS 的格式永不展开值 |
 | `controller-peer.c`、`controller-peer.h` | 沙箱，preload | 一帧 → `peers/<MAC>.<kind>`：指示灯、终端数、BSS 数、直连还是中继、动作回执；落盘目录是 `ZTE_MESH_PEERS_DIR`，所以主机测试能在临时目录上验整条链 |
 | `controller-1905.c`、`controller-steer.c` | 沙箱 + 主机测试 | 纯函数解码：CMDU 头与 TLV 走查、原厂 vendor 容器（0x0b/0x21）、终端引导三类报文 |
 | `controller-packet.c`、`controller-wsc*.c` | 实验室 | 合成对端和独立的 M2 校验器（只用公开测试值） |
