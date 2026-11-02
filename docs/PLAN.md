@@ -99,7 +99,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
 | C8 | 安装文档：两个开关（`mesh_role` / `apply_local`）的最短上手路径（装什么包、改哪两项、在页面点哪里） | H | 按文档从裸机走到 S1/S2，中途不查别的文档 |
-| C9 | `build-apk.yml` 去掉 release 发布，只留 artifact + 校验和；release 改为手工 | H | workflow 里 `gh release` 零出现 |
+| C9 | **已完成**。`build-apk.yml` 去掉 release 发布，只留 artifact + 校验和；release 改为手工 | H | workflow 里 `gh release` 不再是任何一步（只剩注释与 summary 里那句"要发布就手工跑这条"），`permissions: contents: read`；`DEVELOPMENT.md` 第 8 节的发布段同步改成"只构建 + 三条手工发布步骤"（以前写的 `release_tag` 输入已经不存在了） |
 | C10 | 装机验收脚本：一条命令装四个包 + 读回版本 + 跑三条冒烟 | H | 在两台实验机上各跑一次，输出可贴进证据 |
 
 ### 插队 · 2026-11-02 装机反馈
@@ -119,7 +119,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 3 | 控制面 | 🔄 A17a/A17b 全做完（能编能解、能发能停、页面能配能看）；**A17c 效果确认等真机**（H-03） | H-03 |
 | 4 | 无线回程 | ✅ 主机侧做完（B13a/b/d/e/f/g：回程 STA 的 `wifi-iface` 两端都生成、`wds` 才是 4 地址的开关、换角色会回收对端段、applier 的四个输入都进签名且页面上都有字段）；**B13c 端到端等真机**（H-01） | H-01 |
 | 5 | 多子节点与稳定性 | ⬜ | — |
-| 6 | 发布与工程化 | ⬜（C9 已随本轮下令先做） | — |
+| 6 | 发布与工程化 | 🔄 C9 做完（CI 只构建、发布改成手工三步，`DEVELOPMENT.md` 的发布段跟着改对了）；C8 装机文档、C10 装机验收脚本未做 | 装机 |
 
 ## 4. 主机测试口径
 

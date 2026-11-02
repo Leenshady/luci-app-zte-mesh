@@ -151,20 +151,20 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 **版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，只有 `main` 一条分支。`out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz
 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
 
-**发布 release**：`Build APK` 是唯一出包的地方，但它的 artifact 不是分发渠道——下载要登录 GitHub、会过期、还是一包 zip。
-要发布就在 dispatch 表单里填 `release_tag`（`v` 开头，如 `v0.1.0`），workflow 会在**本次构建的那个提交**上建 tag，上传四个
-apk 加 `SHA256SUMS.txt`，并按上一个 tag 生成"本版提交"清单：
+**发布 release**：`Build APK` **只构建，不发布**（2026-11-01 起；以前那个 `release_tag` 输入把"开始构建"和"把这些字节承诺给外面"
+做成同一个按钮，而一批的包要先在两台实验机上装机验过才谈得上发布）。它产出两个 artifact：`zte-mesh-apk`（四个 apk +
+`SHA256SUMS.txt`）和 `build-log`，run summary 里每个文件一行，不下载也能认出这一批是什么。发布是另一次手工动作，用的就是这份产物：
 
-```
-Actions → Build APK → Run workflow → release_tag: v0.1.0
-# 发布后：https://github.com/Leenshady/luci-app-zte-mesh/releases/tag/v0.1.0
+```sh
+# 1) 下载 zte-mesh-apk 这个 artifact，解开就是 dist/
+# 2) 两台实验机装机验证，核对 sha256sum -c SHA256SUMS.txt
+# 3) 成立才发布，tag 打在本次构建的那个提交上
+gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 ```
 
-- 留空 = 只构建，产物仍只在 artifact 里（默认行为，与以前一样）。
-- 同一 tag 重跑会覆盖资产（`--clobber`），不会因"已存在"失败。
-- tag 已存在但指向别的提交时**直接失败**——避免发布出来的字节和 tag 上的代码不是一回事。
-- 需要 `contents: write`（workflow 顶部已声明），否则要等 20 多分钟构建完才在最后一步报 `Resource not accessible`。
-- 包**没有签名**，release 说明里已写 `apk add --allow-untrusted`。
+- workflow 的权限是 `contents: read`：它写不了仓库，也建不了 tag，跑绿了对外什么都不会发生。
+- tag 要指对着提交——发布出来的字节和 tag 上的代码必须是同一件事，所以先装机验证、再在**那个**提交上打 tag。
+- 包**没有签名**，装的时候要 `apk add --allow-untrusted`；release 说明里也要写清这一条，不然新的人只会看到"装不上"。
 
 ## 9. 界面文案与中文翻译
 
