@@ -429,6 +429,121 @@ sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
 check "old plan: fronthaul still marked" 1 "$(val default_radio0.multi_ap)"
 check "old plan: no backhaul section invented" "" "$(val type.zte_backhaul_2g)"
 
+# --- the child end of the same row (backhaul client) ------------------------------------------------------
+# The row whose MapAccessAttr carries bit 6 means the opposite thing depending on which end this router is on.
+# `mesh_role=slave` puts this router on the client side, so the row becomes a `mode=sta` interface, and two
+# options carry the whole feature -- neither is obvious from the plan:
+#   multi_ap 1   netifd copies it into the supplicant's multi_ap_backhaul_sta, which is what lets the association
+#                land on a backhaul BSS; a plain STA is refused by one, and the controller's backhaul SSID is hidden
+#   wds 1        this image sets 4addr from wds and only bridges an interface that has it. Without this the child
+#                associates, the apply reports success, and no 1905 frame ever crosses the radio
+role_child() { printf 'slave' > "$DB/zte_mesh.main.mesh_role"; }
+role_master() { rm -f "$DB/zte_mesh.main.mesh_role"; }
+
+seed_db
+backhaul_on
+role_child
+sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "child: client section created" wifi-iface "$(val type.zte_backhaul_sta_2g)"
+check "child: mode is sta" sta "$(val zte_backhaul_sta_2g.mode)"
+check "child: the flag that makes it a backhaul sta" 1 "$(val zte_backhaul_sta_2g.multi_ap)"
+check "child: 4-address and bridged (wds)" 1 "$(val zte_backhaul_sta_2g.wds)"
+check "child: name is the controller's" ZMESH-bh-2g "$(val zte_backhaul_sta_2g.ssid)"
+check "child: key is the controller's" backhaul-2g-key "$(val zte_backhaul_sta_2g.key)"
+check "child: security (beacon 6)" psk-mixed "$(val zte_backhaul_sta_2g.encryption)"
+check "child: radio borrowed from the band" radio0 "$(val zte_backhaul_sta_2g.device)"
+check "child: network is the band's bridge" lan "$(val zte_backhaul_sta_2g.network)"
+check "child: enabled so the link is up" 0 "$(val zte_backhaul_sta_2g.disabled)"
+check "child: no AP-only hidden flag invented" "" "$(val zte_backhaul_sta_2g.hidden)"
+check "child: no backhaul BSS of its own" "" "$(val type.zte_backhaul_2g)"
+check "child: the band's main BSS is still the fronthaul" zte-agent-2g "$(val default_radio0.ssid)"
+check "child: fronthaul of the main BSS marked" 1 "$(val default_radio0.multi_ap)"
+check "child: no client invented for a band the controller did not fill" "" "$(val type.zte_backhaul_sta_5g)"
+
+# A radio that carries no main BSS has no bridge to join: this image hands a sta interface to the network only
+# through wds + network, so the client would associate and still not carry a 1905 frame. The name of the missing
+# piece goes to the log -- a silent unbridged client reads as a working link on the page.
+seed_db
+rm -f "$DB/type.default_radio0" "$DB"/default_radio0.*
+backhaul_on
+role_child
+sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "child without a main BSS: client still written" wifi-iface "$(val type.zte_backhaul_sta_2g)"
+check "child without a main BSS: no network invented" "" "$(val zte_backhaul_sta_2g.network)"
+check "child without a main BSS: the log says it is not bridged" 1 \
+	"$(grep -c 'no network to join (this radio carries no main BSS); it will not be bridged' "$LOG")"
+
+# The same plan again is a no-op: the child must not be re-associated every two seconds.
+seed_db
+backhaul_on
+role_child
+sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+: > "$LOG"
+sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "child: second run sets nothing" 0 "$(grep -c '^set ' "$LOG")"
+check "child: second run commits nothing" 0 "$(grep -c '^commit ' "$LOG")"
+check "child: second run reloads nothing" 0 "$(grep -c '^wifi ' "$LOG")"
+
+# Changing end while the mode stays on gives the other end's section back -- the plan row did not change, this
+# router's role did, and a stale backhaul BSS on a child (or a stale client on a master) would both conflict with
+# the controller and read as a working link on the page.
+sh "$WLAN_SYNC" "$PLAN_BH" --once >/dev/null 2>&1
+role_master
+sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "sta -> ap: the client section is gone" "" "$(val type.zte_backhaul_sta_2g)"
+check "sta -> ap: the BSS section is built" wifi-iface "$(val type.zte_backhaul_2g)"
+check "sta -> ap: removal says why" 1 "$(grep -c 'ap role runs the other end of the backhaul; removed zte_backhaul_sta_2g' "$LOG")"
+role_child
+sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "ap -> sta: the BSS section is gone" "" "$(val type.zte_backhaul_2g)"
+check "ap -> sta: the client section is built" wifi-iface "$(val type.zte_backhaul_sta_2g)"
+
+# A row that claims a security mode but carries no key is refused at either end. The master would otherwise put an
+# open BSS on the air under a name that is supposed to be private; the child would be configured to join a network
+# it cannot authenticate to, and the page would show a backhaul that was never going to come up.
+sed -e 's/^1.key=backhaul-2g-key$/1.key=/' "$PLAN_BH" > "$T/plan-bh4"
+seed_db
+backhaul_on
+role_child
+sh "$WLAN_SYNC" "$T/plan-bh4" --once >"$T/out" 2>&1
+check "child: a secured row with no key is refused" "" "$(val type.zte_backhaul_sta_2g)"
+check "child: the refusal says what is missing" 1 "$(grep -c 'says psk-mixed but the plan carries no key' "$LOG")"
+check "child: the refusal does not stop the main BSS" zte-agent-2g "$(val default_radio0.ssid)"
+seed_db
+backhaul_on
+role_master
+sh "$WLAN_SYNC" "$T/plan-bh4" --once >"$T/out" 2>&1
+check "master: a secured row with no key is refused" "" "$(val type.zte_backhaul_2g)"
+
+# An open backhaul (beacon 0) has no key to miss, so it is still applied -- and the key it does not have is not
+# written as an empty one.
+sed -e 's/^1.beacon_type=6$/1.beacon_type=0/' -e 's/^1.key=backhaul-2g-key$/1.key=/' "$PLAN_BH" > "$T/plan-bh5"
+seed_db
+backhaul_on
+role_child
+sh "$WLAN_SYNC" "$T/plan-bh5" --once >"$T/out" 2>&1
+check "child: an open backhaul is still applied" wifi-iface "$(val type.zte_backhaul_sta_2g)"
+check "child: open backhaul security" none "$(val zte_backhaul_sta_2g.encryption)"
+check "child: open backhaul carries no empty key" "" "$(val zte_backhaul_sta_2g.key)"
+
+# A row the controller disables is written but kept off, so the child does not associate to a network the
+# controller has stopped intending.
+sed -e 's/^1.enabled=1$/1.enabled=0/' "$PLAN_BH" > "$T/plan-bh6"
+seed_db
+backhaul_on
+role_child
+sh "$WLAN_SYNC" "$T/plan-bh6" --once >"$T/out" 2>&1
+check "child: a disabled row is applied as off" 1 "$(val zte_backhaul_sta_2g.disabled)"
+
+# The role decides the end, nothing else: an unset role is a master, and a name this script has never seen
+# (`main`, `auto`) stays a master too.
+seed_db
+backhaul_on
+printf 'main' > "$DB/zte_mesh.main.mesh_role"
+sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "role main is still the master end" wifi-iface "$(val type.zte_backhaul_2g)"
+check "role main builds no client" "" "$(val type.zte_backhaul_sta_2g)"
+
 
 # --- extra SSID slots (zte_mesh.main.extra_slots) ---------------------------------------------------------
 # The controller hands out up to three extra SSIDs per band (slot 1 guest, 2 spare, 3 hidden backhaul) and the
@@ -603,10 +718,11 @@ check "status: a no-op run names no band" "" "$(status_val bands)"
 check "status: still ok" ok "$(status_val result)"
 
 # --- the installed wpad variant --------------------------------------------------------------------------
-# The backhaul options this script writes (multi_ap 2, and the 4-address path that follows from it) exist only in the
-# full wpad build: a -basic package accepts them and puts nothing on the air. A run that reported a clean success in
-# that state would be the exact kind of false pass this project keeps having, so the reason goes to the log and into
-# the status message the page reads. WPAD_DB points the lookup at a file, so the test does not depend on the host.
+# The backhaul options this script writes (`multi_ap` on either end, and the `wds` that opens 4-address mode on a
+# client) exist only in the full wpad build: a -basic package accepts them and puts nothing on the air. A run that
+# reported a clean success in that state would be the exact kind of false pass this project keeps having, so the
+# reason goes to the log and into the status message the page reads. WPAD_DB points the lookup at a file, so the
+# test does not depend on the host.
 printf 'P:wpad-basic-mbedtls\nP:libc\n' > "$T/pkg-basic"
 printf 'Package: wpad-mbedtls\n' > "$T/pkg-full"
 seed_db
@@ -616,6 +732,17 @@ WPAD_DB=$T/pkg-basic sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
 check "wpad basic: warning logged" 1 "$(grep -c 'wpad-basic-mbedtls has no Multi-AP support' "$LOG")"
 check "wpad basic: warning in the status" 1 "$(status_val message | grep -c 'wpad-basic-mbedtls has no Multi-AP support')"
 check "wpad basic: still applied" 2 "$(val zte_backhaul_2g.multi_ap)"
+
+# The client end is the same package question and the same false pass: -basic takes multi_ap and wds, associates,
+# and carries no 1905 frame.
+seed_db
+backhaul_on
+role_child
+: > "$LOG"
+WPAD_DB=$T/pkg-basic sh "$WLAN_SYNC" "$PLAN_BH" --once >"$T/out" 2>&1
+check "child: wpad basic warned too" 1 "$(grep -c 'wpad-basic-mbedtls has no Multi-AP support' "$LOG")"
+check "child: wpad basic still writes the 4-address client" 1 "$(val zte_backhaul_sta_2g.wds)"
+check "child: wpad basic names it in the status" 1 "$(status_val message | grep -c 'wpad-basic-mbedtls has no Multi-AP support')"
 
 seed_db
 backhaul_on

@@ -11,3 +11,6 @@ __pycache__/
 /evidence/
 *.pcap
 /dist/
+
+# local lab credentials and machine-local notes: never commit (docs/LAB.md 2.1 has the ledger, .local/lab-env.md the passwords)
+/.local/

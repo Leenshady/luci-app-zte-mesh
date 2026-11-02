@@ -33,9 +33,20 @@
 # needs to cross the radio as a plain Ethernet frame. 802.11s is deliberately not used here -- its data
 # frames carry a mesh header, so 1905.1 frames cannot traverse it.
 #
+# Which end of that row this router sits on is the role's business, not the row's. `zte_mesh.main.mesh_role=slave`
+# means this router is the client: the row becomes a `zte_backhaul_sta_<band>` interface with `mode=sta`,
+# `multi_ap=1` (netifd copies that into wpa_supplicant's `multi_ap_backhaul_sta=1`, which is what lets the
+# association happen at all with a hidden backhaul SSID) and `wds=1`. The last one is the 4-address switch: in
+# this image's netifd, `4addr` is set from `wds` and nothing else, and the interface is only added to the bridge
+# when `wds` is on -- `multi_ap` by itself leaves a backhaul client that is associated but carries no traffic.
+# Any other role means this router is the master, so the row becomes the `zte_backhaul_<band>` BSS above. A
+# router that changes role gives back the sections of the side it left.
+#
 # The default is `off`: the script then behaves exactly as before and touches no multi_ap option at all. A
 # backhaul row is only applied when the plan actually carries it; the SSID and key come from the controller's
-# M2, never from a name this script invents.
+# M2, never from a name this script invents. A row with no name, or that says it is secured but carries no key,
+# is reported and skipped -- half a backhaul is worse than none, because the page would show a network that was
+# never going to work.
 #
 # Nothing is applied that the plan does not change: the script compares every value first and only commits and
 # reloads when at least one differs.
@@ -69,6 +80,16 @@ backhaul_mode() {
 	case "$value" in multi_ap) echo multi_ap ;; *) echo off ;; esac
 }
 
+# backhaul_side -> which end of the backhaul this router is: "sta" for a child that reaches the controller over
+# the radio, "ap" for a master that puts the backhaul BSS on the air. The role is the only input: the plan row is
+# the same row either way, because the controller publishes its own profile as the plan of a broadcasting master
+# and the child's plan is built from that controller's M2.
+backhaul_side() {
+	local value
+	value=$(uci -q get zte_mesh.main.mesh_role 2>/dev/null)
+	case "$value" in slave) echo sta ;; *) echo ap ;; esac
+}
+
 # wpad_variant -> the name of the installed hostapd/wpad package, empty when neither database can be read. Both are
 # checked because this tree builds apk images while older ones use opkg; WPAD_DB names a single file instead (tests).
 wpad_variant() {
@@ -81,10 +102,10 @@ wpad_variant() {
 	return 0
 }
 
-# wpad_warning -> why the backhaul cannot work with the installed package, or nothing when it can. The two options this
-# script writes for a backhaul (multi_ap 2 on the BSS, and the 4-address data path that follows from it) exist only in
-# the full wpad build: the -basic variants that fit a small image accept the option and put nothing on the air. Saying
-# so once per apply beats a status file that reports success while the backhaul BSS never appears.
+# wpad_warning -> why the backhaul cannot work with the installed package, or nothing when it can. The options this
+# script writes for a backhaul (`multi_ap` on the BSS or on the client, and the 4-address data path `wds` opens there)
+# exist only in the full wpad build: the -basic variants that fit a small image accept the option and put nothing on
+# the air. Saying so once per apply beats a status file that reports success while the backhaul never appears.
 wpad_warning() {
 	local variant
 	[ "$(backhaul_mode)" = multi_ap ] || return 1
@@ -273,6 +294,50 @@ apply_backhaul() {
 	return 0
 }
 
+# apply_backhaul_sta BAND SSID KEY ENABLED BEACON -> associate this router to the controller's backhaul BSS. The
+# name and the key are the controller's, taken from the plan row that carried MapAccessAttr bit 6; the interface
+# joins whatever the controller published, never a name this script makes up.
+apply_backhaul_sta() {
+	local band="$1" ssid="$2" key="$3" enabled="$4" beacon="$5"
+	# `network` starts empty on purpose: a radio with no main BSS never assigns one, and this script runs under
+	# `set -u`, where a bare `local network` is still an unset parameter -- the read below would abort the apply.
+	local device iface main network="" enc
+	device=$(radio_section_of "$band") || { log "no usable $band radio; the backhaul client is left alone"; return 1; }
+	enc=$(encryption_of "${beacon:-3}") || { log "backhaul client on $band: unknown security mode ${beacon:-?}; left alone"; return 1; }
+	[ "$enabled" = 1 ] && enable_radio "$device" "$band"
+	iface=zte_backhaul_sta_$band
+	if [ "$(uci -q get "wireless.$iface" 2>/dev/null)" != wifi-iface ]; then
+		uci -q set "wireless.$iface=wifi-iface"
+		changed
+	fi
+	set_opt "$iface" device "$device"
+	set_opt "$iface" mode sta
+	# multi_ap 1 on a client is how this image says "backhaul STA": netifd copies it into the supplicant's
+	# multi_ap_backhaul_sta, which is what lets the association land on a backhaul BSS instead of being refused
+	# by it. A plain STA would only join a fronthaul network, and the controller's backhaul SSID is hidden.
+	set_opt "$iface" multi_ap 1
+	# wds is the 4-address switch: this image sets `4addr` from wds and only bridges an interface that has it,
+	# so without this line the child associates, reports success and no 1905 frame ever crosses the radio.
+	set_opt "$iface" wds 1
+	set_opt "$iface" ssid "$ssid"
+	set_opt "$iface" encryption "$enc"
+	set_opt "$iface" disabled "$([ "$enabled" = 1 ] && echo 0 || echo 1)"
+	# On the bridge the band's own networks are on, which is where the controller expects the child to appear.
+	# Without a network there is nothing to bridge: this image only hands a sta interface to the bridge when it
+	# has one, so the client associates and still cannot carry the 1905 frames. A band used purely as backhaul
+	# (no main BSS in the plan) is that case, so say it instead of leaving a link that looks fine.
+	main=$(ap_iface_of "$device")
+	if [ -n "$main" ]; then
+		network=$(uci -q get "wireless.$main.network" 2>/dev/null)
+		[ -n "$network" ] && set_opt "$iface" network "$network"
+	fi
+	[ -n "$network" ] ||
+		log "backhaul client on $band: no network to join (this radio carries no main BSS); it will not be bridged"
+	apply_key "$iface" "$enc" "$key"
+	log "backhaul client on $band ($device.$iface): joins a name of ${#ssid} characters, security $enc, enabled $enabled, multi_ap 1 with 4-address on"
+	return 0
+}
+
 # apply_extra BAND SLOT SSID KEY HIDDEN BEACON -> create or update the extra SSID of one (band, slot). The name
 # and the key are the controller's, from the plan row of that slot; the section is this script's (`zte_extra_*`),
 # so a slot that disappears from the plan can be removed again without touching anything else.
@@ -339,14 +404,30 @@ clear_extras() {
 	return 0
 }
 
-# clear_backhaul -> undo what multi_ap mode wrote, once the mode is no longer multi_ap
+# clear_backhaul [SIDE] -> undo what multi_ap mode wrote. With no argument (the mode is off) every section this
+# script owns goes, including the fronthaul flag on the main BSSs. With a side, only the sections of the *other*
+# side go: a router that stops being a child must not keep a backhaul client it will never point at anything, and
+# one that becomes a child must not keep advertising a backhaul BSS of its own next to the controller's.
 clear_backhaul() {
-	local section band device iface
-	for section in $(uci -q show wireless | sed -n "s/^wireless\.\(zte_backhaul_[^.=]*\)=wifi-iface$/\1/p"); do
+	local keep="${1:-}" section band device iface
+	for section in $(uci -q show wireless | sed -n 's/^wireless\.\(zte_backhaul[a-z0-9_]*\)=wifi-iface$/\1/p'); do
+		case "$section" in
+		zte_backhaul_sta_*)
+			[ "$keep" = sta ] && continue
+			;;
+		*)
+			[ "$keep" = ap ] && continue
+			;;
+		esac
 		uci -q delete "wireless.$section"
 		changed
-		log "backhaul mode is off; removed $section"
+		if [ -n "$keep" ]; then
+			log "$keep role runs the other end of the backhaul; removed $section"
+		else
+			log "backhaul mode is off; removed $section"
+		fi
 	done
+	[ -n "$keep" ] && return 0
 	# The fronthaul flag is ours as well, but only the value this script writes (1) is reverted: a 2 or a 3
 	# was put there by someone else, and deleting it would be this script overruling them.
 	for band in 2g 5g; do
@@ -361,13 +442,19 @@ clear_backhaul() {
 
 apply_plan() {
 	local plan="$1" rows=0 index radio slot ssid key enabled hidden beacon access
-	local iface device band enc is_backhaul
+	local iface device band enc is_backhaul bh_enc
 	# Re-read on every pass: editing the UCI option takes effect on the next published plan, no restart.
 	BACKHAUL=$(backhaul_mode)
+	SIDE=$(backhaul_side)
 	EXTRA=$(extra_slots_mode)
 	SEEN_EXTRAS=""
 	CHANGED=0
-	[ "$BACKHAUL" = multi_ap ] || clear_backhaul
+	if [ "$BACKHAUL" = multi_ap ]; then
+		# the sections of the end this router is not on go; the ones it is on stay until the plan says otherwise
+		clear_backhaul "$SIDE"
+	else
+		clear_backhaul
+	fi
 	[ "$EXTRA" = on ] || clear_extras
 	rows=$(sed -n 's/^rows=//p' "$plan" | head -n 1)
 	case "$rows" in ''|*[!0-9]*) log "plan has no row count"; return 1 ;; esac
@@ -397,7 +484,19 @@ apply_plan() {
 				continue
 			fi
 			[ -n "$ssid" ] || { log "radio $radio: backhaul row has no name in the plan; left alone"; continue; }
-			apply_backhaul "$band" "$ssid" "$key" "${enabled:-0}" "$hidden" "${beacon:-3}"
+			# A row that says it is secured and carries no key is refused at either end: the BSS would go on the
+			# air open, the client would fail to associate, and in both cases the page would report a backhaul
+			# that does not exist.
+			bh_enc=$(encryption_of "${beacon:-3}") || bh_enc=
+			if [ -n "$bh_enc" ] && [ "$bh_enc" != none ] && [ -z "$key" ]; then
+				log "radio $radio: backhaul row says $bh_enc but the plan carries no key; not applied"
+				continue
+			fi
+			if [ "$SIDE" = sta ]; then
+				apply_backhaul_sta "$band" "$ssid" "$key" "${enabled:-0}" "${beacon:-3}"
+			else
+				apply_backhaul "$band" "$ssid" "$key" "${enabled:-0}" "$hidden" "${beacon:-3}"
+			fi
 			mark_band "$band"
 			continue
 		fi

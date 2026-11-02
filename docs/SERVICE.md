@@ -127,6 +127,13 @@ daemon 一侧不再收到 `auto`：那是原厂的"自适应"三件套——`Set
 的取值现在都进 `restart.sig`：它们改的是 procd 实例集合（`search`、`wlan-sync`），只记键名看不出差别，以前必须手动重启
 才会生效。
 
+第三个开关 `backhaul`（`off` / `multi_ap`）也归 `wlan-sync` 管，但它落不落得下取决于上面两个：plan 里 `MapAccessAttr & 64`
+的那一行**按角色落成两端的某一段**——`mesh_role=slave` 是客户端（`zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` +
+`wds 1`），`master` + `apply_local=1` 是回程 BSS（`zte_backhaul_<band>`，`multi_ap 2`，主 SSID 标 `multi_ap 1`）。
+`master` + `apply_local=0` 什么都不生成，所以 `start_service` 对这一组合明说一句，别让人以为"回程没生效"。4 地址为什么
+在客户端要写 `wds` 而不是只写 `multi_ap`，见 [research/AGENT_PROBE](research/AGENT_PROBE.md) §15。换角色时上一端的段会被
+回收，不会留下一个"页面看着正常、实际不通"的半条回程。
+
 包的默认配置（2026-10-19 起）把能取出厂值的都写上，LuCI 显示同样默认值并标注范围：`mesh_v2=0`、`mlo_enable=1`、
 `wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、
 信标 100 ms、信道 0、功率 20/23 dBm（子节点最大档 = 出厂值）、`band_steer=1`、引导阈值 -60/-110、漫游阈值 -60/-70、

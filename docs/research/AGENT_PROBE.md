@@ -409,6 +409,7 @@ ZTE_MESH_SERVICE startup_renew=skipped role=slave
 
 - **驱动层**：`wlan-sync` 落的是 UCI + `wifi reload`。回程 BSS 的 Multi-AP 标记已经接上（§11.6），
   但 4 地址是否真的在驱动里生效只能在真机上看（`ip -d link` 的 `4addr on`）。
+  > 2026-11-02：这一条已在主机侧查清（`4addr` 跟 `wds` 走，不跟 `multi_ap`），见 §15；真机上只剩端到端是否互通。
 - **`CmWLANMapSsidCfgSync2Repeater`** 仍然执行不到（no-op），它在真机上把 SSID 推到 repeater 侧。
 - **`CurHop`**：slave_init 自己会写；lab 里用 `-2` 顶替，真机上要确认它被真正更新。
 - 子路由的 `wlan-sync` 只处理主 BSS 和回程 BSS；额外槽位（1、2）需要一套和原厂驱动接口对齐的方案。
@@ -468,9 +469,11 @@ Multi-AP 的 backhaul BSS 正是 4 地址 BSS，正好是这套控制面缺的�
 
 - **4 地址的真机确认**：UCI 只写了 `multi_ap`；`4addr` 由 hostapd 依这个值去设置。真机上要看的
   是 `ip -d link show` 里回程 BSS 有没有 `4addr on`，以及 `brctl show` 里它在不在 `br-lan`。
+  > 2026-11-02 更正：这条推断只对 AP 侧成立。客户端侧的 4 地址与入桥只看 UCI 的 `wds`（`multi_ap` 只翻译成
+  > `multi_ap_backhaul_sta`，决定关联能否被接受）。见 §15。
 - **wpad 变体**：`multi_ap` 需要完整的 wpad（`wpad-mbedtls`），`wpad-basic` 里没有。镜像必须选对。
 - **对端**：这一轮只做了 AP 侧（主控方向的下行 BSS）。子路由自己作为 backhaul STA 去关联主控那一半
-  （`multi_ap_backhaul_sta`）还没写。
+  （`multi_ap_backhaul_sta`）还没写。→ 2026-11-02 已写，见 §15。
 
 
 ### 11.7 2026-10-29 第六轮：解除主控/子路由的配置耦合
@@ -830,3 +833,45 @@ rc=0   /tmp/r2/wlan-plan 316 B -rw-------
 不要"的组合，而这两种状态在页面上没法解释。仅主控要是还有射频，启动日志里会明说一句
 （`controller-only role: the Wi-Fi profile goes to the child routers only ...`），因为这是最容易看成"plan
 没生效"的一种配置。
+
+## 15. 2026-11-02 回程的另一半：backhaul STA 需要两个选项，不是一个
+
+§11.6 结尾留的那条"对端还没写"这一轮补上了。写之前必须先搞清一件事：**OpenWrt 这一侧到底谁来决定 4 地址**。
+§11.6 的推断是"`4addr` 由 hostapd 依 `multi_ap` 去设"——在 AP 侧成立，在 STA 侧不成立，而回程客户端是 STA 侧。
+
+### 15.1 证据（ax3600，ImmortalWrt 25.12，直接读装机的 ucode）
+
+这台机的 wireless 后端是 ucode 版（`/usr/share/ucode/wifi/*.uc`），不是老的 `mac80211.sh`。行号以装机文件为准：
+
+| 位置 | 内容 | 意味着 |
+|---|---|---|
+| `supplicant.uc:75` | `set_default(config, 'multi_ap', 0)` | STA 接口有 `multi_ap` 这个键，默认 0 |
+| `supplicant.uc:83` | `case 'sta':` 里 `set_default(config, 'multi_ap_backhaul_sta', config.multi_ap)` | **UCI 的 `multi_ap` 在 sta 模式被改名成 wpa_supplicant 的 `multi_ap_backhaul_sta`** |
+| `supplicant.uc:278-279` | 接口挂 bridge 且 `mode == 'sta'` 且 `!wds && !multi_ap` → `netifd.setup_failed('BRIDGE_NOT_ALLOWED')` | 普通 STA 不许入桥；`multi_ap` 或 `wds` 任一非零才放行 |
+| `supplicant.uc:305` | `'4addr': !!interface.config.wds` | **4 地址只看 `wds`，跟 `multi_ap` 无关** |
+| `supplicant.uc:313-314` | `if (interface.config.wds) config.bridge = interface.bridge` | **入桥同样只看 `wds`**：没有它，`network` 写什么都不桥 |
+| `ap.uc:58` | `multi_ap` 在透传给 hostapd 的变量表里 | AP 侧 `multi_ap=2` 由 hostapd 自己在驱动里建 4 地址 BSS，不需要 `wds` |
+| `ap.uc:224` | `if (config.multi_ap == 1) config.wps_possible = false` | 顺带：fronthaul 标记会关掉 WPS，不影响我们 |
+
+wpa_supplicant 侧的语义（其文档）：`multi_ap_backhaul_sta: 0 = normal STA（默认），1 = backhaul STA`——它只决定
+**关联是否被回程 BSS 接受**（hostapd 那边 `multi_ap=2` 的 BSS 只收带这个标志的站），不决定数据面是不是 4 地址。
+
+### 15.2 结论
+
+一条回程行在子路由侧必须写**两个**选项，缺一不可：
+
+- `multi_ap 1` → `multi_ap_backhaul_sta=1`：让关联被接受（否则 STA 连不上那个隐藏 BSS）。
+- `wds 1`：打开 `4addr` 并把接口桥进 `network`（否则帧是 3 地址，1905 的 CMDU 到不了主控的 `br-lan`，而且
+  netifd 会直接 `BRIDGE_NOT_ALLOWED` 起不来）。
+
+所以 §11.6 "仍缺"里那条"4 地址的真机确认"在主机侧就有了答案，不需要等真机：`ip -d link` 该看到 `4addr on`
+是因为 `wds`，不是因为 `multi_ap`。真机（H-01）要验的是这两条在**原厂子路由**与我们的回程 BSS 之间真的能通，
+以及 `wpad` 变体——实装机是 `wpad-openssl` + `hostapd-common`（完整 wpad，Multi-AP 可用），`iw 6.17`。
+
+### 15.3 实现落点
+
+`wlan-sync` 新增 `backhaul_side()`（读 `zte_mesh.main.mesh_role`：`slave` → `sta`，其余 → `ap`）与
+`apply_backhaul_sta()`（段名 `zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` + `wds 1` + 名称/密钥/加密来自
+plan 那行，不写 `hidden`——那是 AP 的概念）。`clear_backhaul` 加了参数：换角色时把**对端**那一半还回去，只留
+当前角色该用的段。回程行"声称加密但 plan 里没有密钥"两端都拒绝应用（写下去就是一个连不上的 BSS/STA）。
+`zte-mesh.init` 的 `start_service` 对 `backhaul=multi_ap` + 主控 + `apply_local=0` 这个无事可做的组合明说一句。

@@ -14,7 +14,7 @@
 |---|---|
 | `mesh_role=master` + `apply_local=0`（两个默认值） | 只当主控：把 Wi-Fi 档案下发给子路由，**本机无线完全不动**。SR1010 这类有线网关就是这种 |
 | `mesh_role=master` + `apply_local=1` | 主控 + 自己发 Wi-Fi：同一份档案既下发，也落到本机 `/etc/config/wireless`，即原厂的"主路由"。旧值 `main`/`auto` 仍被接受，就等于这一组合 |
-| `mesh_role=slave` | 本机当子节点：收 M2 并把名称/密码/加密写到本机；`backhaul=multi_ap` 时把隐藏回程落成 4 地址 BSS。需要完整 `wpad`，真机数据还没有（[AGENT_PROBE](docs/research/AGENT_PROBE.md) 第 11 节）。此时 `apply_local` 不起作用 |
+| `mesh_role=slave` | 本机当子节点：收 M2 并把名称/密码/加密写到本机；`backhaul=multi_ap` 时把回程落成**客户端**——`zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1`（让主控的回程 BSS 接受这个关联）+ `wds 1`（4 地址与入桥只认它）。需要完整 `wpad`，端到端还没真机数据（[AGENT_PROBE](docs/research/AGENT_PROBE.md) 第 15 节）。此时 `apply_local` 不起作用 |
 
 第三个名字 `auto` 从配置里消失了，不是删了功能：它让 daemon 走"自适应"三件套（`SetRoleEnable=1`、`Mode 0` 三秒后才被
 我们改成 `Mode 2`），等于本机声明"我还没决定当不当主控"。沙箱里没有 cspd，这场选举没有对手，而一台真的中兴子路由
@@ -79,6 +79,7 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [REAL_CHILD](docs/REAL_CHILD.md) | 真子路由联调：入网门槛、**服务配置语法**、各功能验证记录、风险 |
 | [FINDINGS](docs/FINDINGS.md) | 逆向与真机发现：角色选举、自组网 V2、`VersionMode`、`CurHop`、ACL 等 |
 | [CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md) | 原厂控制器能下发什么、Z506 实际支持什么、本项目覆盖了什么 |
+| [ZTE router model](docs/ZTE router model.md) | 中兴市售与运营商机型的**名称—认证型号—无线规格**对照（巡天 AX3000 = E2631、小方糖 AC1200 = Z506、E2633/E1630/E2638 是同一套 AX3000 的三个渠道定制），判断"这台机器在不在支持范围"与"这颗芯片该按哪款零售机看"用它 |
 | [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：状态与证据、做不到的项 |
 | [PLAN](docs/PLAN.md) | **开发计划**：四个验收场景、分批推进、主机可测与需真机分开、真机待测台账、CI 与装机节奏 |
 | [MESH_INTEROP](docs/research/MESH_INTEROP.md) | 中兴 mesh 的协议归属、外部项目（prplMesh / BBF 1905.1a）能借什么、固件解密的边界（含**内核读路径无解密代码**的实证）、**原厂内核里 1905 的全部字符串/符号**、做功能时的兼容性硬约束（§5.5 已修正为「丢转发、送本机」） |
@@ -96,7 +97,7 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [milestones/](docs/milestones/) | 早期里程碑 B.1–B.3.3 的验收记录（存档） |
 | [tools/README.md](tools/README.md) | 各个脚本 |
 
-`docs/research/` 与 `docs/milestones/` 是**证据存档**，按时间保留原始记录、不随结论更新；结论以 `ARCHITECTURE` 到 `E2631_DB_TABLES` 这十八份为准。
+`docs/research/` 与 `docs/milestones/` 是**证据存档**，按时间保留原始记录、不随结论更新；结论以 `ARCHITECTURE` 到 `E2631_DB_TABLES` 这二十一份为准（机型对照表是外部事实，不是本项目的结论）。
 
 ## 约定
 

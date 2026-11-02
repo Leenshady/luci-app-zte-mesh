@@ -25,6 +25,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 记号 | 含义 |
 |---|---|
 | ✅ | 已实现，**真机**验证过 |
+| 🔄 | 做了一半：主机侧（配置、编解码、测试）完成，剩下的那半只能真机验 |
 | ☑️ | 已实现，只在实验室 / 测试桩上验证（未上真机，或对端固件不支持） |
 | ⬜ | 未做 |
 | ➖ | 做不到：对端没有接收代码或没有下发通道（不是我们没写） |
@@ -53,7 +54,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | A16 | 漫游 / 频段引导阈值下发 | ☑️ | 能发；Z506 固件没有解析代码 | — |
 | A17 | 引导（BTM）/ 封锁 / 踢终端 | 🔄 | A17a：`controller-steer.c` 编解码 `0x8014`/`0x8015`/`0x8016`/`0x8017`，tshark 逐字段核对 20 项。A17b：`controller-actions.c` 去抖/重发/超时/回滚 + 发送 + `0x8015`/`0x8017` 回灌 + `state.json` 的 `clients[]`；**配置链已通**（`zte_mesh_client` 区段 → `ban.mac`/`kick.mac`，`ban_minutes` → `ban.minutes`，页面有列表与时长，状态框显示进度），加删规则不需要重启；在实验室控制器上实跑过（封禁倒计时到 `expired`、删规则即撤销）。**对端是否照做未验**（出厂 `EnBtmKickoff=0`），见 [STEER_1905](research/STEER_1905.md) 与 H-03 | 3 |
 | A18 | 拓扑页：节点清单 + **每节点的终端数 / BSS 数 / 直连还是经中继 / 上报新鲜度**；缺回程 RSSI、树状图、每 AP 终端列表、固件版本 | 🔄 | A18a：`controller-1905.c` 解码 `0x83`/`0x94`/头部 relay 位，`state.json` 每节点加 `bss`/`hops`/`metrics_age`（-1 = 没上报，与 0 区分）；C 测试 101 断言 + 10 万次变异，含一帧抓包原文。A18b：LuCI 加「链路」列。**回程 RSSI 无线索**，见 [CAPTURE_1905](research/CAPTURE_1905.md) 与 H-05 | 3 |
-| A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性 / `extra_slots` / **`backhaul=multi_ap` 与 `wpad` 变体** | ☑️ | init 87 项 + wlan-sync 新增 4 项：`-basic` 变体上开回程会把原因写进日志与 `wlan-sync.status` 的 `message`，完整 `wpad` 不告警，回程关时不告警，包库读不到时既不言过也不失败 | — |
+| A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性 / `extra_slots` / **`backhaul=multi_ap` 与 `wpad` 变体** | ☑️ | init 106 项 + wlan-sync 的变体区块：`-basic` 变体上开回程会把原因写进日志与 `wlan-sync.status` 的 `message`（客户端那一端同样告警，因为 `wds`/4 地址也来自完整 wpad），完整 `wpad` 不告警，回程关时不告警，包库读不到时既不言过也不失败；`backhaul=multi_ap` 落在不本地生效的主控上时启动说清无事可做 | — |
 | A20 | **界面中英双语**：文案全走 `_()`，`po/zh_Hans` 与源码逐条对齐 | ✅ | i18n 12 项；两台随包装出 `zte-mesh.zh-cn.lmo`（11632 B），`/cgi-bin/luci/admin/translations/zh-cn` 返回中文 | — |
 | A24 | **有线口掉线自愈**：`attach` 兼任看门狗，线没了就重启沙箱实例 | 🔄 | 机制：`veth-lab`/`zmesh0` 是一对 veth，删一端两个一起消失，沙箱里没有 `/proc`、`/sys`、`ip`、`CAP_NET_ADMIN`，daemon 又把 ifindex 绑死在 `bind()` 上——只有重启实例才能重建。`attach` 连续 20 秒看不到两端而沙箱进程仍在，就 `SIGTERM` 它，procd（`respawn 3600 5 0`，retry 0 = 不限，实测 13 次退出仍在拉起）重新拉起，新线由同一个循环改名入桥；冷却 60 秒。纯 host 侧 shell，不动 C。**实验室复现待做**（`ip link del zmesh0` 后应自愈，见 [PLAN](PLAN.md) H-10）；`test_init.sh` 只守住脚本里有这套判据（3 项） | 2 |
 | A25 | **`search` 实例不再半小时后永久死掉** | ✅ | 裸 `respawn` 被 procd 填成 `3600 5 5`：每 300 秒按设计退出一次的 `search` 半小时烧完预算，日志 `crash loop 6 crashes, 300 seconds since last crash`，之后开机的子路由再也找不到主控。实测 `owrt`：`status → running (2/3)`，只剩 ns-run + attach。`wlan-sync`、`search` 改成显式 `3600 5 0`；`test_init.sh` 断言三个实例都不再用默认值 | — |
@@ -67,14 +68,14 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | B3 | setter 兜底（配置管理器返回 -3 时读回校验再报 0） | ☑️ | `libzte_agent_mm.so`，沙箱专用 | — |
 | B4 | 库 → 计划的发布（`agent-sync` → `/run/zte-mesh/wlan-plan`） | ☑️ | `published=1 rows=2` | — |
 | B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化；plan 启用某 band 时把关着的 radio 打开） | ✅ | 86 项测试；ax3600 人为 `disabled=1` 后重启服务，日志 `switched on ... applied`，空卡 `radio0` 未被碰 | — |
-| B6 | 回程 BSS：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 86 项测试含开关双向复原 | — |
+| B6 | 回程 BSS（主控那一端）：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 86 项测试含开关双向复原；2026-11-02 起这一段只在 `mesh_role` 不是 `slave` 时生成，子节点那一端见 B13 | — |
 | B7 | UCI / init / LuCI 暴露 `mesh_role`（`master`/`slave`）+ `apply_local` + `backhaul`；旧名 `main`/`auto` 仍被读 | ✅ | init 103 项（`role-local-sig`、`role-slave-local-keeps-plan`、`role-main-local-off`、两个 legacy 别名各出一份 plan）、rpcd 24 项 | — |
 | B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | init `role-slave-borrow` | — |
 | B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | `test_luci.js`（主控 31 项 / 子路由 4 项） | — |
 | B10 | rpcd `status` 返回 `role` 与 `local` 两个轴 | ✅ | rpcd 24 项；`main`/`auto` 报成 `master` + `local:true`，子路由永远 `local:false`；页面标题由这两值决定（`test_luci.js`） | — |
 | B11 | **额外槽位（slot 1–3）落到本机**：`extra_slots=1` 时每（频段,槽位）一个 `zte_extra_<band>_<slot>` 段，plan 不再下发的槽位被删除，`extra_slots=0`（默认）与旧行为逐字节相同；`main` 角色的本机 plan 也带上 `zte_mesh_bss` 的行 | ☑️ | `wlan-sync` 123 项（含默认关/开/幂等/删槽位/坏密钥/频段二选一/槽位 4 越界/无名行）、init 87 项（`role-main-slots` 五行的 plan、`role-main-no-slots` 只两行、`role-slave-slots-keeps-plan` 不动子路由 plan、`extra_slots=2` 被拒）。**默认关**，真机效果见 [PLAN](PLAN.md) H-02 | 3 |
 | B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | wlan-sync 86 项、rpcd 18 项 | — |
-| B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | ⬜ | 只做了 AP 侧 | 4 |
+| B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | 🔄 | B13a/B13b 主机侧完成：`mesh_role=slave` 时 plan 里 `MapAccessAttr&64` 的那行落成 `zte_backhaul_sta_<band>`（`mode sta` + **`multi_ap 1`** + **`wds 1`**，名称/密钥/加密取 plan，不写 `hidden`）。**关键是 `wds`**：装机实测 `supplicant.uc` 里 `4addr` 与入桥只看 `wds`（`:305`/`:313`），`multi_ap` 在 sta 模式只是译成 `multi_ap_backhaul_sta`（`:83`，决定关联能不能被回程 BSS 接受），只写它会被 netifd 判 `BRIDGE_NOT_ALLOWED`（`:278`）——这纠正了 [AGENT_PROBE](research/AGENT_PROBE.md) §11.6 "4addr 跟 multi_ap 走"的推断。换角色时把对端那段还回去；行里声称加密却没有密钥两端都拒绝；该频段在 plan 里没有主 BSS（客户端没有桥可挂）时段照建、但日志明说它不通桥；`wpad-basic` 的告警扩到客户端；`backhaul=multi_ap` 落在主控 + `apply_local=0` 时启动说清这个开关此刻无事可做。**端到端（真关联、拔网线仍在线、1905 过无线）待真机**，见 [PLAN](PLAN.md) H-01 | 4 |
 | B14 | 真机：本机当子路由，接真主控（有线回程） | ✅ | 两台实验机打通。抓包确认**子路由自己会发** `0x0007` Search、主控回 `0x0008` 带 WSC；原判断"子路由被 cspd 门控"是错的，真因是 C6。r7 后主控改 SSID，子路由 `wlan-plan` 与 `iw dev` 跟着变成 `MASTERTEST`/`MASTERTEST-5G` | — |
 | B15 | `CmWLANMapSsidCfgSync2Repeater` 对齐（libcmapi 内部调用，替身命中不到） | ⬜ | 沙箱里是 no-op | 5 |
 | B16 | `CurHop` 在子路由侧的真实更新 | ⬜ | 实验室用 `-2` 顶替 | 2 |
@@ -277,7 +278,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | 4 | ~~B11 额外槽位在子路由侧应用~~ | — | **已完成**（2026-11-01，批 1）：`extra_slots` 默认关，主机测试 210 项；真机验收见 [PLAN](PLAN.md) H-02。后续批次见 [PLAN](PLAN.md) |
 | 5 | ~~A18 拓扑页~~ | — | **已做一半**（2026-11-01，批 2）：终端数 / BSS 数 / 直连与中继 / 新鲜度已上线；回程 RSSI 要无线回程真机（H-05），树状图与每 AP 终端列表待排 |
 | 6 | A17 引导 / 封锁 / 踢终端 | 3 | 接口已存在；策略与 UI 已接上，缺真机确认（H-03） |
-| 7 | B13 无线回程 STA | 4 | 要真机看 `4addr`，且与 wpad 变体绑定。**新线索**：`MapCooperatorCfg.Addr4EffectDelayTime=10` 可能就是 4 地址模式的生效延迟（歧义未定，见 [SNAPSHOT](research/E2631_DB_SNAPSHOT.md) §10.8） |
+| 7 | ~~B13 无线回程 STA~~（主机侧） | 4 | **配置半边已完成**（2026-11-02，批 4）：`4addr` 的开关实测是 netifd 的 `wds` 不是 `multi_ap`（[AGENT_PROBE](research/AGENT_PROBE.md) §15），STA 段两个都写；与 wpad 变体绑定，客户端也进告警。**剩端到端**（H-01）。**线索留着**：`MapCooperatorCfg.Addr4EffectDelayTime=10` 可能就是 4 地址模式的生效延迟（歧义未定，见 [SNAPSHOT](research/E2631_DB_SNAPSHOT.md) §10.8），真机要等它才看得出"关联上但短时间不通" |
 | 8 | B15 `CmWLANMapSsidCfgSync2Repeater` | 5 | 逆向或真机 strace，前 7 项都过了才值得动 |
 | 9 | 用 AX3000 当子路由验 D5 / D6 / D7 | 3 | **要停机窗口**；取证改用它自带的 `pktdump 1`（落 `/var/tmp`）或 `logcat \| grep "AGENT RECV"`，**不必再自带抓包程序**。停机前先做零成本只读项：`sendcmd 1 DB p`（读 mesh 配置库）、`cat /proc/kallsyms \| grep 1905`、取 `/kmodule/bin/multiapd` 原件。见 [MULTIAPD](research/MULTIAPD.md) §5 与 [E2633_TELNET_BOOT](research/E2633_TELNET_BOOT.md) §11 |
 

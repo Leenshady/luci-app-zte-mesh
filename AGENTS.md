@@ -3,14 +3,14 @@
 给 OpenWrt / ImmortalWrt 做的中兴组网插件：把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、CM 函数替身和服务配置文件指挥它，**不重写 mesh 协议**。中兴侧保留原厂固件，不刷机。
 
 - 功能总账只有一份：[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)。排期只有一份：[docs/PLAN.md](docs/PLAN.md)。别处出现的"已完成/未做"都不算数。
-- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档全景见 [README.md](README.md) 的文档索引（18 份为准，`docs/research/` 与 `docs/milestones/` 是证据存档，不随结论更新）。
+- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档全景见 [README.md](README.md) 的文档索引（21 份为准，`docs/research/` 与 `docs/milestones/` 是证据存档，不随结论更新）。
 
 ## 动手前先读
 
 | 要做什么 | 先读 |
 |---|---|
 | 构建、跑控制器、测试、分支与 `prebuilt/` | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
-| 碰实验机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器台账的唯一权威，统一走 `python tools/lab/rssh.py` |
+| 碰实验机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器台账的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
 | 上真子路由 Z506 | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的真机红线 |
 | 改服务模式、UCI/LuCI 映射 | [docs/SERVICE.md](docs/SERVICE.md) |
 | 查原厂数据库字段 | [docs/milestones/SCHEMA.md](docs/milestones/SCHEMA.md)、[docs/milestones/POLICIES.md](docs/milestones/POLICIES.md)、[docs/research/E2631_DB_SNAPSHOT.md](docs/research/E2631_DB_SNAPSHOT.md) |
@@ -26,7 +26,9 @@ python3 dev-service-smoke.py --no-attach --seconds 24 # 路由器上完全私有
 python tests/test_i18n.py                            # 改了界面文案必须跑（12 项，含 lmo 逐条可查）
 ```
 
-`tests/` 里 C 编解码、Python、shell、LuCI JS 各管一段，改哪层跑哪层的测试；CI（`.github/workflows/build-apk.yml`、`build-lab-tools.yml`）**全手动触发**。
+`tests/` 里 C 编解码、Python、shell、LuCI JS 各管一段，改哪层跑哪层的测试；CI（`.github/workflows/build-apk.yml`、`build-lab-tools.yml`）**全手动触发**——push 不会跑构建。
+
+节奏按 [docs/PLAN.md](docs/PLAN.md) 第 2 节与第 6 节：**攒够几项（一批 3–5 项）才触发一次 CI，装一次机验证**，不是每完成一项就跑；本机每改一项就把能跑的测试跑绿。需要真机的项**不阻塞**，登记到 PLAN 第 5 节（H-xx）后继续做主机可测的项。
 
 ## 红线
 

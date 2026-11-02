@@ -69,14 +69,19 @@ S4 的一半：页面能看见拓扑。数据面不碰无线，只把已经收�
 
 ### 批 4 · 无线回程（H 配置半边 / D 数据面）
 
-S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、`multi_ap`、WPA3 与 SAE 的差异），
+S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、`multi_ap`、`wds`），
 这一步不看射频也能断言生成的配置；关联成功与否只能真机。
+**装机实测（2026-11-02，ax3600 的 ucode 版 wireless）纠正了一个前提**：客户端的 4 地址与入桥只看 `wds`，
+`multi_ap` 在 sta 模式只是翻译成 wpa_supplicant 的 `multi_ap_backhaul_sta`（决定关联能不能被回程 BSS 接受）。
+所以一段回程 STA 必须同时写 `multi_ap 1` 和 `wds 1`，只写前者会卡在 `BRIDGE_NOT_ALLOWED`。证据见
+[AGENT_PROBE](research/AGENT_PROBE.md) §15。
 
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
-| B13a | `wlan-sync` 生成 `zte_backhaul_sta_<band>`：由 plan 的回程行驱动，`mode=sta`，`multi_ap` 与加密方式对齐，缺少 SSID/密钥时明确报错 | H | `sh tests/test_wlan_sync.sh` 新增 8+ 条 |
-| B13b | 4 地址模式的开关与 `wpad` 变体检查：`wpad-basic` 上直接拒绝并说清楚 | H | 同上；`test_init.sh` 一条告警 |
+| B13a | **已完成**。`wlan-sync` 生成 `zte_backhaul_sta_<band>`：由 plan 的回程行驱动，`mode=sta` + `multi_ap 1` + `wds 1`，名称/密钥/加密取 plan 那行（不写 `hidden`，那是 AP 的概念）；由 `mesh_role` 决定写哪一端，换角色时把对端那段还回去；行里声称加密却没有密钥时两端都拒绝应用 | H | `sh tests/test_wlan_sync.sh` 新增回程客户端区块（映射 15 项、幂等、两端互换、缺密钥、禁用行、`role main` 仍走主控端） |
+| B13b | **已完成**。4 地址模式的开关就是 `wds`（见上），`wpad` 变体检查扩到客户端：`wpad-basic` + 回程开 + 本机是子节点时同样把原因写进日志与 `status.message`；`zte-mesh.init` 在 `backhaul=multi_ap` 但本机是主控且 `apply_local=0`（这个开关无事可做）时启动说一句 | H | 同上 + `sh tests/test_init.sh` 新增 3 条源码针 |
 | B13c | 真机关联、断网线仍在线、1905 帧过无线 | D | 见第 5 节 H-01 |
+| B13d | **页面的 `backhaul` 字段只在看得到子节点角色时渲染**（`zte-mesh.js` 的 `if (child)`），可这一项在"主控 + `apply_local=1`"上同样有作用——那一端建的是回程 BSS。要么放开成 `child || local`（和 `extra_slots` 一致），要么在页面上说明只有子节点能用；描述文案也得跟着写两端。改文案要同步 `po/zh_Hans` 并跑 `python tests/test_i18n.py` | H | `node tests/test_luci.js` 的角色可见性断言 + i18n 12 项 |
 
 ### 批 5 · 多子节点与稳定性（H + D）
 
@@ -109,7 +114,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 1 | 子路由侧落地保真 | ✅ B11（210 项主机测试）/ C3 / D0 全做完 | **待触发**（批末一次） |
 | 2 | 主控侧可见性 | ✅ A18a / A18b / A19b 全做完（回程 RSSI 无线索，见 H-05） | **待触发**（批末一次） |
 | 3 | 控制面 | 🔄 A17a/A17b 全做完（能编能解、能发能停、页面能配能看）；**A17c 效果确认等真机**（H-03） | H-03 |
-| 4 | 无线回程 | ⬜ | — |
+| 4 | 无线回程 | 🔄 B13a/B13b 做完（回程 STA 的 `wifi-iface` 两端都生成、`wds` 才是 4 地址的开关、换角色会回收对端段）；**B13c 端到端等真机**（H-01） | H-01 |
 | 5 | 多子节点与稳定性 | ⬜ | — |
 | 6 | 发布与工程化 | ⬜（C9 已随本轮下令先做） | — |
 
@@ -119,9 +124,9 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 
 | 命令 | 覆盖 | 基线 |
 |---|---|---|
-| `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci） | 130 passed（批 2 加 5 条；Windows 上约 8 分钟，Linux 上快得多） |
-| `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 94 项（批 3 加 7 条） |
-| `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 18 项 |
+| `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci），含回程两端 | 169 项（批 2 加 5 条、批 4 加回程客户端 39 条；Windows 上约 8 分钟，Linux 上快得多） |
+| `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 106 项（批 3 加 7 条、批 4 加回程告警 3 条） |
+| `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 24 项（批 3 加六个 role/`apply_local` 组合；Windows 上要先解决上面那条 `python3` 占位程序） |
 | `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `33 main / 10 slot / 4 ACL / 2 client / child 5`（批 2 加节点表断言，批 3 加动作列表与状态框） |
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94` | 101 断言 + 10 万次有界变异（需要一台能编 C 的机器） |
 | `tests/controller-steer-codec.c`（`make test-host`） | 终端动作消息的编码与两种回报的解码 | 整帧字节比对 + 10 万次有界变异（同上） |
@@ -134,13 +139,17 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 本机（Windows + Git Bash + Python 3.13 + Node 22）能跑前六行；C 那行必须借容器或 Ubuntu 机器。
 **批末判定以全部行为准**，本机能跑的行先跑，C 那行在批末那一次 CI/Ubuntu 上补。
 
+> Windows 上的一个坑：Git Bash 里 `python3` 常解析成 `WindowsApps\python3.exe` 那个"去商店装 Python"的占位程序，
+> 它不报错也不输出。`test_rpcd.sh` 的 jsonfilter 桩走 `python3`，于是七条断言全成 `{"result":-2}`——**这是本机环境，
+> 不是代码**。用一个指向真 Python 的 `python3` 垫片放进 `PATH` 就恢复 24 项全过（2026-11-02 实测）。
+
 ## 5. 真机待测台账（登记，不阻塞）
 
 编号 **H-xx**。每条写清"验什么、前置、几步、判据"。到真机窗口时按编号取。
 
 | 编号 | 验什么 | 前置 | 步骤 | 判据 | 风险 |
 |---|---|---|---|---|---|
-| **H-01** | S3：无线回程关联（B13c） | 一台能发 Wi-Fi 的 OpenWrt 当子节点（现在的 VM 没有无线）；中兴主控已开回程 BSS；子节点装 `wpad`（非 basic） | ①`backhaul=multi_ap` ②插上控制器档案后拔网线 ③`iw dev` 看 STA 接口 `4addr`/`Authorized` ④`ping` 上游 ⑤抓 1905 帧 | STA 关联成功且 `4addr` 打开；拔线后仍能 ping；1905 CMDU 在无线侧可见 | 换 `wpad` 可能挤爆 flash；4 地址要求两侧都开，主控是原厂不可控 |
+| **H-01** | S3：无线回程关联（B13c） | 一台能发 Wi-Fi 的 OpenWrt 当子节点（现在的 VM 没有无线）；中兴主控已开回程 BSS；子节点装**完整** `wpad`（ax3600 实装机是 `wpad-openssl` + `hostapd-common`，够用） | ①子节点 `uci set zte_mesh.main.backhaul=multi_ap` 并 `mesh_role=slave` ②插上控制器档案后确认 `uci show wireless` 里有 `zte_backhaul_sta_5g`：`mode=sta`、`multi_ap=1`、**`wds=1`** ③`iw dev <sta接口> info` 看 `4addr on`、`ip -d link` 同处，`brctl show`/`ubus call network.interface.wan status` 确认它挂在 `br-lan` ④拔网线 ⑤`iw station dump` 看 `Authorized`，`ping` 上游 ⑥无线侧抓 1905 帧 | STA 关联成功且 `4addr` 打开；拔线后仍能 ping；1905 CMDU 在无线侧可见。**已知会踩的点**：没有 `wds` 时 netifd 直接 `BRIDGE_NOT_ALLOWED`（`supplicant.uc:278`），`4addr` 也只看 `wds`（`:305`）——所以这一条只验端到端，不验映射 | 换 `wpad` 可能挤爆 flash；4 地址要求两侧都开，主控是原厂不可控 |
 | **H-02** | B11 在真子路由上不炸：额外槽位落成多个 BSS | ax3600 + 中兴主控（或 OpenWrt 主控） | ①`extra_slots=on` ②主控配一个访客槽位 ③`iw dev`/`uci show wireless` ④客户端连访客 SSID | 多出一个 BSS、名字密钥对、能拿到 IP；关掉后 BSS 消失且 `wlan-sync.status` 有记录 | 信道/带宽被多 BSS 摊薄；`wpad` 版本不支持多 BSS 时会静默失败 |
 | **H-03** | A17 踢终端/封锁真的生效 | S1 拓扑 + 一台测试手机（MAC 已知）；页面「封禁与踢除设备」里各一条 `ban`（可选时长）与 `kick` | ①封禁该 MAC，`state.json` 的 `clients[]` 应显示 `sent` ②终端重连看是否被拒 ③删除记录，看是否恢复 ④加一条 `kick`，抓 1905 看是否真有 `0x8014` 出门、有无 `0x8015` 回报，`clients[]` 变 `done`/`failed` ⑤必要时开 `EnBtmKickoff` 再试 | 封禁后拒绝关联；解封后恢复；`0x8014` 真的发出；BTM 发出后终端切换（不保证） | 会踢掉用户自己的设备；`EnBtmKickoff` 出厂是关的，可能根本不发；`0x8014` 的 BSSID 目前用广播（还没有"终端挂在哪个 BSS"的表），要确认子节点接受广播 |
 | **H-04** | 多子节点 | 两台子路由 | A23 | 两个节点同时出现在拓扑页，动作按 MAC 不串 | 1905 域 ID 冲突、AL MAC 冲突（`al_last`） |

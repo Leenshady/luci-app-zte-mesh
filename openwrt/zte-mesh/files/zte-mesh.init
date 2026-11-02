@@ -634,7 +634,7 @@ write_config() {
 }
 
 start_service() {
-	local enabled bridge role apply_local
+	local enabled bridge role apply_local backhaul
 	config_load zte_mesh
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
@@ -649,13 +649,20 @@ start_service() {
 	config_get role main mesh_role ""
 	config_get apply_local main apply_local ""
 	apply_local=$(apply_local_value "$role" "$apply_local")
+	config_get backhaul main backhaul off
 
-	# The one combination worth a line in the log: a router that has radios, is left in the controller-only role, and
-	# therefore hands the profile out without putting it on the air itself. That is easy to mistake for "the plan was
-	# not applied", so say it once at start rather than leaving it to be discovered.
+	# The two combinations worth a line in the log, because both look like "the plan was not applied" from the
+	# outside. First: a router that has radios and is left in the controller-only role, so it hands the profile out
+	# without putting it on the air itself.
 	if role_is_master "$role" && ! apply_here "$role" "$apply_local" &&
 		uci -q show wireless 2>/dev/null | grep -q '=wifi-device$'; then
 		log "controller-only role: the Wi-Fi profile goes to the child routers only, this router's own radios are left alone; apply_local=1 applies it here as well"
+	fi
+	# Second: `backhaul` builds a radio link on *this* router -- a client to the controller's backhaul BSS when this
+	# is a child, that BSS itself when this is a broadcasting master. A controller-only router runs no applier at
+	# all, so the option sits there doing nothing, usually because the box changed role and left it on.
+	if [ "$backhaul" = multi_ap ] && role_is_master "$role" && ! apply_here "$role" "$apply_local"; then
+		log "zte_mesh.main.backhaul=multi_ap has nothing to do while apply_local is off: this router applies no Wi-Fi profile locally, so it builds neither a backhaul client nor a backhaul BSS. Set apply_local=1 to broadcast here, or mesh_role=slave to join the controller's backhaul"
 	fi
 
 	# Two boxes must never present the same AL MAC. The vendor takes its AL MAC from br0, and a 1905 stack

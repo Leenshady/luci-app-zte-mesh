@@ -1094,5 +1094,19 @@ for needle in 'sandbox_pid' 'GRACE=' 'restarting it to rebuild the wire'; do
 	fi
 done
 
+# `backhaul` only ever describes a radio link on this router: a client to the controller's backhaul BSS on a
+# child, that BSS itself on a broadcasting master. A controller-only router starts no wlan-sync instance at all,
+# so the option does nothing there -- and it is usually left on by a box that changed role. start_service() says
+# so once, because the page shows the option enabled and nothing on the air.
+for needle in 'config_get backhaul main backhaul off' \
+	'backhaul=multi_ap has nothing to do while apply_local is off' \
+	'or mesh_role=slave to join the controller'; do
+	if grep -q -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL backhaul warning: $needle"
+	fi
+done
+
 echo "init test: $pass passed, $fail failed"
 [ "$fail" = 0 ]
