@@ -75,7 +75,43 @@ python tools/capture/frames.py out/lab-1905.pcap --cmdu
 `state.json` 的每个节点因此多了 `bss`、`hops`、`metrics_age`，取值 `-1` 表示"没上报"，与 `0` 区分开：
 一个报 0 个终端的节点和一个从来没说过话的节点，页面上不该长一样。
 
-## 5. 局限
+## 5. 固件版本为什么在页面上是空的（2026-11-03，**[代码]**）
+
+第 4 节那张表里没有"软件版本"，因为抓包里就没有它——子节点把它发在**另一类帧**里，而主控的数据库
+行又根本不解包。地址全部用 `arm-linux-gnueabi-nm -n` 在 `out/vendor/root/bin/multiapd` 上核过。
+
+1. **发**：`ApCapabilityReportSend @0x58470` 在 `0x584e8` 用 `movw r1, #0x8002` 起头，也就是
+   **CMDU 0x8002 = AP Capability Report**；一路 insert 之后在 `0x58668` 调
+   `I5TlvDeviceInventoryTypeInsert @0x501e0`（源数据来自 `slave_get_global_data`，是全局配置块，
+   不是设备记录）。这条 TLV **类型 0xd4 不在 1905/Multi-AP 标准表里**，是 ZTE 自己的"设备清单"。
+2. **收**：`ApCapabilityReportReceive @0x41f80` 在 `0x42068` 调
+   `I5TlvDeviceInventoryTypeExtract @0x3d674`。它按
+   `I5TlvExtractChildlv @0x68764` 走三个 `[长度(1) 文本]`：
+
+   | 顺序 | 落到设备记录 | 长度上限 |
+   |---|---|---|
+   | 1 序列号 | `+312` | `cmpls r2, #64`：>64 只跳过、不拷贝，偏移照前进 |
+   | 2 **软件版本** | `+247` | 同上 |
+   | 3 硬件版本 | `+376+1 = +377` | 同上 |
+
+   再往后是一个计数与每无线 `{MAC(6), [长度][文本]}`；这段和版本无关。
+3. **但这一列永远不被填**：往 `IGD.P1905DeviceInfo` 写行的地方只有一处，
+   `topoAdd1905DevInfoToDB @0x8e37c`，它从设备记录取的是 **+24（6 字节 MAC）、+60、+124、+584**
+   四个字段加一个活动标志——**`+247` 不在其中**。`+247` 的读者是
+   `master_print_devinfo_list @0x23348`（`0x23410` 处 `add r1, r4, #247`），即厂商自己的 CLI。
+   这就是 REPLAY_RESULTS §16.2 那句"数据库的 `SoftwareVer` 没被填"的确证：不是没收到，是收到了没落库。
+4. **顺带否掉一条老笔记**：同一份 §16.2 猜版本串在 HigherLayerResponse 的厂商 TLV 里。它的解析器是
+   `I5TlvHigherLayerVendorTypeExtract @0x981f8`，身份扩展走
+   `I5TlvVonderDevIdenExtExtract @0x6888c` → `I5TlvCoverStructToDevice @0x96010`，落到
+   设备记录的 `+392 / +60 / +124 / +648 / +456 / +784` 和两个 u32——**没有一个落在 `+247`**。
+   本机留存的 15 个 pcap 里也搜不到那个版本串。所以版本只可能来自 0x8002 的 0xd4。
+
+**插件的做法**：不动数据库那一列（那是原厂 `dbAPISetView` 的事，我们改不了），在自己的接收钩子里解
+0xd4 的第二段文本，落成 `/run/zte-mesh/peers/<MAC>.software`，服务的 `state.json` 在 `SoftwareVer`
+列为空时用它。**布局是 [代码] 级**：真子路由（Z506 V1.0.0.2B2.8000）到底发不发这条 TLV、发的字段顺序
+是否与这份二进制一致，都要上机看——见 PLAN 第 5 节 H-12。
+
+## 6. 局限
 
 - **有线拓扑**：主控是 x86 虚拟机（没有无线网卡），子节点走网线，所以没有 4 地址回程、没有 RSSI、
   没有无线侧的 1905 帧。无线那半边等 H-01。

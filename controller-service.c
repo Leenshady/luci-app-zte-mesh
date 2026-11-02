@@ -854,6 +854,30 @@ static int read_peer(const char *mac, const char *kind, const char *key, time_t 
     return value;
 }
 
+/* The whole text of a peer digest that is not a number - the software version, which the page shows as it was
+ * reported. "" when the node never reported one. */
+static void read_peer_text(const char *mac, const char *kind, char *out, size_t room)
+{
+    char path[96];
+    ssize_t bytes;
+    int fd;
+    out[0] = 0;
+    snprintf(path, sizeof(path), SERVICE_DIR "/peers/%s.%s", mac, kind);
+    fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0)
+        return;
+    bytes = read(fd, out, room - 1);
+    (void)close(fd);
+    if (bytes < 1) {
+        out[0] = 0;
+        return;
+    }
+    out[bytes] = 0;
+    while (bytes-- > 0)
+        if (out[bytes] == '\n' || out[bytes] == '\r')
+            out[bytes] = 0;
+}
+
 static struct action_table actions;
 
 static int write_state(const struct service_state *state)
@@ -886,6 +910,8 @@ static int write_state(const struct service_state *state)
          * TLV arrived). "router" is what the page shows instead of an empty cell. The row that carries our own
          * address is this router, so it gets this router's system model and host name. */
         const char *model = nodes[i].model, *name = nodes[i].name;
+        char reported[72]; /* one line from peers/<mac>.software: a version is at most 64 bytes */
+        const char *software = nodes[i].software;
         if (!strcmp(nodes[i].mac, mac)) {
             model = self_model;
             name = self_name;
@@ -902,7 +928,15 @@ static int write_state(const struct service_state *state)
         used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"name\":", quoted);
         json_string(quoted, sizeof(quoted), name);
         used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"software\":", quoted);
-        json_string(quoted, sizeof(quoted), nodes[i].software);
+        if (!software[0]) {
+            /* The database column is empty for a child: the factory master pulls the version out of the AP
+             * Capability Report into its own device table and never writes it into the peer rows, so the frame
+             * digest is the only source here. A row that does say something wins. */
+            read_peer_text(nodes[i].mac, "software", reported, sizeof(reported));
+            if (reported[0])
+                software = reported;
+        }
+        json_string(quoted, sizeof(quoted), software);
         {
             /* Everything below comes from the frames the daemon received from this node (controller-trace.c writes
              * them, controller-1905.c decodes them). A value of -1 means the node has not reported it, which is not

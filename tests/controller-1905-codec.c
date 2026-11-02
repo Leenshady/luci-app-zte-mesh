@@ -280,6 +280,95 @@ static void vendor_tests(void)
     CHECK(!zte_vendor_open(&cursor, frame + payload, 8)); /* shorter than OUI + header */
 }
 
+static void inventory_tests(void)
+{
+    char out[CONTROLLER_INVENTORY_TEXT + 1];
+    uint8_t body[256];
+    size_t at, length;
+
+    /* Device Inventory: [length][text] three times in wire order - serial, software, hardware - and only the
+     * second one is wanted. The count byte and the per-radio records after it are never reached. */
+    at = 0;
+    body[at++] = 5; memcpy(body + at, "SN123", 5); at += 5;
+    body[at++] = 15; memcpy(body + at, "V1.0.0.2B2.8000", 15); at += 15;
+    body[at++] = 9; memcpy(body + at, "ZXHN Z506", 9); at += 9;
+    body[at++] = 0; /* zero radios */
+    CHECK(device_inventory_software(body, at, out, sizeof(out)));
+    CHECK(!strcmp(out, "V1.0.0.2B2.8000"));
+
+    /* Nothing at all is recorded when the frame stops short, and the buffer says so instead of keeping the
+     * previous answer. */
+    out[0] = 'x'; out[1] = 0;
+    CHECK(!device_inventory_software(body, 6, out, sizeof(out))); /* only the serial fits */
+    CHECK(!out[0]);
+    out[0] = 'x'; out[1] = 0;
+    CHECK(!device_inventory_software(body, 7, out, sizeof(out))); /* the length byte, no text after it */
+    CHECK(!out[0]);
+    out[0] = 'x'; out[1] = 0;
+    CHECK(!device_inventory_software(body, 12, out, sizeof(out))); /* half of the version */
+    CHECK(!out[0]);
+    CHECK(!device_inventory_software(body, 0, out, sizeof(out)));
+    CHECK(!device_inventory_software(NULL, at, out, sizeof(out)));
+    CHECK(!device_inventory_software(body, at, out, 1)); /* a buffer that cannot hold a string */
+
+    /* An empty field is "not reported", a control byte is not a version, and both leave "" behind. */
+    at = 0;
+    body[at++] = 1; body[at++] = 'A';
+    body[at++] = 0;
+    CHECK(!device_inventory_software(body, at, out, sizeof(out)));
+    CHECK(!out[0]);
+    at = 0;
+    body[at++] = 1; body[at++] = 'A';
+    body[at++] = 3; body[at++] = 'V'; body[at++] = 0; body[at++] = '1';
+    CHECK(!device_inventory_software(body, at, out, sizeof(out)));
+    CHECK(!out[0]);
+
+    /* 64 bytes is the longest field the factory receiver copies into its char array, and 65 is refused the same
+     * way it refuses one: nothing is recorded, and the bytes after it are not the version. */
+    memset(body, 'v', sizeof(body));
+    body[0] = 1;
+    body[1] = 'A';
+    body[2] = CONTROLLER_INVENTORY_TEXT;
+    length = 3 + CONTROLLER_INVENTORY_TEXT;
+    body[length++] = 3;
+    body[length++] = 'V';
+    body[length++] = '9';
+    body[length++] = '9';
+    body[length++] = 0;
+    CHECK(device_inventory_software(body, length, out, sizeof(out)));
+    CHECK(strlen(out) == CONTROLLER_INVENTORY_TEXT);
+    body[2] = CONTROLLER_INVENTORY_TEXT + 1;
+    CHECK(!device_inventory_software(body, length, out, sizeof(out)));
+    CHECK(!out[0]);
+
+    /* A version longer than the caller's buffer is copied as far as it fits: a truncated string on the page is
+     * still the node's own version, and nothing outside the buffer is touched. */
+    at = 0;
+    body[at++] = 1; body[at++] = 'A';
+    body[at++] = 15; memcpy(body + at, "V1.0.0.2B2.8000", 15); at += 15;
+    memset(out, 0x5a, sizeof(out));
+    CHECK(device_inventory_software(body, at, out, 8));
+    CHECK(!strcmp(out, "V1.0.0."));
+    CHECK(out[8] == 0x5a);
+
+    /* Every cut of a complete inventory, with the bytes after it fenced off: the answer is the whole version or
+     * nothing, and a decoder that runs past the cut shows up as a broken fence. */
+    at = 0;
+    body[at++] = 5; memcpy(body + at, "SN123", 5); at += 5;
+    body[at++] = 15; memcpy(body + at, "V1.0.0.2B2.8000", 15); at += 15;
+    body[at++] = 9; memcpy(body + at, "ZXHN Z506", 9); at += 9;
+    body[at++] = 0;
+    length = at;
+    for (at = 0; at <= length; at++) {
+        int found;
+        memset(body + length, 0xa5, 8);
+        found = device_inventory_software(body, at, out, sizeof(out));
+        CHECK(!found || !strcmp(out, "V1.0.0.2B2.8000"));
+        CHECK(body[length] == 0xa5);
+    }
+    CHECK(device_inventory_software(body, length, out, sizeof(out))); /* the last cut is the whole thing */
+}
+
 static void captured_tests(void)
 {
     static uint8_t frame[CONTROLLER_1905_MAX_BYTES];
@@ -327,6 +416,7 @@ int main(void)
     tlv_walk_tests();
     metrics_tests();
     vendor_tests();
+    inventory_tests();
     captured_tests();
 
     /* Deterministic bounded mutations: take the captured frame, flip one bit and cut it at a random length.

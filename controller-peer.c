@@ -68,6 +68,7 @@ int controller_peer_note(const uint8_t *frame, size_t bytes)
     size_t length, used = 0;
     int light = -1, written = 0;
     char text[72];
+    char software[CONTROLLER_INVENTORY_TEXT + 1];
     int n;
 
     if (bytes < CONTROLLER_1905_HEADER || !cmdu_decode(frame, bytes, &header) ||
@@ -94,9 +95,17 @@ int controller_peer_note(const uint8_t *frame, size_t bytes)
         return write_peer(done.client, "btm", accepted, sizeof(accepted) - 1);
     }
 
+    software[0] = 0;
     tlv_open(&cursor, frame, bytes);
     while (tlv_next(&cursor, &type, &value, &length)) {
         struct zte_cursor zte;
+        /* The version only means something inside an AP Capability Report: the factory daemon puts this TLV in
+         * that message and reads it back from it, and the number is its own, not the standard's. */
+        if (type == CONTROLLER_TLV_DEVICE_INVENTORY) {
+            if (header.type == CONTROLLER_MSG_AP_CAPABILITY_REPORT)
+                device_inventory_software(value, length, software, sizeof(software));
+            continue;
+        }
         /* Only a HigherLayerResponse carries the light: the same sub-TLV number inside another message type is a
          * different field, and the master reads it from the response too. */
         if (header.type != 0x000e || type != CONTROLLER_TLV_VENDOR || !zte_vendor_open(&zte, value, length))
@@ -113,11 +122,18 @@ int controller_peer_note(const uint8_t *frame, size_t bytes)
      * the lab link, ~2/s) says nothing the page shows, and rewriting a file for it would churn the tmpfs for no
      * gain. */
     if (!(metrics.fields & (NODE_METRIC_STATIONS | NODE_METRIC_BSS)) &&
-        header.type != 0x0003 && header.type != 0x0006 && header.type != 0x000e && light < 0)
+        header.type != 0x0003 && header.type != 0x0006 && header.type != 0x000e && light < 0 && !software[0])
         return 0;
     if (!admit(mac))
         return 0;
 
+    /* A version is not a number, and it does not go stale the way a station count does, so it gets its own file
+     * with the text in it instead of a key in the metrics digest. */
+    if (software[0]) {
+        n = snprintf(text, sizeof(text), "%s\n", software);
+        if (n > 0 && (size_t)n < sizeof(text))
+            written += write_peer(mac, "software", text, (size_t)n);
+    }
     if (light >= 0) {
         n = snprintf(text, sizeof(text), "light=%d\n", light);
         if (n > 0)

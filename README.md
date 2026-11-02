@@ -85,7 +85,7 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [PLAN](docs/PLAN.md) | **开发计划**：四个验收场景、分批推进、主机可测与需真机分开、真机待测台账、CI 与装机节奏 |
 | [MESH_INTEROP](docs/research/MESH_INTEROP.md) | 中兴 mesh 的协议归属、外部项目（prplMesh / BBF 1905.1a）能借什么、固件解密的边界（含**内核读路径无解密代码**的实证）、**原厂内核里 1905 的全部字符串/符号**、做功能时的兼容性硬约束（§5.5 已修正为「丢转发、送本机」） |
 | [WIRESHARK_1905](docs/research/WIRESHARK_1905.md) | 用 Wireshark `ieee1905` 逐字段核对线上帧：我们发的 `0x0007`/`0x0008`/`0x8006`、原厂发的 `0x0000`/`0x0001`/`0x0008`/`0x000a`、差异清单与处置 |
-| [CAPTURE_1905](docs/research/CAPTURE_1905.md) | 实验台上真抓的一段 1905（40 秒 107 帧）：线上只有哪四类帧、ZTE 厂商 TLV 容器（`OUI 00:19:c6` + 3 字节 + 子 TLV，61/61 走完）、`0x83`/`0x94` 的布局用 tshark 核对的过程，以及**这段流量里根本没有 RSSI** 的负结果 |
+| [CAPTURE_1905](docs/research/CAPTURE_1905.md) | 实验台上真抓的一段 1905（40 秒 107 帧）：线上只有哪四类帧、ZTE 厂商 TLV 容器（`OUI 00:19:c6` + 3 字节 + 子 TLV，61/61 走完）、`0x83`/`0x94` 的布局用 tshark 核对的过程，这段流量里**根本没有 RSSI** 的负结果，以及拓扑页软件版本一直为空的来龙去脉（`0x8002` 带厂商 TLV `0xd4`，原厂抽进内存却不写库） |
 | [STEER_1905](docs/research/STEER_1905.md) | 终端动作消息的字节：`0x8014` 引导、`0x8015` BTM 结果、`0x8016` 封禁、`0x8017` 引导完成各自的消息号与 TLV 布局，**四处与规范直觉不同的字段顺序**（flags 在窗口之前、每个列表的计数贴着列表），以及"dissector 认可 ≠ ZTE 照做"的边界（出厂 `EnBtmKickoff=0`） |
 | [VENDOR_MESH_STACK](docs/research/VENDOR_MESH_STACK.md) | 从市售 AX3000（E2631）拿到的**明文原厂 mesh 栈**：cspd 的模块划分、`ASEND`/`SSEND` 内部总线号、和 SR1010 的能力面差异、**D 段（VLAN/绑定/BTM/VBSS）的修订依据**（§2.1 记录了「漏取 multiapd」的自纠） |
 | [MULTIAPD](docs/research/MULTIAPD.md) | **没被 strip 的 1905 协议实体**：6835 个符号 / 2184 个具名函数、TLV 与 M1/M2 的收发两端、`br0` 上的 raw socket、`pktdump`/`setrole`/`querydev` 调试命令表、DB 通道 |

@@ -134,6 +134,57 @@ static unsigned int ap_bss_interfaces(const uint8_t *value, size_t length)
     return total;
 }
 
+/* One [length(1), text] child of the inventory, at `at`. Returns the bytes it consumes, 0 when the TLV stops short
+ * of it; `text` and `size` get the field when the caller asks for them. */
+static size_t inventory_child(const uint8_t *value, size_t length, size_t at, const uint8_t **text, size_t *size)
+{
+    size_t len;
+    if (at >= length)
+        return 0;
+    len = value[at];
+    if (len + 1 > length - at)
+        return 0;
+    if (text)
+        *text = value + at + 1;
+    if (size)
+        *size = len;
+    return len + 1;
+}
+
+/* A version is text, and the factory field is a char array: a byte under ' ' - the zero that would cut the string
+ * short included - is damage or a forged field, not something to put on the page. */
+static int inventory_is_text(const uint8_t *text, size_t len)
+{
+    size_t i;
+    for (i = 0; i < len; i++)
+        if (text[i] < ' ' || text[i] == 0x7f)
+            return 0;
+    return 1;
+}
+
+int device_inventory_software(const uint8_t *value, size_t length, char *out, size_t out_size)
+{
+    const uint8_t *text;
+    size_t len, at;
+    if (!value || !out || out_size < 2)
+        return 0;
+    out[0] = 0;
+    /* The serial number comes first, and the version cannot be located without stepping over it. A field longer
+     * than the factory's 64-byte member is stepped over too, as its receiver steps over it, so the fields after
+     * it keep their places. The hardware version that follows is not read: the walk stops where the answer is. */
+    at = inventory_child(value, length, 0, NULL, NULL);
+    if (!at || !inventory_child(value, length, at, &text, &len))
+        return 0;
+    if (!len || len > CONTROLLER_INVENTORY_TEXT || !inventory_is_text(text, len))
+        return 0;
+    {
+        size_t n = len < out_size - 1 ? len : out_size - 1;
+        memcpy(out, text, n);
+        out[n] = 0;
+    }
+    return 1;
+}
+
 int node_metrics_decode(const uint8_t *frame, size_t bytes, struct node_metrics *metrics)
 {
     struct cmdu_header header;

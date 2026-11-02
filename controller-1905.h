@@ -16,11 +16,17 @@
 #define CONTROLLER_1905_HEADER 22
 #define CONTROLLER_1905_MAX_BYTES 2000
 
-/* TLV types used here (the dissector's table, decimal -> value). The rest is skipped. */
+/* TLV types used here (the dissector's table, decimal -> value). The rest is skipped. 0xd4 is not in that table:
+ * it is ZTE's own Device Inventory, and the number is the one the factory daemon puts into its AP Capability
+ * Report and reads back out of it (I5TlvDeviceInventoryTypeInsert/Extract, see below). */
 #define CONTROLLER_TLV_AL_MAC 0x01
 #define CONTROLLER_TLV_VENDOR 0x0b
 #define CONTROLLER_TLV_AP_OPERATIONAL_BSS 0x83
 #define CONTROLLER_TLV_AP_METRICS 0x94
+#define CONTROLLER_TLV_DEVICE_INVENTORY 0xd4
+
+/* CMDU types, for the rare field whose number only means something inside one message type. */
+#define CONTROLLER_MSG_AP_CAPABILITY_REPORT 0x8002
 
 struct cmdu_header {
     unsigned int type;      /* CMDU message type, e.g. 0x0003 topology response, 0x800c AP metrics response */
@@ -63,5 +69,23 @@ struct node_metrics {
 /* 1 = the frame is a 1905 CMDU (metrics then hold at least hops), 0 = not a CMDU. Unknown fields keep the
  * value -1 for hops and 0 with their bit clear for the counts, so a caller can tell "no data" from "zero". */
 int node_metrics_decode(const uint8_t *frame, size_t bytes, struct node_metrics *metrics);
+
+/* The longest version the inventory can carry. The factory receiver copies each of its strings into a 64-byte
+ * member and refuses a length byte above 64, so nothing longer is ever a version. */
+#define CONTROLLER_INVENTORY_TEXT 64
+
+/* The Device Inventory TLV (0xd4): three strings in wire order - serial number, software version, hardware
+ * version - each as [length(1), text], then a count byte and one record per radio. This takes only the software
+ * version, and only as plain ASCII: the serial belongs to the device, and a page cell full of control bytes is
+ * worse than an empty one. The layout is read out of the factory daemon, not seen on the wire: the sender
+ * ApCapabilityReportSend @0x58470 (CMDU 0x8002) inserts this TLV through I5TlvDeviceInventoryTypeInsert @0x501e0,
+ * and I5TlvDeviceInventoryTypeExtract @0x3d674 lays the three strings at device record +312, +247 and +377 with
+ * I5TlvExtractChildlv @0x68764, which is the [length][text] walk and the 64-byte cap this copies. Whether a given
+ * child sends it is a question for the device it runs on.
+ *
+ * 1 = `out` holds a version, 0 = the TLV is too short, damaged or empty (then `out` is ""). A length that runs
+ * past the TLV stops the walk, so a truncated report yields nothing rather than the bytes after it. A buffer
+ * shorter than 64 bytes gets the version truncated to fit. */
+int device_inventory_software(const uint8_t *value, size_t length, char *out, size_t out_size);
 
 #endif

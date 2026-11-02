@@ -110,6 +110,12 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | A25 | `wlan-sync` / `search` 的 respawn 预算写成显式 `3600 5 0` | H | ✅ 主机测试；实测 retry 0 = 不限次，裸 `respawn` 半小时后永久放弃 |
 | A13′ | 角色拆成 `mesh_role` + `apply_local`，线上不再发 `auto` | H | ✅ init 103 项 / rpcd 24 项 / luci / i18n；真机对照见 H-11 |
 
+### 批 7 · 拓扑页缺的那一格（H）
+
+| 项 | 内容 | 类型 | 验收 |
+|---|---|---|---|
+| A18c | **已完成（主机侧）**。子节点的**固件版本**上页。先把"为什么是空的"查死：`IGD.P1905DeviceInfo` 的行由 `topoAdd1905DevInfoToDB @0x8e37c` 写，它只从设备记录取 `+24/+60/+124/+584`，**`SoftwareVer`（+247）从来不解包**——版本串其实在 **CMDU 0x8002 AP Capability Report 的厂商 TLV 0xd4**（`I5TlvDeviceInventoryTypeExtract @0x3d674`），详见 [CAPTURE_1905](research/CAPTURE_1905.md) 第 5 节。做法：`controller-1905.c` 加 `device_inventory_software()`（`[长度1 文本]` 三段取第二段，>64 与不可打印都算没说），`controller-peer.c` 只在 `0x8002` 里认它、落成 `peers/<MAC>.software`，服务在数据库那列为空时读它填进 `state.json` 的 `nodes[].software`。**页面一行没改**：本来就有这一列 | H | `tests/controller-1905-codec.c` 192 断言：整段、截到每一刀、空字段、控制字节、64/65 边界、小缓冲区截断；`tests/controller-peer-codec.c` 71 项：版本单独一个文件、别的消息类型里同号码不落盘、没有清单的 capability report 不落盘、空版本不覆盖已有文件、只有报的那台变。**真机缺**：见 H-12 |
+
 ### 状态速览
 
 | 批次 | 主题 | 状态 | 批末 CI |
@@ -120,6 +126,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 4 | 无线回程 | ✅ 主机侧做完（B13a/b/d/e/f/g：回程 STA 的 `wifi-iface` 两端都生成、`wds` 才是 4 地址的开关、换角色会回收对端段、applier 的四个输入都进签名且页面上都有字段）；**B13c 端到端等真机**（H-01） | H-01 |
 | 5 | 多子节点与稳定性 | 🔄 A21 主机侧做完（`controller-peer.c` 拆分 + 58 项测试 + 重编换包）；A22 的"30 分钟无重启"已在装好 r15 的 owrt 上采完（顺带把 A25 在装机后复验了一遍），**日志那一半做完并在装机中验掉**（`controller-log.c` 分类预算 + poll 每分钟采样 + 65 万项主机测试 + ARM32 换包，见 [journal](journal/2026-11-03.md)）。**CI 装机轮已跑（r16，`ci/batch5` 那次构建的产物：owrt 8 项、ax3600 9 项全 PASS）**——A21 的新落盘在两台真机上各自带一个 peer 成立（`/run/zte-mesh/peers/<mac>.light|.metrics`，主控看 `:e3`、子端看 `:03`）；A22 的采样上限与超额说明在 ax3600 上实测成立。**批 5 只剩要第二台子路由的**：A21/H-04 两个 peer 并存、A23 的两子节点拓扑。**装机后追加的小尾巴**：采样说明改成带 `dropped_total=`（`controller-log.c` + 主机测试 + ARM32 换包都做完，`PKG_RELEASE` 与装机读数留给下一次 CI） | A23（H-04） |
 | 6 | 发布与工程化 | ✅ C9（CI 只构建、发布手工三步）+ C10（`verify-install.sh`，两台实验机各跑一次都 PASS）；**C8 手册写完，"按文档走一遍"这一遍还没跑** | ✅ 三次：41401349851（r14/r7）、41410028326（r15/r8，装机读回一致）与 **`ci/batch5` 那次（r16，两台 PASS）** |
+| 7 | 拓扑页缺的那一格 | ✅ 主机侧做完（A18c：软件版本走 `0x8002`/`0xd4` → `peers/<MAC>.software` → `state.json`，页面一行没改；192 断言 + 71 项） | H-12（这一批只这一项，CI 与 `PKG_RELEASE` 留到下一次批末一起走） |
 
 ## 4. 主机测试口径
 
@@ -131,7 +138,8 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 122 项（批 3 加 7 条、批 4 加回程告警 3 条 + `backhaul` 取值 2 条 + applier 四个输入的签名 11 条 + 共用判据 3 条源码针） |
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 24 项（批 3 加六个 role/`apply_local` 组合；Windows 上要先解决上面那条 `python3` 占位程序） |
 | `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `38 main / 10 slot / 4 ACL / 2 client / child 7`（批 2 加节点表断言，批 3 加动作列表与状态框，批 4 加回程开关的两端可见性与两个射频点名——纯主控 `apply_local=0` 时 `backhaul`、`extra_slots`、`wifi_2g`、`wifi_5g` 都不渲染；"每个选项都要有表单项"这一遍现在渲染**会落地的**主控，因为纯主控按设计就少几个字段） |
-| `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94` | 101 断言 + 10 万次有界变异（需要一台能编 C 的机器） |
+| `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94`、`0xd4` 里的软件版本 | 192 断言 + 10 万次有界变异（需要一台能编 C 的机器） |
+| `tests/controller-peer-codec.c`（`make test-host`） | 一帧落到哪几个文件：分 MAC、多值多文件、灯跟 AL MAC、不落盘的碎帧、MAC 洪水预算 | 71 项 |
 | `tests/controller-steer-codec.c`（`make test-host`） | 终端动作消息的编码与两种回报的解码 | 整帧字节比对 + 10 万次有界变异（同上） |
 | `sh tests/test_steer_tshark.sh` | 把上面那几帧交给 tshark，逐字段读回 | 20 项；没有 tshark 时输出 SKIP 并退出 0 |
 | `tests/controller-actions-test.c`（`make test-host`） | 终端动作的去抖、重发、超时、回滚、每秒重配置、到期不复发、时钟域 | 239 断言，假时钟 |
@@ -140,8 +148,8 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | `sh tests/test_frames.py`（`python tests/test_frames.py`） | pcap 帧长/配对/周期 | 4 项 |
 | `sh tools/build/container-make.sh test-host` | C 编解码（含 10 万次变异）+ 沙箱 | 需要容器或 Ubuntu（`192.168.1.191`） |
 
-本机（Windows + Git Bash + Python 3.13 + Node 22）能跑前六行；C 那行必须借容器或 Ubuntu 机器。
-**批末判定以全部行为准**，本机能跑的行先跑，C 那行在批末那一次 CI/Ubuntu 上补。
+本机（Windows + Git Bash + Python 3.13 + Node 22）能跑表里的 shell / python / JS 那几行；C 那几行必须借容器或 Ubuntu 机器。
+**批末判定以全部行为准**，本机能跑的行先跑，C 那几行在批末那一次 CI/Ubuntu 上补。
 
 > Windows 上的一个坑：Git Bash 里 `python3` 常解析成 `WindowsApps\python3.exe` 那个"去商店装 Python"的占位程序，
 > 它不报错也不输出。`test_rpcd.sh` 的 jsonfilter 桩走 `python3`，于是七条断言全成 `{"result":-2}`——**这是本机环境，
@@ -164,6 +172,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | **H-09** | 长时间稳定性（A22 的真机版） | 两台实验机 | 装 rXX 后放 24 小时，看 `daemon_restarts`、内存、`dmesg`；**外加真子路由推送时的日志占比**（改前实测：一次推送 1012 行 / 7 分钟，超过整圈 128 KiB，四小时后仍占 94.5%） | 重启计数 0、无 OOM；`logread` 里 `ZTE_TRACE_POLL` 不超过每分钟 4 行、每个超额窗口一条 `log_budget=poll sampled=1`，且用户的行（入网、封禁、告警）还在；采样说明要能报出丢了几个（`dropped_total=`，代码已做、装机还没读）。每分钟 4 行与两类超额说明两台实验机已读到（2026-11-03 r16），这里缺的是 24 小时和真子路由那一次推送 | 会占着机器 |
 | **H-10** | **已验（2026-11-02，owrt VM）**：A24 有线口自愈——删掉宿主这头的 `zmesh0` 后自己长回来 | 实验室控制器（owrt VM），页面能看到「有线接口」 | 实测：①删之前 `attached=true`、controller 实例 pid=23117 ②`ip link del zmesh0`（16:06:34）③16:06:53 日志 `no zmesh0 for 20 s while the controller runs in 23146: restarting it to rebuild the wire` ④16:06:58 新沙箱起来（pid 27545，`topology dev_num=0`）⑤16:06:59 `attached zmesh0 to br-lan` ⑥回读 `attached=true`、`daemon_restarts=0`、节点 `IGD.P1905DeviceInfo1` 重新 `online=true` | **25 秒自愈，没有人重启主控**（GRACE=20 + 一个 tick 的落地时间，和脚本里的常数对得上）；重启的是沙箱所属的 controller 实例，`attach` 自己的 pid 没动（23118 前后一样）——这正是"看门狗没被一起带走"的证据 | 只验了"主动删线"这一种丢失；`attach` 自己也被杀时自愈停摆（respawn 不限次），连续重启会短暂断开子路由的 1905 链路（本次重启后 `dev_num=0` 约 1 秒才回填） |
 | **H-11** | A13 角色改成 `master` 后，真中兴子路由照样入网 | ax3600（或 Z506）+ OpenWrt 主控，装机验证 | ①主控 `mesh_role=master`（不再发 `auto`）②子路由开机入网 ③`uci show zte_mesh` 与页面拓扑确认 ④主控改成 `apply_local=1` 再看本机 SSID 与子路由 SSID 同步 ⑤子路由重启一次，等 5 分钟内被 `search` 重新发现（A25 之后才可能） | 入网、下发档案、拓扑填充与 `auto` 时代一致；关键是**没有**出现子路由自当选主控（`MultiAPMaster` 的角色列仍是子） | 改动只在主控写库的 `SetRoleEnable` 与 `Mode`，子路由侧一行没动 |
+| **H-12** | A18c 子路由固件版本上页——布局是 [代码] 级推的，真机没看过一眼 | 一台真中兴子路由（Z506，页面上写着 `V1.0.0.2B2.8000`）+ 主控已装机；`tcpdump` 抓 `zmesh0` | ①抓主控收到的 CMDU，找 `0x8002`（AP Capability Report）②在它的 TLV 里找 `0xd4`（厂商自定义 Device Inventory Type），按 `[len][text]` 手工切三段，看顺序是否 序列号 → 软件版本 → 硬件版本 ③`cat /run/zte-mesh/peers/<MAC>.software` 看是否落地、内容是否与页面「型号/名称」同源 ④刷新拓扑页，看 `nodes[].software` 是否显示 `V1.0.0.2B2.8000` 而不是 `-` | ②切出来的第二段与子路由「关于」页的版本号逐字符相同；③④有值即通路全绿。**负结果同样有用**：若 `0x8002` 里根本没有 `0xd4`，说明这颗 Z506 不发库存字段，解码器留着但页面无数据，要另找来源（HLR 厂商 TLV 已在 [CAPTURE_1905 §5](research/CAPTURE_1905.md) 证伪） | 只读抓包，不推配置；子路由侧一行没动 |
 
 ## 6. CI 与装机节奏
 

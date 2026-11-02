@@ -9,9 +9,11 @@
  * child reports as up, or whether it reached us over a direct link or a relay. All of it rides in frames the daemon
  * receives anyway: a HigherLayerResponse carries the light in vendor sub-TLV 0x21 {AL MAC[6], status} (the master
  * reads it in _topoLightStatusHandle), an AP Metrics Response lists the station count of each BSS, and a Topology
- * Response lists the child's BSS interfaces. The answers to a client action - a BTM report (0x8015) and a Steering
- * Completed (0x8017) - name the *client*, and are filed under that MAC rather than under the agent that sent them,
- * because that is the key the action table uses.
+ * Response lists the child's BSS interfaces. The software version rides the AP Capability Report, in the vendor's
+ * own TLV 0xd4; the master's daemon extracts it into its own device table and prints it on its CLI, but never
+ * writes it into the peer rows, so a page that reads the database alone shows it empty. The answers to a client
+ * action - a BTM report (0x8015) and a Steering Completed (0x8017) - name the *client*, and are filed under that
+ * MAC rather than under the agent that sent them, because that is the key the action table uses.
  *
  * The latest values go to `<peers dir>/<MAC>.<kind>`, written atomically, and the service reads them for state.json.
  * The directory is /run/zte-mesh/peers unless ZTE_MESH_PEERS_DIR says otherwise - that is the one thing here a host

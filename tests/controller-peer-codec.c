@@ -334,6 +334,65 @@ static void actions_follow_the_client(void)
     CHECK(peer_absent(child_b, "btm"));
 }
 
+/* ZTE's Device Inventory TLV (0xd4) as the factory daemon lays it out: [length][text] for the serial number, the
+ * software version and the hardware version, then a radio count. The numbers here stay inside every field the
+ * decoder reads; the count and the records after it are never reached. */
+static size_t put_inventory(uint8_t *frame, size_t at, const char *software)
+{
+    uint8_t body[192];
+    size_t payload = 0, len = strlen(software);
+    body[payload++] = 5;
+    memcpy(body + payload, "SN123", 5);
+    payload += 5;
+    body[payload++] = (uint8_t)len;
+    memcpy(body + payload, software, len);
+    payload += len;
+    body[payload++] = 9;
+    memcpy(body + payload, "ZXHN Z506", 9);
+    payload += 9;
+    body[payload++] = 0;
+    return put_tlv(frame, at, CONTROLLER_TLV_DEVICE_INVENTORY, body, payload);
+}
+
+static void version_is_another_file(void)
+{
+    uint8_t frame[CONTROLLER_1905_MAX_BYTES];
+    size_t at;
+
+    /* The version a child reports about itself is not a number, so it does not share the metrics digest: it gets
+     * its own file and the page shows it as reported. The report also carries the hop count, so one frame leaves
+     * two files. */
+    at = put_inventory(frame, frame_open(frame, child_b, CONTROLLER_MSG_AP_CAPABILITY_REPORT, 50), "V1.0.0.2B2.8000");
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
+    EXPECT(child_b, "software", "V1.0.0.2B2.8000\n");
+    EXPECT(child_b, "metrics", "hops=1\n");
+
+    /* The same TLV number inside another message type is another field, and a capability report that carries no
+     * inventory says nothing the page has: neither writes, and neither touches what the node already reported. */
+    at = put_inventory(frame, frame_open(frame, child_b, 0x0004, 51), "V9.9.9");
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 0);
+    EXPECT(child_b, "software", "V1.0.0.2B2.8000\n");
+    at = put_tlv(frame, frame_open(frame, child_b, CONTROLLER_MSG_AP_CAPABILITY_REPORT, 52),
+                 CONTROLLER_TLV_AL_MAC, child_b, 6);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 0);
+
+    /* The latest report wins, and only for the node that sent it. */
+    at = put_inventory(frame, frame_open(frame, child_b, CONTROLLER_MSG_AP_CAPABILITY_REPORT, 53), "V1.0.0.3B1.1000");
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
+    EXPECT(child_b, "software", "V1.0.0.3B1.1000\n");
+    CHECK(peer_absent(child_a, "software"));
+
+    /* An empty version field is "not reported", not "no version": the file the node filled earlier stays. */
+    at = put_inventory(frame, frame_open(frame, child_b, CONTROLLER_MSG_AP_CAPABILITY_REPORT, 54), "");
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 0);
+    EXPECT(child_b, "software", "V1.0.0.3B1.1000\n");
+
+    /* A version that is not text is not a version either. */
+    at = put_inventory(frame, frame_open(frame, child_b, CONTROLLER_MSG_AP_CAPABILITY_REPORT, 55), "V1.0\x01");
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 0);
+    EXPECT(child_b, "software", "V1.0.0.3B1.1000\n");
+}
+
 static void frames_that_write_nothing(void)
 {
     uint8_t frame[CONTROLLER_1905_MAX_BYTES];
@@ -439,6 +498,7 @@ int main(void)
     relayed_frames_are_the_senders();
     light_is_another_file();
     actions_follow_the_client();
+    version_is_another_file();
     frames_that_write_nothing();
     flood_budget();
     cleanup();
