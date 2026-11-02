@@ -47,7 +47,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | A10 | 重启子节点 / 指示灯开关 | ✅ | REPLAY_RESULTS 16.1 | — |
 | A11 | 访客限时、Wi-Fi 定时关闭 | ✅ | `scope=guest` 真机；`scope=all` 仅实验室 | — |
 | A12 | 自组网 V2（`mesh.v2`）与市场码门槛 | ✅ | 两种取值都正常入网 | — |
-| A13 | 控制器角色 `master` / `auto`（含自适应选举替身） | ✅ | 第 40 轮 | — |
+| A13 | 控制器角色：只发 `master`，`auto`（自适应选举替身）不再出现在配置里 | ✅ | 第 40 轮；2026-11-02 起 `main`/`auto` 在 init 折算成 `master` + `apply_local=1`，`SetRoleEnable=0`/`Mode 2` 从第一帧生效（沙箱里没有 cspd，选举没有对手，反而给真中兴子路由留了三秒当选主控的窗口）。C 侧 `CONTROLLER_ROLE_AUTO` 分支留着只服务升级前写好的 `/run/zte-mesh/config` | — |
 | A14 | MLO 开关下发（`0200fe`） | ☑️ | 线上帧逐字节一致；Z506 无该字段，等于无操作 | — |
 | A15 | Wi-Fi 5 兼容标志（`ForceWiFi5`） | ☑️ | 线上值正确；Z506 不认 | — |
 | A16 | 漫游 / 频段引导阈值下发 | ☑️ | 能发；Z506 固件没有解析代码 | — |
@@ -55,6 +55,8 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | A18 | 拓扑页：节点清单 + **每节点的终端数 / BSS 数 / 直连还是经中继 / 上报新鲜度**；缺回程 RSSI、树状图、每 AP 终端列表、固件版本 | 🔄 | A18a：`controller-1905.c` 解码 `0x83`/`0x94`/头部 relay 位，`state.json` 每节点加 `bss`/`hops`/`metrics_age`（-1 = 没上报，与 0 区分）；C 测试 101 断言 + 10 万次变异，含一帧抓包原文。A18b：LuCI 加「链路」列。**回程 RSSI 无线索**，见 [CAPTURE_1905](research/CAPTURE_1905.md) 与 H-05 | 3 |
 | A19 | 服务配置校验：`zte-mesh-timer` / ACL / 槽位连续性 / `extra_slots` / **`backhaul=multi_ap` 与 `wpad` 变体** | ☑️ | init 87 项 + wlan-sync 新增 4 项：`-basic` 变体上开回程会把原因写进日志与 `wlan-sync.status` 的 `message`，完整 `wpad` 不告警，回程关时不告警，包库读不到时既不言过也不失败 | — |
 | A20 | **界面中英双语**：文案全走 `_()`，`po/zh_Hans` 与源码逐条对齐 | ✅ | i18n 12 项；两台随包装出 `zte-mesh.zh-cn.lmo`（11632 B），`/cgi-bin/luci/admin/translations/zh-cn` 返回中文 | — |
+| A24 | **有线口掉线自愈**：`attach` 兼任看门狗，线没了就重启沙箱实例 | 🔄 | 机制：`veth-lab`/`zmesh0` 是一对 veth，删一端两个一起消失，沙箱里没有 `/proc`、`/sys`、`ip`、`CAP_NET_ADMIN`，daemon 又把 ifindex 绑死在 `bind()` 上——只有重启实例才能重建。`attach` 连续 20 秒看不到两端而沙箱进程仍在，就 `SIGTERM` 它，procd（`respawn 3600 5 0`，retry 0 = 不限，实测 13 次退出仍在拉起）重新拉起，新线由同一个循环改名入桥；冷却 60 秒。纯 host 侧 shell，不动 C。**实验室复现待做**（`ip link del zmesh0` 后应自愈，见 [PLAN](PLAN.md) H-10）；`test_init.sh` 只守住脚本里有这套判据（3 项） | 2 |
+| A25 | **`search` 实例不再半小时后永久死掉** | ✅ | 裸 `respawn` 被 procd 填成 `3600 5 5`：每 300 秒按设计退出一次的 `search` 半小时烧完预算，日志 `crash loop 6 crashes, 300 seconds since last crash`，之后开机的子路由再也找不到主控。实测 `owrt`：`status → running (2/3)`，只剩 ns-run + attach。`wlan-sync`、`search` 改成显式 `3600 5 0`；`test_init.sh` 断言三个实例都不再用默认值 | — |
 
 ## B. 子路由（本机是子节点）
 
@@ -66,17 +68,17 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | B4 | 库 → 计划的发布（`agent-sync` → `/run/zte-mesh/wlan-plan`） | ☑️ | `published=1 rows=2` | — |
 | B5 | 计划 → `/etc/config/wireless`（`wlan-sync`，幂等、只写真变化；plan 启用某 band 时把关着的 radio 打开） | ✅ | 86 项测试；ax3600 人为 `disabled=1` 后重启服务，日志 `switched on ... applied`，空卡 `radio0` 未被碰 | — |
 | B6 | 回程 BSS：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 86 项测试含开关双向复原 | — |
-| B7 | UCI / init / LuCI 暴露 `mesh_role` + `backhaul` | ✅ | init 79、rpcd 18；两台 `uci` 写的三个角色都被 init 接受 | — |
+| B7 | UCI / init / LuCI 暴露 `mesh_role`（`master`/`slave`）+ `apply_local` + `backhaul`；旧名 `main`/`auto` 仍被读 | ✅ | init 103 项（`role-local-sig`、`role-slave-local-keeps-plan`、`role-main-local-off`、两个 legacy 别名各出一份 plan）、rpcd 24 项 | — |
 | B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | init `role-slave-borrow` | — |
 | B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | `test_luci.js`（主控 31 项 / 子路由 4 项） | — |
-| B10 | rpcd `status` 返回角色 | ✅ | rpcd 18 项；两台各自读到 `master`/`main`/`slave` | — |
+| B10 | rpcd `status` 返回 `role` 与 `local` 两个轴 | ✅ | rpcd 24 项；`main`/`auto` 报成 `master` + `local:true`，子路由永远 `local:false`；页面标题由这两值决定（`test_luci.js`） | — |
 | B11 | **额外槽位（slot 1–3）落到本机**：`extra_slots=1` 时每（频段,槽位）一个 `zte_extra_<band>_<slot>` 段，plan 不再下发的槽位被删除，`extra_slots=0`（默认）与旧行为逐字节相同；`main` 角色的本机 plan 也带上 `zte_mesh_bss` 的行 | ☑️ | `wlan-sync` 123 项（含默认关/开/幂等/删槽位/坏密钥/频段二选一/槽位 4 越界/无名行）、init 87 项（`role-main-slots` 五行的 plan、`role-main-no-slots` 只两行、`role-slave-slots-keeps-plan` 不动子路由 plan、`extra_slots=2` 被拒）。**默认关**，真机效果见 [PLAN](PLAN.md) H-02 | 3 |
 | B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | wlan-sync 86 项、rpcd 18 项 | — |
 | B13 | 无线回程的数据面：本机作为 backhaul STA 去关联主控的回程 BSS | ⬜ | 只做了 AP 侧 | 4 |
 | B14 | 真机：本机当子路由，接真主控（有线回程） | ✅ | 两台实验机打通。抓包确认**子路由自己会发** `0x0007` Search、主控回 `0x0008` 带 WSC；原判断"子路由被 cspd 门控"是错的，真因是 C6。r7 后主控改 SSID，子路由 `wlan-plan` 与 `iw dev` 跟着变成 `MASTERTEST`/`MASTERTEST-5G` | — |
 | B15 | `CmWLANMapSsidCfgSync2Repeater` 对齐（libcmapi 内部调用，替身命中不到） | ⬜ | 沙箱里是 no-op | 5 |
 | B16 | `CurHop` 在子路由侧的真实更新 | ⬜ | 实验室用 `-2` 顶替 | 2 |
-| B17 | **三角色**：`master` 只控制 / `main` = 主控 + 本机落地 / `slave` 只被控；`main` 的 plan 由 init 写 | ✅ | init 79；VM 切 `main` 后 init 写出 `wlan-plan`（`rows=2`）、`wlan-sync` 在跑、日志 `no usable 2g radio; left alone`；切回 `master` 后 plan 与实例一起消失（一个 plan 只有一个生产者） | — |
+| B17 | **两个开关**：`mesh_role` 决定本机是主控还是子节点，`apply_local` 决定主控要不要把同一份档案落到本机；旧名 `main`/`auto` = 主控 + 落地 | ✅ | init 103（`role-master` 不写 plan、`role-local-sig` 写 plan 且 `restart.sig` 变、`role-slave-local-keeps-plan` 不碰子路由 plan、两个 legacy 别名各出一份）；VM 上切角色后 `wlan-plan` 与 `wlan-sync` 实例一起出现/消失（一个 plan 只有一个生产者） | — |
 | B18 | **cspd 替身**：控制器侧自己发 `0x0007` Search、并代答子路由的 Search（`0x0008`） | ✅ | `tools/lab/enroller.c` → `/usr/libexec/zte-mesh/mesh-search`，init 在非 `slave` 角色下多起一个 `search` 实例，带 `--al-mac 02:00:00:00:19:<al_last>`（子路由的 M1 发给控制器 AL MAC）。`--search` 每次启动只发**一帧**，所以周期就是"多久收一次新子节点"，已从 `86400` 改成 `300`（最坏等 5 分钟）；实测不抖：`plan applied nothing new`、`daemon_restarts=0`。装 r6 后真机自动入网，不再需要手工 enroller | — |
 
 | B19 | **控制器地址末字节可配**（UCI `al_last` / 页面"控制器地址末字节"）：两台设备 LAN MAC 相同时手工错开 | ✅ | init 83 条（含 `al_last` 空/大小写/非法值四个分支，VM 上 busybox ash 实测）；只暴露末字节，前五字节固定为子路由准入检查认的形状 | 1 |

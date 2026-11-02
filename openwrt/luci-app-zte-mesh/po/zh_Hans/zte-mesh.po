@@ -137,14 +137,17 @@ msgstr "漫游与频段引导"
 msgid "Device role"
 msgstr "设备角色"
 
-msgid "Controller only"
-msgstr "仅主控"
-
-msgid "Controller only: this router manages the child routers and gives them the Wi-Fi profile, but its own radios are left exactly as they are. That is the shape of most wired OpenWrt boxes at the head of a mesh, so it is the default. Main router: the same controller that also broadcasts the profile itself -- pick this when the box has Wi-Fi and should put the network on the air too. Child router: this router is a mesh agent, it hands nothing out and the controller gives it the Wi-Fi name, key and security. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. On the two roles that apply a profile here, a radio device that was switched off is switched on when the band is enabled, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until a different profile arrives. Changing the role restarts the service and reloads this page, and the child routers drop out of the topology for a short while."
-msgstr "仅主控：本机管理子路由、把 Wi-Fi 档案下发给它们，自己的射频原样不动。这是有线 OpenWrt 盒子做组网头端时最常见的形态，所以是默认值。主路由：同一个主控，但自己也广播这套档案——盒子带无线、并且应该把网络发到空中时选它。子路由：本机是 mesh 代理，不下发任何东西，由主控给出 Wi-Fi 名称、密码与加密方式。子路由启动时先用本机正在广播的无线网络，直到主控下发自己的配置，所以这里不需要填任何东西：选中子路由后，Wi-Fi、漫游与额外网络设置都会隐藏。在会把档案应用到本机的这两个角色上，某个频段启用时原先关着的射频设备会被打开——射频关着就等于什么都没发射；此后被手动关掉的射频会一直关着，直到来了不同的档案。改角色会重启服务并重新加载本页，子路由器会短暂掉出拓扑。"
+msgid "Controller: this router runs the mesh -- it answers the child routers, hands out the Wi-Fi profile and decides about roaming and steering. Child router: this router is a mesh agent, it hands nothing out and the controller gives it the Wi-Fi name, key and security. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. Whether a controller also broadcasts this router's own Wi-Fi is the choice below. Changing the role restarts the service and reloads this page, and the child routers drop out of the topology for a short while."
+msgstr "主控：本机运行整个 mesh——回应子路由、下发 Wi-Fi 档案、决定漫游与引导。子路由：本机是 mesh 代理，不下发任何东西，由主控给出 Wi-Fi 名称、密码与加密方式。子路由启动时先用本机正在广播的无线网络，直到主控下发自己的配置，所以这里不需要填任何东西：选中子路由后，Wi-Fi、漫游与额外网络设置都会隐藏。主控是否也广播本机自己的 Wi-Fi，是下面那个开关。改角色会重启服务并重新加载本页，子路由器会短暂掉出拓扑。"
 
 msgid "Main router"
 msgstr "主路由"
+
+msgid "Also broadcast here"
+msgstr "本机也广播"
+
+msgid "On: this controller puts the Wi-Fi profile below on its own radios as well as handing it to the child routers, so it and they broadcast the same network -- the main router of the factory page. Off: the profile goes to the child routers only and this router's own radios are left exactly as they are, which is the shape of most wired OpenWrt boxes at the head of a mesh, so it is the default. On a router that does apply a profile here, a radio device that was switched off is switched on when the band is enabled, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until a different profile arrives."
+msgstr "开：这个主控除了把下面的 Wi-Fi 档案下发给子路由，也把它放在自己的射频上，于是本机与子路由广播同一个网络——就是出厂页面里的主路由。关：档案只下发给子路由，本机的射频原样不动；这是有线 OpenWrt 盒子做组网头端时最常见的形态，所以是默认值。会把档案应用到本机的路由器上，某个频段启用时原先关着的射频设备会被打开——射频关着就等于什么都没发射；此后被手动关掉的射频会一直关着，直到来了不同的档案。"
 
 msgid "Child router"
 msgstr "子路由"

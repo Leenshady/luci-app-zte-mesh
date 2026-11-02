@@ -90,9 +90,17 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
-| C8 | 安装文档：三种角色的最短上手路径（装什么包、改哪两项、在页面点哪里） | H | 按文档从裸机走到 S1/S2，中途不查别的文档 |
+| C8 | 安装文档：两个开关（`mesh_role` / `apply_local`）的最短上手路径（装什么包、改哪两项、在页面点哪里） | H | 按文档从裸机走到 S1/S2，中途不查别的文档 |
 | C9 | `build-apk.yml` 去掉 release 发布，只留 artifact + 校验和；release 改为手工 | H | workflow 里 `gh release` 零出现 |
 | C10 | 装机验收脚本：一条命令装四个包 + 读回版本 + 跑三条冒烟 | H | 在两台实验机上各跑一次，输出可贴进证据 |
+
+### 插队 · 2026-11-02 装机反馈
+
+| 项 | 内容 | 类型 | 验收 |
+|---|---|---|---|
+| A24 | 有线口掉线自愈（`attach` 兼任看门狗） | H | 主机测试 3 项守住判据；真机复现见 H-10 |
+| A25 | `wlan-sync` / `search` 的 respawn 预算写成显式 `3600 5 0` | H | ✅ 主机测试；实测 retry 0 = 不限次，裸 `respawn` 半小时后永久放弃 |
+| A13′ | 角色拆成 `mesh_role` + `apply_local`，线上不再发 `auto` | H | ✅ init 103 项 / rpcd 24 项 / luci / i18n；真机对照见 H-11 |
 
 ### 状态速览
 
@@ -141,6 +149,8 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | **H-07** | D5 VLAN / D6 绑定 / D7 BTM 在 E2631 上的实际行为 | 一台市售 E2631/AX3000，停机窗口 | 用它自带 `pktdump 1` 抓线上，按 [MULTIAPD](research/MULTIAPD.md) §5 的命令表 | 三处配置入口能被厂商自己的 web 打开（说明运行时真的读） | 动的是别人的家用路由器 |
 | **H-08** | 出厂 `VersionMode` 与"兼容模式"文案的对应 | E2631 页面 | 改页面开关，看 `MultiAPCfg.VersionMode` 与 `P1905ComCfg.Enable` | 文案 ↔ 字段一一对应 | 已有一半结论（[FINDINGS](FINDINGS.md)），缺厂商侧确认 |
 | **H-09** | 长时间稳定性（A22 的真机版） | 两台实验机 | 装 rXX 后放 24 小时，看 `daemon_restarts`、内存、`dmesg` | 重启计数 0、无 OOM | 会占着机器 |
+| **H-10** | A24 有线口自愈：删掉宿主这头的 `zmesh0` 后自己长回来 | 实验室控制器（owrt VM），页面能看到「有线接口」 | ①`zte-mesh status` 三项都在跑 ②`ip link del zmesh0` ③等 25 秒：页面先「未接入」再恢复「已挂到 LAN 桥」 ④`logread` 里 zte-mesh 先有 `restarting it to rebuild the wire`、随后 `attached zmesh0 to br-lan` ⑤`service list` 里 controller 实例换了 pid ⑥子路由重新出现在拓扑页 | 不需要人重启主控：两分钟内线自愈、拓扑重新填上，`multiapd` 的绑定跟着新 ifindex 走（这正是重启实例的原因） | `attach` 自己也被杀时自愈停摆——它的 respawn 同样是不限次；连续重启会短暂断开子路由的 1905 链路 |
+| **H-11** | A13 角色改成 `master` 后，真中兴子路由照样入网 | ax3600（或 Z506）+ OpenWrt 主控，装机验证 | ①主控 `mesh_role=master`（不再发 `auto`）②子路由开机入网 ③`uci show zte_mesh` 与页面拓扑确认 ④主控改成 `apply_local=1` 再看本机 SSID 与子路由 SSID 同步 ⑤子路由重启一次，等 5 分钟内被 `search` 重新发现（A25 之后才可能） | 入网、下发档案、拓扑填充与 `auto` 时代一致；关键是**没有**出现子路由自当选主控（`MultiAPMaster` 的角色列仍是子） | 改动只在主控写库的 `SetRoleEnable` 与 `Mode`，子路由侧一行没动 |
 
 ## 6. CI 与装机节奏
 

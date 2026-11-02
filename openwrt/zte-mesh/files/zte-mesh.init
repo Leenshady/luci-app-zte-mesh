@@ -189,7 +189,7 @@ bss_section() {
 		hid=$(bool01 "$hid") || { bad "zte_mesh_bss '$sec': force_wifi5 must be 0 or 1"; BSS_FAIL=1; return 1; }
 		emit "radio$radio.bss$slot.force_wifi5" "$hid"
 	fi
-	# The plan rows of this slot, for a main router that applies the profile to itself. Written last: a section
+	# The plan rows of this slot, for a controller that also broadcasts. Written last: a section
 	# that failed a check above never reaches the plan. Slot 3 is the factory's hidden backhaul BSS and carries
 	# MapAccessAttr bit 6 like it does on a child; wlan-sync applies it through the backhaul mode, not as a slot.
 	if [ -n "$PLAN_EXTRA" ]; then
@@ -340,36 +340,63 @@ borrow_profile() {
 	return 1
 }
 
-# ---- the three device roles -------------------------------------------------------------------
+# ---- the two things a role is made of -------------------------------------------------------------------
 #
-#   master  controller only. Hands the profile to the child routers and leaves this router's own radios alone,
-#           which is the shape most OpenWrt boxes have when they are used as the head of a mesh -- a wired
-#           router, a VM, a box whose Wi-Fi is somebody else's problem. This is the default.
-#   main    controller that also broadcasts: master plus the child's half. The profile is handed out AND applied
-#           to this router's own radios, so the controller and its children put the same network on the air.
-#   slave   child only: nothing is handed out, the controller's M2 decides what goes on the air here.
+# The daemon only ever hears one of two words, so the service file and the ZTE children see a clean line:
 #
-# "auto" is the old name of the main router role (the factory page calls the pair "main router / adaptive"). It is
-# still accepted on input and means exactly the same thing, so a configuration written before this change keeps
-# working. The daemon is told "auto" for both, which is the factory's adaptive triple that settles at master.
-role_applies_here() {
-	case "${1:-}" in main|auto) return 0 ;; esac
-	return 1
+#   mesh_role = master  this router runs the controller: it answers Search, hands the Wi-Fi profile out and
+#                       decides about the children. This is the default.
+#   mesh_role = slave   this router is a mesh child: it hands nothing out and takes its profile from the controller.
+#
+# Where that left an ambiguity the old three-role page could not express, so the second decision is its own option
+# rather than a third name for the first one:
+#
+#   apply_local = 1     a controller also puts the profile it hands out on this router's own radios -- the box that
+#                       is the head of the mesh and broadcasts the network at the same time.
+#   apply_local = 0     a controller leaves its own radios alone: a wired router, a VM, a box whose Wi-Fi is
+#                       somebody else's problem.
+#
+# "main" and "auto" are the old names of the broadcasting controller (the factory page calls the pair "main router /
+# adaptive"). Both are still accepted on input and mean master with apply_local=1, so a configuration written before
+# this split keeps working. What changed is what the daemon is told: master, never "auto". "auto" is the factory's
+# adaptive triple -- SetRoleEnable=1 plus Mode 0, an election that settles at master once other nodes answer. With no
+# cspd in the sandbox there is nobody to answer, so the controller spent three seconds pretending to be undecided
+# before our own code forced Mode 2 on it; a real ZTE child watching that flap could win the election and invert the
+# topology. A definite master writes SetRoleEnable=0 and Mode 2 from the first frame.
+role_is_master() {
+	case "${1:-master}" in slave) return 1 ;; esac
+	return 0
+}
+
+# apply_local_value ROLE VALUE -> 0 or 1, with the old spellings folded in.
+# A child ignores the flag whatever it says: its radios are configured by the controller's M2, which is not ours.
+apply_local_value() {
+	local v=${2:-}
+	if [ -z "$v" ]; then
+		case "$1" in main|auto) v=1 ;; *) v=0 ;; esac
+	fi
+	bool01 "$v"
+}
+
+# apply_here ROLE APPLY_LOCAL -> this router is a controller AND publishes the profile to its own radios.
+apply_here() {
+	role_is_master "$1" && [ "${2:-0}" = 1 ]
 }
 
 # write_local_plan SSID KEY ENABLED HIDDEN BEACON SSID KEY ENABLED HIDDEN BEACON -> the plan wlan-sync applies to
-# THIS router (main router role).
+# THIS router (master with apply_local=1).
 #
 # A child gets this through the M2 the controller sends: the daemon writes the profile into WLANCfg/WLANPSK and
-# agent-sync.c publishes those rows as the plan. The main router has no M2 to wait for -- it is the one that sends
-# it -- so the plan is written here, from the values write_config has just validated. One producer per role: the
-# service publishes the plan on a child, this function publishes it on the main router, and neither ever writes the
-# other's file.
+# agent-sync.c publishes those rows as the plan. A broadcasting controller has no M2 to wait for -- it is the one
+# that sends it -- so the plan is written here, from the values write_config has just validated. One producer per
+# role: the service publishes the plan on a child, this function publishes it on a broadcasting controller, and
+# neither ever writes the other's file.
 #
 # Same format as agent-sync.c (read by openwrt/zte-mesh/files/wlan-sync): rows=<n>, then <row>.<option>=<value>, one
 # option per line, the value being everything after the first '='. The main BSS of each band (slot 0) is always
-# written and every main row is marked fronthaul (MapAccessAttr bit 5 = 32): a main router broadcasts the network it
-# hands out. With extra_slots=1 the configured extra slots of 'config zte_mesh_bss' are appended as their own rows,
+# written and every main row is marked fronthaul (MapAccessAttr bit 5 = 32): a broadcasting controller puts the
+# network it hands out on the air itself. With extra_slots=1 the configured extra slots of 'config zte_mesh_bss' are
+# appended as their own rows,
 # which bss_section put in $PLAN_EXTRA while the configuration was validated -- the same rows a child gets from its
 # M2, so wlan-sync applies them the same way on either role. Slot 3 is the factory's hidden backhaul BSS and is
 # marked as such (bit 6 = 64); with backhaul=off it is reported and skipped, exactly like on a child.
@@ -399,7 +426,7 @@ write_local_plan() {
 	} >> "$body" || { rm -f "$body"; return 1; }
 	rows=$(grep -c '^[0-9][0-9]*\.radio=' "$body" 2>/dev/null) || rows=0
 	{
-		printf '# zte-mesh local Wi-Fi plan (main router). Generated by the service; applied by wlan-sync.\n'
+		printf '# zte-mesh local Wi-Fi plan (this router broadcasts). Generated by the service; applied by wlan-sync.\n'
 		printf 'rows=%s\n' "$rows"
 		cat "$body"
 	} > "$tmp" || { rm -f "$body" "$tmp"; return 1; }
@@ -410,9 +437,11 @@ write_local_plan() {
 
 # Writes $RUNDIR/config atomically (0600). Returns non-zero when incomplete or invalid.
 write_config() {
-	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b role h0 b0 h1 b1 s1_air k1_air
+	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b role apply_local h0 b0 h1 b1 s1_air k1_air
 	config_load zte_mesh
 	config_get role main mesh_role ""
+	config_get apply_local main apply_local ""
+	apply_local=$(apply_local_value "$role" "$apply_local") || { bad "apply_local must be 0 or 1"; return 1; }
 	config_get e0 main wifi_24g_enabled 1
 	config_get s0 main wifi_24g_ssid ""
 	config_get k0 main wifi_24g_key ""
@@ -503,12 +532,12 @@ write_config() {
 	fi
 	if [ -n "$role" ]; then
 		case "$role" in
-		# The daemon only knows the factory triple: master, auto (the adaptive state) and slave. A main router is
-		# emitted as "auto", which is exactly what that role was before it was renamed, so the daemon side is
-		# unchanged; what is new is that the host side now applies the profile to this router as well.
-		main|auto) emit mesh.role auto ;;
-		master|slave) emit mesh.role "$role" ;;
-		*) bad "mesh_role must be master, main or slave"; rm -f "$CFG_TMP"; return 1 ;;
+		# The daemon is told one of two words. `main`/`auto` were the broadcasting controller and are master now;
+		# the local half of what they meant is this function's other decision (apply_local), which the host acts on
+		# and the daemon never hears about. See the role block above for why "auto" is gone from the service file.
+		master|main|auto) emit mesh.role master ;;
+		slave) emit mesh.role slave ;;
+		*) bad "mesh_role must be master or slave"; rm -f "$CFG_TMP"; return 1 ;;
 		esac
 	fi
 	config_get v main mlo_enable ""
@@ -544,17 +573,15 @@ write_config() {
 	config_get v main extra_slots ""
 	[ -n "$v" ] && { v=$(bool01 "$v") || { bad "extra_slots must be 0 or 1"; rm -f "$CFG_TMP"; return 1; }; }
 	EXTRA_SLOTS=${v:-0}
-	# On a main router the extra slots are this router's own radios, so they also have to reach the local plan:
-	# bss_section appends their rows to $PLAN_EXTRA and write_local_plan folds them in. On a child the plan comes
-	# from the M2, and wlan-sync reads this same UCI option itself -- nothing is written here.
+	# On a controller that broadcasts, the extra slots are this router's own radios, so they also have to reach the
+	# local plan: bss_section appends their rows to $PLAN_EXTRA and write_local_plan folds them in. On a child the
+	# plan comes from the M2, and wlan-sync reads this same UCI option itself -- nothing is written here.
 	PLAN_EXTRA="" PLAN_EXTRA_ROWS=0
 	if [ "$EXTRA_SLOTS" = 1 ]; then
-		case "$role" in
-		main|auto)
+		if apply_here "$role" "$apply_local"; then
 			PLAN_EXTRA="$RUNDIR/.bss-plan.$$"
 			( umask 077; : > "$PLAN_EXTRA" ) || { PLAN_EXTRA=""; bad "cannot write $PLAN_EXTRA"; rm -f "$CFG_TMP"; return 1; }
-			;;
-		esac
+		fi
 	fi
 	config_foreach bss_section zte_mesh_bss
 	[ -z "$BSS_FAIL" ] || { rm -f "$CFG_TMP" "$PLAN_EXTRA"; return 1; }
@@ -584,25 +611,30 @@ write_config() {
 	mv "$CFG_TMP" "$RUNDIR/config" || { rm -f "$CFG_TMP"; return 1; }
 	echo "$VERSION_MODE" > "$RUNDIR/version_mode.host"
 
-	# The plan wlan-sync applies lives next to the service configuration, and only one role publishes it. On a main
-	# router that is this function: the profile just validated is also what this router broadcasts. On a child it is
-	# the service (agent-sync.c, from the rows the M2 wrote) -- writing it here as well would fight it, so a child's
-	# plan is left exactly as it is. A controller-only router removes it: its own radios are not ours to configure.
-	case "$role" in
-	main|auto) write_local_plan "$s0" "$k0" "$e0" "$h0" "$b0" "$s1_air" "$k1_air" "$e1" "$h1" "$b1" ||
-		log "could not write $RUNDIR/wlan-plan; this router's own radios keep their configuration" ;;
-	slave) ;;
-	*) rm -f "$RUNDIR/wlan-plan" ;;
-	esac
+	# The plan wlan-sync applies lives next to the service configuration, and only one role publishes it. On a
+	# controller that broadcasts that is this function: the profile just validated is also what this router
+	# broadcasts. On a child it is the service (agent-sync.c, from the rows the M2 wrote) -- writing it here as well
+	# would fight it, so a child's plan is left exactly as it is. A controller-only router removes it: its own radios
+	# are not ours to configure.
+	if apply_here "$role" "$apply_local"; then
+		write_local_plan "$s0" "$k0" "$e0" "$h0" "$b0" "$s1_air" "$k1_air" "$e1" "$h1" "$b1" ||
+			log "could not write $RUNDIR/wlan-plan; this router's own radios keep their configuration"
+	elif role_is_master "$role"; then
+		rm -f "$RUNDIR/wlan-plan"
+	fi
 	[ -n "$PLAN_EXTRA" ] && rm -f "$PLAN_EXTRA"
 
-	# Which optional policy keys exist (names only): a key that appears or disappears needs a restart, a changed value does not
+	# What needs a restart is which instances exist, not what they were told last time. Key names cover the optional
+	# policy sections, but neither role decision changes a key: master->slave starts and stops search, and
+	# apply_local does the same to wlan-sync. Both are hashed as values so the instance set is rebuilt for them.
 	{ grep -E '^(mesh\.role|wifi\.dual_band_sync|band_steer\.|roam\.|mlo\.enable)' "$RUNDIR/config" | cut -d= -f1 | sort
-	  echo "$VERSION_MODE"; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
+	  echo "$VERSION_MODE"
+	  role_is_master "$role" && echo role=master || echo role=slave
+	  apply_here "$role" "$apply_local" && echo local=on || echo local=off; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
 }
 
 start_service() {
-	local enabled bridge role
+	local enabled bridge role apply_local
 	config_load zte_mesh
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
@@ -615,13 +647,15 @@ start_service() {
 	[ -x "$NSRUN" ] || { log "$NSRUN is missing: install zte-mesh-launcher for this board's architecture"; return 1; }
 	write_config || return 1
 	config_get role main mesh_role ""
+	config_get apply_local main apply_local ""
+	apply_local=$(apply_local_value "$role" "$apply_local")
 
 	# The one combination worth a line in the log: a router that has radios, is left in the controller-only role, and
 	# therefore hands the profile out without putting it on the air itself. That is easy to mistake for "the plan was
 	# not applied", so say it once at start rather than leaving it to be discovered.
-	if [ "$role" != slave ] && ! role_applies_here "$role" &&
+	if role_is_master "$role" && ! apply_here "$role" "$apply_local" &&
 		uci -q show wireless 2>/dev/null | grep -q '=wifi-device$'; then
-		log "controller-only role: the Wi-Fi profile goes to the child routers only, this router's own radios are left alone; mesh_role=main applies it here as well"
+		log "controller-only role: the Wi-Fi profile goes to the child routers only, this router's own radios are left alone; apply_local=1 applies it here as well"
 	fi
 
 	# Two boxes must never present the same AL MAC. The vendor takes its AL MAC from br0, and a 1905 stack
@@ -734,14 +768,14 @@ start_service() {
 	procd_close_instance
 
 	# Two roles have a plan to apply here. On a child the profile comes from the controller's M2 and the service
-	# publishes what the daemon applied to $RUNDIR/wlan-plan (agent-sync.c). On a main router this router is the
-	# controller, so write_config publishes the same file from its own profile before the service starts. wlan-sync is
-	# the half that runs outside the sandbox and puts those values into /etc/config/wireless; it does not care which
-	# of the two produced the plan. A controller-only router has no instance at all.
-	if { [ "$role" = slave ] || role_applies_here "$role"; } && [ -x "$WLAN_SYNC" ]; then
+	# publishes what the daemon applied to $RUNDIR/wlan-plan (agent-sync.c). On a controller that broadcasts this
+	# router is the controller, so write_config publishes the same file from its own profile before the service
+	# starts. wlan-sync is the half that runs outside the sandbox and puts those values into /etc/config/wireless; it
+	# does not care which of the two produced the plan. A controller-only router has no instance at all.
+	if [ -x "$WLAN_SYNC" ] && { ! role_is_master "$role" || apply_here "$role" "$apply_local"; }; then
 		procd_open_instance wlan-sync
 		procd_set_param command "$WLAN_SYNC" "$RUNDIR/wlan-plan"
-		procd_set_param respawn
+		procd_set_param respawn 3600 5 0
 		procd_set_param stderr 1
 		procd_close_instance
 	fi
@@ -765,10 +799,14 @@ start_service() {
 # the worst case to five minutes. It is not chatty: the frame is one ethernet frame every five
 # minutes, and a child that is already enrolled answers it with the same M1 it would have sent
 # anyway, which wlan-sync then reports as "plan applied nothing new".
-if [ "$role" != slave ] && [ -x "$MESH_SEARCH" ]; then
-	procd_open_instance search
-	procd_set_param command "$MESH_SEARCH" "$bridge" 300 --al-mac "02:00:00:00:19:$al_last" --search --quiet
-		procd_set_param respawn
+	if role_is_master "$role" && [ -x "$MESH_SEARCH" ]; then
+		procd_open_instance search
+		procd_set_param command "$MESH_SEARCH" "$bridge" 300 --al-mac "02:00:00:00:19:$al_last" --search --quiet
+		# A bare `respawn` is not harmless: procd fills it in as 3600 5 5, and a process that
+		# exits by design every 300 s burns those five retries in half an hour and is then
+		# dropped for good. Measured on the lab: search died at 23:10, thirty minutes after the
+		# 22:40 start, and children that booted later were never found again.
+		procd_set_param respawn 3600 5 0
 		procd_set_param stderr 1
 		procd_close_instance
 	fi

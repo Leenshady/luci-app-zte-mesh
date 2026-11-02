@@ -106,18 +106,26 @@ SIGKILL 旧进程、`waitpid`、探测数据库池锁与订阅池锁（被杀的
 | `band_steer*`、`roam*` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
 | `ban_minutes` | `ban.minutes` | 0..1440 分钟，0 = 直到删除记录；对所有封禁生效，是"从第一次下发算起"的绝对时长 |
 
-### 设备角色（三个）
+### 设备角色（两个开关）
 
-原厂那台"主路由"既当主控又自己发 Wi-Fi；SR1010 这类刷 OpenWrt 的机器大多是有线网关、没有无线，所以把一个开关拆成三个角色：
+原厂那台"主路由"既当主控又自己发 Wi-Fi；SR1010 这类刷 OpenWrt 的机器大多是有线网关、没有无线。以前用一个三值选项
+表达，现在拆成两个各管一件事的开关——`mesh.role` 只有 `master`/`slave` 两个值发给服务：
 
-| `mesh_role` | 下发档案 | 应用到本机 `/etc/config/wireless` | 写 `mesh.role` |
-|---|---|---|---|
-| `master`（默认，未设置也等于它） | 是 | **不动** | `master` |
-| `main` | 是 | **是**（plan 由 `write_config` 写） | `auto` |
-| `slave` | 否 | 是（plan 由服务从 M2 读出来写） | `slave` |
+| `mesh_role` | `apply_local` | 下发档案 | 应用到本机 `/etc/config/wireless` | 写 `mesh.role` |
+|---|---|---|---|---|
+| `master`（默认，未设置也等于它） | `0`（默认） | 是 | **不动** | `master` |
+| `master` | `1` | 是 | **是**（plan 由 `write_config` 写） | `master` |
+| `slave` | 不起作用 | 否 | 是（plan 由服务从 M2 读出来写） | `slave` |
 
-`main` 就是原厂的"主路由 / 自适应"，线上仍发 `auto`（daemon 一侧一行没改，`Mode 0 → 2` 的选举替身照旧跑）；旧值 `auto`
-继续被接受。仅主控会删掉 `wlan-plan`、**不启动** `wlan-sync` 实例，射频存在时日志会明说"本机无线不动"。
+`main` 和 `auto` 是"主控且自己广播"的旧名字，仍被接受，等于 `master` + `apply_local=1`（显式写了 `apply_local` 时以选项为准）。
+daemon 一侧不再收到 `auto`：那是原厂的"自适应"三件套——`SetRoleEnable=1` 加 `Mode 0`，三秒后才由 `role_settle_at` 写成
+`Mode 2`。沙箱里没有 cspd，这场选举没有对手，替身走完只是白走；真正的风险是一台真的中兴子路由在那三秒里当选主控，
+拓扑反过来。C 侧的 `CONTROLLER_ROLE_AUTO` 分支与 3 秒结算留着不删：`/run/zte-mesh/config` 是升级前写的旧文件时它仍然
+把角色定在 master，而新写的配置永远走 `master` 那条（`SetRoleEnable=0`、`Mode 2`，从第一帧就是主控）。
+
+`apply_local=0` 的主控会删掉 `wlan-plan`、**不启动** `wlan-sync` 实例，射频存在时日志会明说"本机无线不动"。`mesh_role` 与 `apply_local`
+的取值现在都进 `restart.sig`：它们改的是 procd 实例集合（`search`、`wlan-sync`），只记键名看不出差别，以前必须手动重启
+才会生效。
 
 包的默认配置（2026-10-19 起）把能取出厂值的都写上，LuCI 显示同样默认值并标注范围：`mesh_v2=0`、`mlo_enable=1`、
 `wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、

@@ -117,7 +117,7 @@ return view.extend({
 		}
 
 		var child = info.role === 'slave';
-		var local = info.role === 'main';   /* controller that also puts the profile on the air (rpcd reports "auto" as this) */
+		var local = info.local === true;   /* the controller that also puts the profile on the air; rpcd reads both UCI options */
 		var running = info.running && state && state.running && !stale;
 		row(child ? _('Child router') : local ? _('Main router') : _('Controller'), running
 			? badge(_('Running'), '#46a546')
@@ -305,9 +305,12 @@ return view.extend({
 		 * uci.get(). data[2] is only awaited for that side effect. */
 		var role = uci.get('zte_mesh', 'main', 'mesh_role') || 'master';
 		var child = (role === 'slave');
-		/* Main router: the controller that also broadcasts. "auto" is the name this role had before it was split into
-		 * three, and it still means the same thing, so a configuration written then is not shown as something else. */
-		var local = (role === 'main' || role === 'auto');
+		/* Two options, two axes: mesh_role says controller or child, apply_local says a controller also broadcasts.
+		 * `main` and `auto` are the old spelling of the broadcasting controller and still mean apply_local=1, so a
+		 * configuration written before the split is shown as what it does rather than as something else. */
+		var legacy = (role === 'main' || role === 'auto');
+		var apply = uci.get('zte_mesh', 'main', 'apply_local');
+		var local = !child && (apply == null ? legacy : apply === '1');
 
 		var m = new form.Map('zte_mesh', _('ZTE Mesh'), child
 			? _('This router is a mesh child: the controller manages it and gives it the Wi-Fi name, password and security.')
@@ -352,12 +355,21 @@ return view.extend({
 		}
 
 		o = s.taboption('general', form.ListValue, 'mesh_role', _('Device role'));
-		o.value('master', _('Controller only'));
-		o.value('main', _('Main router'));
+		o.value('master', _('Controller'));
 		o.value('slave', _('Child router'));
 		o.default = 'master';
 		o.optional = true;
-		o.description = _('Controller only: this router manages the child routers and gives them the Wi-Fi profile, but its own radios are left exactly as they are. That is the shape of most wired OpenWrt boxes at the head of a mesh, so it is the default. Main router: the same controller that also broadcasts the profile itself -- pick this when the box has Wi-Fi and should put the network on the air too. Child router: this router is a mesh agent, it hands nothing out and the controller gives it the Wi-Fi name, key and security. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. On the two roles that apply a profile here, a radio device that was switched off is switched on when the band is enabled, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until a different profile arrives. Changing the role restarts the service and reloads this page, and the child routers drop out of the topology for a short while.');
+		o.description = _('Controller: this router runs the mesh -- it answers the child routers, hands out the Wi-Fi profile and decides about roaming and steering. Child router: this router is a mesh agent, it hands nothing out and the controller gives it the Wi-Fi name, key and security. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. Whether a controller also broadcasts this router\'s own Wi-Fi is the choice below. Changing the role restarts the service and reloads this page, and the child routers drop out of the topology for a short while.');
+
+		/* The second axis, and the reason the old third role name is gone: being the controller and being the Wi-Fi of
+		 * this box are two decisions, and a box can be either, both or one. Not offered on a child, whose radios are
+		 * the controller's to configure. The default follows `main`/`auto`, the old spelling of on. */
+		if (!child) {
+		o = s.taboption('general', form.Flag, 'apply_local', _('Also broadcast here'));
+		o.default = legacy ? '1' : '0';
+		o.rmempty = false;
+		o.description = _('On: this controller puts the Wi-Fi profile below on its own radios as well as handing it to the child routers, so it and they broadcast the same network -- the main router of the factory page. Off: the profile goes to the child routers only and this router\'s own radios are left exactly as they are, which is the shape of most wired OpenWrt boxes at the head of a mesh, so it is the default. On a router that does apply a profile here, a radio device that was switched off is switched on when the band is enabled, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until a different profile arrives.');
+		}
 
 		/* Only a child has a controller to reach over the radio. */
 		if (child) {
@@ -370,9 +382,9 @@ return view.extend({
 
 		}
 
-		/* Extra SSIDs, on the two roles that apply a profile to this router: on a child they are the slots the controller
-		 * sends, on the main router the ones configured below. A controller-only router hands them out and never puts
-		 * them on its own air, so the field would only invite the wrong expectation there. */
+		/* Extra SSIDs, on the two cases that apply a profile to this router: on a child they are the slots the controller
+		 * sends, on a broadcasting controller the ones configured below. A controller that leaves its own radios alone
+		 * hands them out and never puts them on its own air, so the field would only invite the wrong expectation there. */
 		if (child || local) {
 		o = s.taboption('general', form.ListValue, 'extra_slots', _('Extra SSIDs on this router'));
 		o.value('0', _('Off (main SSIDs only)'));

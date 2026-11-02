@@ -6,13 +6,19 @@
 做法是把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、两个 CM 函数的替身和一个服务配置文件指挥它，**不重写 mesh 协议**。
 参考实现是 SR1010 刷 OpenWrt/ImmortalWrt（有线网关，没有 Wi-Fi），真子路由是保留原厂固件的 ZXHN Z506。
 
-## 三种角色（`zte_mesh.main.mesh_role`）
+## 设备角色（`zte_mesh.main.mesh_role` + `apply_local`）
 
-| 角色 | 作用 |
+两个开关，各回答一个问题：本机是不是主控；主控要不要把自己的无线也配上。线上只发 `master`/`slave` 两个值。
+
+| 组合 | 作用 |
 |---|---|
-| `master`（默认） | 只当主控：把 Wi-Fi 档案下发给子路由，**本机无线完全不动**。SR1010 这类有线网关就是这种 |
-| `main` | 主控 + 自己发 Wi-Fi：同一份档案既下发，也落到本机 `/etc/config/wireless`。即原厂的"主路由 / 自适应"，线上仍发 `mesh.role=auto`，旧值 `auto` 同义 |
-| `slave` | 本机当子节点：收 M2 并把名称/密码/加密写到本机；`backhaul=multi_ap` 时把隐藏回程落成 4 地址 BSS。需要完整 `wpad`，真机数据还没有（[AGENT_PROBE](docs/research/AGENT_PROBE.md) 第 11 节） |
+| `mesh_role=master` + `apply_local=0`（两个默认值） | 只当主控：把 Wi-Fi 档案下发给子路由，**本机无线完全不动**。SR1010 这类有线网关就是这种 |
+| `mesh_role=master` + `apply_local=1` | 主控 + 自己发 Wi-Fi：同一份档案既下发，也落到本机 `/etc/config/wireless`，即原厂的"主路由"。旧值 `main`/`auto` 仍被接受，就等于这一组合 |
+| `mesh_role=slave` | 本机当子节点：收 M2 并把名称/密码/加密写到本机；`backhaul=multi_ap` 时把隐藏回程落成 4 地址 BSS。需要完整 `wpad`，真机数据还没有（[AGENT_PROBE](docs/research/AGENT_PROBE.md) 第 11 节）。此时 `apply_local` 不起作用 |
+
+第三个名字 `auto` 从配置里消失了，不是删了功能：它让 daemon 走"自适应"三件套（`SetRoleEnable=1`、`Mode 0` 三秒后才被
+我们改成 `Mode 2`），等于本机声明"我还没决定当不当主控"。沙箱里没有 cspd，这场选举没有对手，而一台真的中兴子路由
+正好可以在那三秒里当选，把拓扑反过来。直接写 `master` 从第一帧就是主控，行为更确定，也与和中兴组网的目标一致。
 
 ## 当前状态
 

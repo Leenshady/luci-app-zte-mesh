@@ -98,6 +98,19 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 			console.log('status box shows an empty device action row'); bad0++;
 		}
 	}
+	/* The title row reads the two axes the page writes: a controller, a controller that also broadcasts (the main
+	 * router), or a child. Folding the legacy `main`/`auto` into that pair is rpcd's job, not the view's. */
+	{
+		const base = { installed: true, running: true, age: 1, state: { running: true, nodes: [] } };
+		for (const [role, local, want] of [['master', false, 'Controller'], ['master', true, 'Main router'],
+			['slave', false, 'Child router']]) {
+			const t = JSON.stringify(viewDef.renderStatus(Object.assign({}, base, { role: role, local: local })));
+			if (!t.includes(want)) { console.log('status title for role=' + role + ' local=' + local + ' lacks ' + want); bad0++; }
+		}
+		if (JSON.stringify(viewDef.renderStatus(Object.assign({}, base, { role: 'master', local: true }))).includes('own radios are not managed here')) {
+			console.log('a broadcasting controller is still told it manages no radios'); bad0++;
+		}
+	}
 	const text = fs.readFileSync(initTest, 'utf8');
 	const wanted = { zte_mesh: new Set(['enabled', 'bridge', 'al_last']), /* read by start_service, not by write_config */ zte_mesh_bss: new Set(['band', 'slot', 'enabled', 'ssid', 'key', 'hidden', 'security', 'acl_policy', 'access_minutes', 'force_wifi5']),
 	                 zte_mesh_acl: new Set(['mac', 'name', 'band', 'bss']), zte_mesh_timer: new Set(['start', 'end', 'days', 'scope']),
@@ -128,12 +141,12 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		bss: Object.keys(registered.zte_mesh_bss || {}).length,
 		acl: Object.keys(registered.zte_mesh_acl || {}).length,
 		client: Object.keys(registered.zte_mesh_client || {}).length, child: '' };
-	// Device role: three roles now. "auto" is the old name of the main router role and still works on input, but the
-	// form offers the three current names and nothing else, so the page cannot write a value the init script refuses.
+	// Device role: two names, because the page now writes the two axes and nothing else -- `main`/`auto` stay readable
+	// on input but are not offered, so the form cannot produce a value the init script would have to translate.
 	{
 		const ro = (registered.zte_mesh || {}).mesh_role;
 		const vals = ro ? ro.values.map(v => Array.isArray(v) ? v[0] : v).join(',') : '';
-		if (vals !== 'master,main,slave') { console.log('device role list is "' + vals + '", want master,main,slave'); bad++; }
+		if (vals !== 'master,slave') { console.log('device role list is "' + vals + '", want master,slave'); bad++; }
 	}
 	for (const k of Object.keys(registered)) delete registered[k];
 	uciRole = 'slave';
@@ -155,9 +168,12 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		uciRole = 'main';
 		await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
 		const m = registered.zte_mesh || {};
-		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2', 'extra_slots'].filter(n => !m[n]);
+		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2', 'extra_slots', 'apply_local'].filter(n => !m[n]);
 		if (missing.length) { console.log('main router form lacks the controller options:', missing.join(' ')); bad++; }
 		if (m.backhaul) { console.log('main router form offers the child-only backhaul choice'); bad++; }
+		/* The second axis defaults to what the legacy name means, so a page opened on an old `main` configuration shows
+		 * the checkbox ticked and saving it keeps the behaviour instead of quietly dropping the local broadcast. */
+		if (m.apply_local && m.apply_local.default !== '1') { console.log('apply_local default on a legacy main is', m.apply_local.default); bad++; }
 	}
 	console.log(bad ? 'luci test: FAIL' : 'luci test: ok (' + counts.main + ' main options, ' + counts.bss + ' slot options, ' + counts.acl + ' ACL options, ' + counts.client + ' client options, child form ' + counts.child + ')');
 	process.exit(bad ? 1 : 0);

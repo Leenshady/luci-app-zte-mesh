@@ -45,6 +45,12 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 - **配置**：宿主只写 `/run/zte-mesh/config`；服务每秒检查，改动按种类热更新（写库后发原厂 CM 通知、按频段 Renew），
   mesh 级变化重启守护进程（原厂 `multiapd_mgr` 的做法），少数键的出现或消失要重启服务（见 [SERVICE.md](SERVICE.md)）。
 - **状态**：服务每秒写 `/run/zte-mesh/state.json`（节点、动作结果、调度状态），rpcd 和 LuCI 读它。
+- **有线口的自愈（实例 `attach`）**：沙箱这头的 `veth-lab` 和宿主那头的 `zmesh0` 是一对 veth，删掉任一端两个一起没了；
+  而沙箱里没有 `/proc`、没有 `/sys`、没有 `ip`、也没有 `CAP_NET_ADMIN`，daemon 又在 `bind()` 时把 ifindex 绑死了——
+  线掉了里面没人能重建，只有重启实例才行。`attach` 因此兼任看门狗：`zmesh0` 与 `lab-peer` 连续 20 秒都不在、
+  而沙箱进程还活着，就给它发 `SIGTERM`，procd 重新拉起（`respawn 3600 5 0`，retry 0 = 不限），新线由同一个循环改名入桥。
+  这等于把"重启主控就好了"变成自动的。同样因为 retry：`search` 每 300 秒按设计退出一次，写成裸 `respawn` 会被
+  procd 默认的 5 次预算在半小时内烧光然后永久不再启动（实测 22:40 启动、23:10 死掉），之后开机的子路由再也找不到主控。
 
 ## 3. 源文件
 
