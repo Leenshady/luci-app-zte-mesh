@@ -55,6 +55,10 @@ const E = (t, a, c) => {
 const result = fn(...names.map(n => mocks[n]), s => s, E);
 (async () => {
 	const data = [{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}, undefined];
+	/* The sweep below compares every option the init test exercises against this form, so it has to be the role that
+	 * can offer all of them: a controller that also broadcasts its own Wi-Fi. The controller-only default shows fewer
+	 * fields on purpose, and the role blocks further down check exactly that. */
+	uciLocal = '1';
 	await viewDef.render(data);
 	await viewDef.load();
 	// node table: ZTE routers that are online get the Restart / Light buttons, others a dash

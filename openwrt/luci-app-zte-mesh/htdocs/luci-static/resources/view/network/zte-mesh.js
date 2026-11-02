@@ -382,9 +382,12 @@ return view.extend({
 		o.value('multi_ap', _('Multi-AP (4-address)'));
 		o.default = 'off';
 		o.optional = true;
-		o.description = child
+		/* One description per end, and the restart warning once: it is the same consequence either way, and the signature
+		 * only carries the mode where an applier actually runs (a controller that touches no radio restarts for nothing). */
+		o.description = (child
 			? _('How this router reaches the controller over the radio. Off: only the main SSIDs are applied, as before. Multi-AP: the backhaul network the controller sends becomes a client interface (mode sta, marked as a Multi-AP backhaul station, with 4-address mode on and the bridge of that band), so the mesh control traffic crosses the radio instead of the cable. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the controller has sent a backhaul network.')
-			: _('Whether this router puts the backhaul network of its profile on the air. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network becomes its own BSS (multi_ap=2) and the main SSIDs are marked as fronthaul, so a child that joins it reaches this router as 4-address Ethernet over the radio. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the profile carries a backhaul network.');
+			: _('Whether this router puts the backhaul network of its profile on the air. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network becomes its own BSS (multi_ap=2) and the main SSIDs are marked as fronthaul, so a child that joins it reaches this router as 4-address Ethernet over the radio. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the profile carries a backhaul network.'))
+			+ ' ' + _('Switching this restarts the mesh service (the child routers drop out of the topology for up to a minute).');
 
 		}
 

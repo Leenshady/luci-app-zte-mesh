@@ -277,7 +277,9 @@ UCI_TEXT="config zte_mesh 'main'
 	option roam_rssi_24g '-60'
 	option roam_rssi_5g '-70'
 	option roam_force '0'
-	option ban_minutes '30'"
+	option ban_minutes '30'
+	option extra_slots '1'
+	option backhaul 'multi_ap'"
 run all-options 0 "version_mode=128
 radio0.enabled=1
 radio0.ssid=cc
@@ -306,7 +308,7 @@ band_steer.rssi5=-110
 roam.rssi24=-60
 roam.rssi5=-70
 ban.minutes=30"
-[ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 128 role=master local=on " ] ||
+[ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 128 role=master local=on backhaul=multi_ap " ] ||
 	{ echo "FAIL all-options: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 # 8b. without dual-band sync the 5 GHz band keeps its own hidden flag, security and MAC filter policy
 UCI_TEXT=$(printf '%s\n' "$UCI_TEXT" | sed "s/wifi_dual_band_sync '1'/wifi_dual_band_sync '0'/")
@@ -620,7 +622,7 @@ radio0.ssid=home
 radio0.key=password-24
 radio1.enabled=1
 mesh.role=master"
-[ "$(cat "$RUNDIR/restart.sig")" = "mesh.role 128 role=master local=on " ] ||
+[ "$(cat "$RUNDIR/restart.sig")" = "mesh.role 128 role=master local=on backhaul=off " ] ||
 	{ echo "FAIL role-local-sig: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 
 # 8l. a child ignores apply_local: its plan is the controller's, so the flag must not resurrect a local plan here,
@@ -638,8 +640,48 @@ mesh.role=slave"
 AFTER_LOAD=''
 [ "$(cat "$RUNDIR/wlan-plan" 2>/dev/null)" = sentinel ] ||
 	{ echo "FAIL role-slave-local-keeps-plan: apply_local wrote a plan on a child"; fail=$((fail + 1)); }
-[ "$(cat "$RUNDIR/restart.sig")" = "mesh.role 128 role=slave local=off " ] ||
+[ "$(cat "$RUNDIR/restart.sig")" = "mesh.role 128 role=slave local=off backhaul=off " ] ||
 	{ echo "FAIL role-slave-local: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
+
+# 8n. the backhaul mode is the third value in the signature, for the opposite reason of the other two: it changes
+# neither which instances exist nor the plan, only what wlan-sync writes *from* the plan it is given -- and that
+# watcher reacts to plan content alone. So saving off -> multi_ap has to look like a restart, on either of the two
+# roles that can build a link. On the third (a controller that applies nothing here) it must not, because the value
+# has no effect there and the service already says so at start.
+# runs one role/option shape and leaves its signature in SIG (not a subshell: `run` counts the case where it is)
+sig_of() {
+	UCI_TEXT="$BASE
+	option mesh_role '$1'
+	$2"
+	run "sig-$3" 0 "version_mode=128
+radio0.enabled=1
+radio0.ssid=home
+radio0.key=password-24
+radio1.enabled=1
+mesh.role=$1"
+	SIG=$(cat "$RUNDIR/restart.sig")
+}
+sig_of master "option apply_local '1'" broadcast-off; BROADCAST=$SIG
+sig_of master "option apply_local '1'
+	option backhaul 'multi_ap'" broadcast-on; BROADCAST_BH=$SIG
+sig_of master "option apply_local '1'
+	option backhaul 'off'" broadcast-explicit-off; BROADCAST_OFF=$SIG
+sig_of slave "" child-off; CHILD=$SIG
+sig_of slave "option backhaul 'multi_ap'" child-on; CHILD_BH=$SIG
+sig_of master "option backhaul 'multi_ap'" only-on; ONLY=$SIG
+sig_of master "" only-off; ONLY_PLAIN=$SIG
+[ "$BROADCAST" != "$BROADCAST_BH" ] ||
+	{ echo "FAIL backhaul-sig: a broadcasting master kept the same signature ($BROADCAST)"; fail=$((fail + 1)); }
+[ "$CHILD" != "$CHILD_BH" ] ||
+	{ echo "FAIL backhaul-sig: a child kept the same signature ($CHILD)"; fail=$((fail + 1)); }
+case "$BROADCAST_BH" in *'backhaul=multi_ap '*) ;; *) echo "FAIL backhaul-sig: multi_ap missing on the master ($BROADCAST_BH)"; fail=$((fail + 1)) ;; esac
+case "$CHILD_BH" in *'backhaul=multi_ap '*) ;; *) echo "FAIL backhaul-sig: multi_ap missing on the child ($CHILD_BH)"; fail=$((fail + 1)) ;; esac
+# writing the default is the same decision as not writing it: the signature must not churn over a save that changed nothing
+[ "$BROADCAST" = "$BROADCAST_OFF" ] ||
+	{ echo "FAIL backhaul-sig: backhaul=off differs from an unset mode ('$BROADCAST' -> '$BROADCAST_OFF')"; fail=$((fail + 1)); }
+[ "$ONLY" = "$ONLY_PLAIN" ] ||
+	{ echo "FAIL backhaul-sig: a controller-only box restarts for a value it ignores ('$ONLY_PLAIN' -> '$ONLY')"; fail=$((fail + 1)); }
+case "$ONLY" in *backhaul*) echo "FAIL backhaul-sig: the role that runs no applier carries the mode ($ONLY)"; fail=$((fail + 1)) ;; esac
 
 # 8m. written explicitly, apply_local wins over the legacy name: `main` with 0 is a controller that was told to keep
 # its own radios alone.
@@ -690,7 +732,8 @@ run master-no-profile 1 "Wi-Fi profile incomplete"
 # 9. bad optional values name the option
 for bad in "wifi_24g_hidden 2" "wifi_24g_security wep" "wifi_24g_beacon_interval 19" "wifi_24g_beacon_interval 1001" "wifi_24g_channel 14" \
 	"wifi_5g_channel 37" "wifi_24g_tx_power 31" "wifi_24g_tx_power -1" "wifi_24g_acl_policy deny" "mesh_v2 2" "mesh_role child" "apply_local 2" \
-	"mlo_enable x" "band_steer maybe" "roam_force 5" "wifi_dual_band_sync 2" "band_steer_rssi_24g -29" "roam_rssi_5g -111"; do
+	"mlo_enable x" "band_steer maybe" "roam_force 5" "wifi_dual_band_sync 2" "band_steer_rssi_24g -29" "roam_rssi_5g -111" \
+	"backhaul multi-ap" "backhaul on"; do
 	set -- $bad
 	UCI_TEXT="$BASE
 	option wifi_5g_ssid 'b'
@@ -1105,6 +1148,19 @@ for needle in 'config_get backhaul main backhaul off' \
 		pass=$((pass + 1))
 	else
 		fail=$((fail + 1)); echo "FAIL backhaul warning: $needle"
+	fi
+done
+
+# One judgement decides two things: whether a wlan-sync instance runs, and whether the restart signature carries the
+# backhaul mode. If the two ever disagree, a save either restarts a box that applies nothing at all or leaves an
+# applier running on a mode it will never be shown -- and the instance line lives in start_service(), which this
+# harness cannot run, so the source is pinned to the shared helper instead.
+for needle in 'sync_runs()' '&& sync_runs "$role" "$apply_local"' \
+	'if sync_runs "$role" "$apply_local"; then echo "backhaul=$backhaul"; fi'; do
+	if grep -q -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL applier judgement: $needle"
 	fi
 done
 

@@ -383,6 +383,13 @@ apply_here() {
 	role_is_master "$1" && [ "${2:-0}" = 1 ]
 }
 
+# sync_runs ROLE APPLY_LOCAL -> a wlan-sync instance runs here, because some plan reaches this router's radios: either
+# the controller's (a child) or the one written above (a broadcasting master). The controller-only role is the one
+# shape with no applier, and so the one shape where `backhaul` cannot do anything.
+sync_runs() {
+	! role_is_master "$1" || apply_here "$1" "$2"
+}
+
 # write_local_plan SSID KEY ENABLED HIDDEN BEACON SSID KEY ENABLED HIDDEN BEACON -> the plan wlan-sync applies to
 # THIS router (master with apply_local=1).
 #
@@ -437,7 +444,7 @@ write_local_plan() {
 
 # Writes $RUNDIR/config atomically (0600). Returns non-zero when incomplete or invalid.
 write_config() {
-	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b role apply_local h0 b0 h1 b1 s1_air k1_air
+	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b role apply_local backhaul h0 b0 h1 b1 s1_air k1_air
 	config_load zte_mesh
 	config_get role main mesh_role ""
 	config_get apply_local main apply_local ""
@@ -573,6 +580,15 @@ write_config() {
 	config_get v main extra_slots ""
 	[ -n "$v" ] && { v=$(bool01 "$v") || { bad "extra_slots must be 0 or 1"; rm -f "$CFG_TMP"; return 1; }; }
 	EXTRA_SLOTS=${v:-0}
+	# The backhaul mode has two spellings and wlan-sync reads the option itself, so a third one (`multi-ap`, with the
+	# hyphen the vendor's own docs use) is read as off: the page shows a switch that is set and nothing happens on the
+	# radio. Refusing it here is the only place that can still say why.
+	config_get backhaul main backhaul off
+	[ -n "$backhaul" ] || backhaul=off
+	case "$backhaul" in
+	off|multi_ap) ;;
+	*) bad "backhaul must be off or multi_ap"; rm -f "$CFG_TMP"; return 1 ;;
+	esac
 	# On a controller that broadcasts, the extra slots are this router's own radios, so they also have to reach the
 	# local plan: bss_section appends their rows to $PLAN_EXTRA and write_local_plan folds them in. On a child the
 	# plan comes from the M2, and wlan-sync reads this same UCI option itself -- nothing is written here.
@@ -627,10 +643,15 @@ write_config() {
 	# What needs a restart is which instances exist, not what they were told last time. Key names cover the optional
 	# policy sections, but neither role decision changes a key: master->slave starts and stops search, and
 	# apply_local does the same to wlan-sync. Both are hashed as values so the instance set is rebuilt for them.
+	# The backhaul mode goes in for the opposite reason: it changes what wlan-sync *writes* while leaving the plan
+	# untouched, and the watcher only reacts to plan content -- without it, off -> multi_ap would sit inert until some
+	# later restart. Only the two roles that run an applier can act on it, so only theirs carry it; on a
+	# controller-only box it would restart the service for a value that changes nothing there.
 	{ grep -E '^(mesh\.role|wifi\.dual_band_sync|band_steer\.|roam\.|mlo\.enable)' "$RUNDIR/config" | cut -d= -f1 | sort
 	  echo "$VERSION_MODE"
 	  role_is_master "$role" && echo role=master || echo role=slave
-	  apply_here "$role" "$apply_local" && echo local=on || echo local=off; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
+	  apply_here "$role" "$apply_local" && echo local=on || echo local=off
+	  if sync_runs "$role" "$apply_local"; then echo "backhaul=$backhaul"; fi; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
 }
 
 start_service() {
@@ -779,7 +800,7 @@ start_service() {
 	# router is the controller, so write_config publishes the same file from its own profile before the service
 	# starts. wlan-sync is the half that runs outside the sandbox and puts those values into /etc/config/wireless; it
 	# does not care which of the two produced the plan. A controller-only router has no instance at all.
-	if [ -x "$WLAN_SYNC" ] && { ! role_is_master "$role" || apply_here "$role" "$apply_local"; }; then
+	if [ -x "$WLAN_SYNC" ] && sync_runs "$role" "$apply_local"; then
 		procd_open_instance wlan-sync
 		procd_set_param command "$WLAN_SYNC" "$RUNDIR/wlan-plan"
 		procd_set_param respawn 3600 5 0

@@ -103,6 +103,7 @@ SIGKILL 旧进程、`waitpid`、探测数据库池锁与订阅池锁（被杀的
 | `wifi_*_hidden` / `_security` | `radioN.hidden` / `beacon_type` | `none`=0、`psk2`=3、`psk-mixed`=6、`sae`=10、`sae-mixed`=12；`none` 会让真实网络变成开放网络 |
 | `wifi_*_beacon_interval`、`_channel`、`_tx_power`、`_acl_policy` | `radioN.*` | 范围同 REAL_CHILD 第 3 节（信道按频段白名单，0 = 自动） |
 | `mesh_v2`、`mesh_role`、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 即原厂 MESH 开关（`P1905ComCfg.Enable`）：开 = 只接受市场码相同的中兴子路由；关 = 接受任何子路由（默认） |
+| `backhaul` | **不写进服务配置**：`wlan-sync` 自己读这个 UCI 选项 | 回程模式，`off`（默认）或 `multi_ap`；其余取值 `write_config` 拒绝（`multi-ap` 会被当成 `off`，等于一个"设了却不动"的开关）。按角色落成两端之一，见下面"设备角色"一节 |
 | `band_steer*`、`roam*` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
 | `ban_minutes` | `ban.minutes` | 0..1440 分钟，0 = 直到删除记录；对所有封禁生效，是"从第一次下发算起"的绝对时长 |
 
@@ -127,12 +128,18 @@ daemon 一侧不再收到 `auto`：那是原厂的"自适应"三件套——`Set
 的取值现在都进 `restart.sig`：它们改的是 procd 实例集合（`search`、`wlan-sync`），只记键名看不出差别，以前必须手动重启
 才会生效。
 
-第三个开关 `backhaul`（`off` / `multi_ap`）也归 `wlan-sync` 管，但它落不落得下取决于上面两个：plan 里 `MapAccessAttr & 64`
+第三个开关 `backhaul`（`off` / `multi_ap`，别的取值 `write_config` 直接拒——`multi-ap` 这种带连字符的写法会被 `wlan-sync`
+当成 `off`，页面上一切正常、射频上什么也没建）也归 `wlan-sync` 管，但它落不落得下取决于上面两个：plan 里 `MapAccessAttr & 64`
 的那一行**按角色落成两端的某一段**——`mesh_role=slave` 是客户端（`zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` +
 `wds 1`），`master` + `apply_local=1` 是回程 BSS（`zte_backhaul_<band>`，`multi_ap 2`，主 SSID 标 `multi_ap 1`）。
 `master` + `apply_local=0` 什么都不生成，所以 `start_service` 对这一组合明说一句，别让人以为"回程没生效"。4 地址为什么
 在客户端要写 `wds` 而不是只写 `multi_ap`，见 [research/AGENT_PROBE](research/AGENT_PROBE.md) §15。换角色时上一端的段会被
 回收，不会留下一个"页面看着正常、实际不通"的半条回程。
+
+它的取值也进 `restart.sig`，理由和上面两个相反：它不改实例集合，也不改 plan（plan 里那一行一直都在），只改 `wlan-sync`
+拿到同一份 plan 时**写什么**——而那个 watcher 只对 plan 的内容起作用（`stamp()` 比的是文件摘要）。所以 `off → multi_ap`
+保存后若不重启 `wlan-sync`，就要等下一次别的原因引起的重启才生效。签名里只有"跑着 applier 的两个角色"带这个值
+（`sync_runs`，与 procd 那段用同一个判据）：`apply_local=0` 的主控不应用任何档案，为一个不起作用的值重启服务是白重启。
 
 包的默认配置（2026-10-19 起）把能取出厂值的都写上，LuCI 显示同样默认值并标注范围：`mesh_v2=0`、`mlo_enable=1`、
 `wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、
@@ -145,11 +152,13 @@ daemon 一侧不再收到 `auto`：那是原厂的"自适应"三件套——`Set
 **夏令时切换后要重新保存设置**）、`zte_mesh_acl`（最多 16 条，按文件顺序编号）、`zte_mesh_node`（别名，只给 LuCI 节点表）。
 
 重载：`reload_service` 只在"需要重启服务"的东西变了才重启——`version_mode` 变了，或策略键（`mesh.role`、`wifi.dual_band_sync`、
-`band_steer.*`、`roam.*`、`mlo.enable`）出现/消失（init 把键名存进 `/run/zte-mesh/restart.sig` 比较）；值变了不重启，热更新。
+`band_steer.*`、`roam.*`、`mlo.enable`）出现/消失（init 把键名存进 `/run/zte-mesh/restart.sig` 比较）；这些键**值**变了不重启，热更新。
+签名里另有三个是**按值**记的：`role=`、`local=`（`mesh_role` / `apply_local` 改的是 procd 实例集合）和 `backhaul=`
+（`wlan-sync` 只对 plan 的内容起作用，改模式必须重启它才看得见）。
 `zte_mesh_client` 与 `ban_minutes` **不在** restart.sig 里：服务每秒重读这份配置，状态机自己比对新旧规则——新规则立刻发，
 删掉的规则补发一条"放行"再丢弃，所以加/删一条封禁不需要重启。
 
-测试（都不需要 OpenWrt）：`tests/test_init.sh`（busybox ash + UCI 桩，94 条）、`node tests/test_luci.js`（表单跑一遍，
+测试（都不需要 OpenWrt）：`tests/test_init.sh`（busybox ash + UCI 桩，118 条）、`node tests/test_luci.js`（表单跑一遍，
 核对每个 init 读的选项都有表单项）、`dev-config-check.py DIR`（把 init 生成的配置交给真服务，报告接受/拒绝）。
 
 对已有配置的影响：随包模板新增 `option wifi_dual_band_sync '1'`（conffile，已有配置不改）——**没有这一行、又留空

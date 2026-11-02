@@ -161,6 +161,9 @@ msgstr "关闭（只应用主 SSID)"
 msgid "Multi-AP (4-address)"
 msgstr "Multi-AP(4 地址）"
 
+msgid "Switching this restarts the mesh service (the child routers drop out of the topology for up to a minute)."
+msgstr "切换会重启组网服务（子路由器最多一分钟内掉出拓扑）。"
+
 msgid "Backhaul BSS for the child routers"
 msgstr "给子路由的回程网络"
 
