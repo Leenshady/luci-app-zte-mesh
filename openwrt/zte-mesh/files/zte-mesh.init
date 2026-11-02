@@ -444,7 +444,7 @@ write_local_plan() {
 
 # Writes $RUNDIR/config atomically (0600). Returns non-zero when incomplete or invalid.
 write_config() {
-	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b role apply_local backhaul h0 b0 h1 b1 s1_air k1_air
+	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b role apply_local backhaul pin2g pin5g h0 b0 h1 b1 s1_air k1_air
 	config_load zte_mesh
 	config_get role main mesh_role ""
 	config_get apply_local main apply_local ""
@@ -589,6 +589,10 @@ write_config() {
 	off|multi_ap) ;;
 	*) bad "backhaul must be off or multi_ap"; rm -f "$CFG_TMP"; return 1 ;;
 	esac
+	# Which radio device carries each band, when the router has more than one of the kind. wlan-sync picks a
+	# candidate and says so in the log when it cannot tell, and that answer is not in the plan either.
+	config_get pin2g main wifi_2g ""
+	config_get pin5g main wifi_5g ""
 	# On a controller that broadcasts, the extra slots are this router's own radios, so they also have to reach the
 	# local plan: bss_section appends their rows to $PLAN_EXTRA and write_local_plan folds them in. On a child the
 	# plan comes from the M2, and wlan-sync reads this same UCI option itself -- nothing is written here.
@@ -643,15 +647,20 @@ write_config() {
 	# What needs a restart is which instances exist, not what they were told last time. Key names cover the optional
 	# policy sections, but neither role decision changes a key: master->slave starts and stops search, and
 	# apply_local does the same to wlan-sync. Both are hashed as values so the instance set is rebuilt for them.
-	# The backhaul mode goes in for the opposite reason: it changes what wlan-sync *writes* while leaving the plan
-	# untouched, and the watcher only reacts to plan content -- without it, off -> multi_ap would sit inert until some
-	# later restart. Only the two roles that run an applier can act on it, so only theirs carry it; on a
-	# controller-only box it would restart the service for a value that changes nothing there.
+	# The applier's own inputs go in as values, for the opposite reason of the two above: they change neither which
+	# instances exist nor the plan, only what wlan-sync writes *from* the plan it is given -- and that watcher reacts
+	# to plan content alone. `backhaul` (which end, if any), `extra_slots` (which slot rows reach the radios; on a child
+	# the plan carries them whatever this switch says) and the two radio pins are exactly that set. Without them a save
+	# sits inert until some later restart: switching the extra SSIDs off on a child leaves it broadcasting the guest
+	# network it was told to drop. Only the two roles that run an applier can act on any of them, so only theirs carry
+	# these tokens; on a controller-only box it would restart the service for values that change nothing there.
 	{ grep -E '^(mesh\.role|wifi\.dual_band_sync|band_steer\.|roam\.|mlo\.enable)' "$RUNDIR/config" | cut -d= -f1 | sort
 	  echo "$VERSION_MODE"
 	  role_is_master "$role" && echo role=master || echo role=slave
 	  apply_here "$role" "$apply_local" && echo local=on || echo local=off
-	  if sync_runs "$role" "$apply_local"; then echo "backhaul=$backhaul"; fi; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
+	  if sync_runs "$role" "$apply_local"; then
+	  	echo "backhaul=$backhaul extra_slots=$EXTRA_SLOTS pin2g=$pin2g pin5g=$pin5g"
+	  fi; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
 }
 
 start_service() {

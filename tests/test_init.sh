@@ -308,7 +308,7 @@ band_steer.rssi5=-110
 roam.rssi24=-60
 roam.rssi5=-70
 ban.minutes=30"
-[ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 128 role=master local=on backhaul=multi_ap " ] ||
+[ "$(cat "$RUNDIR/restart.sig")" = "band_steer.enabled band_steer.rssi24 band_steer.rssi5 mesh.role mlo.enable roam.force roam.rssi24 roam.rssi5 wifi.dual_band_sync 128 role=master local=on backhaul=multi_ap extra_slots=1 pin2g= pin5g= " ] ||
 	{ echo "FAIL all-options: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 # 8b. without dual-band sync the 5 GHz band keeps its own hidden flag, security and MAC filter policy
 UCI_TEXT=$(printf '%s\n' "$UCI_TEXT" | sed "s/wifi_dual_band_sync '1'/wifi_dual_band_sync '0'/")
@@ -622,7 +622,7 @@ radio0.ssid=home
 radio0.key=password-24
 radio1.enabled=1
 mesh.role=master"
-[ "$(cat "$RUNDIR/restart.sig")" = "mesh.role 128 role=master local=on backhaul=off " ] ||
+[ "$(cat "$RUNDIR/restart.sig")" = "mesh.role 128 role=master local=on backhaul=off extra_slots=0 pin2g= pin5g= " ] ||
 	{ echo "FAIL role-local-sig: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 
 # 8l. a child ignores apply_local: its plan is the controller's, so the flag must not resurrect a local plan here,
@@ -640,14 +640,14 @@ mesh.role=slave"
 AFTER_LOAD=''
 [ "$(cat "$RUNDIR/wlan-plan" 2>/dev/null)" = sentinel ] ||
 	{ echo "FAIL role-slave-local-keeps-plan: apply_local wrote a plan on a child"; fail=$((fail + 1)); }
-[ "$(cat "$RUNDIR/restart.sig")" = "mesh.role 128 role=slave local=off backhaul=off " ] ||
+[ "$(cat "$RUNDIR/restart.sig")" = "mesh.role 128 role=slave local=off backhaul=off extra_slots=0 pin2g= pin5g= " ] ||
 	{ echo "FAIL role-slave-local: restart.sig='$(cat "$RUNDIR/restart.sig")'"; fail=$((fail + 1)); }
 
-# 8n. the backhaul mode is the third value in the signature, for the opposite reason of the other two: it changes
-# neither which instances exist nor the plan, only what wlan-sync writes *from* the plan it is given -- and that
-# watcher reacts to plan content alone. So saving off -> multi_ap has to look like a restart, on either of the two
-# roles that can build a link. On the third (a controller that applies nothing here) it must not, because the value
-# has no effect there and the service already says so at start.
+# 8n. the applier reads four options straight out of UCI, and none of them belongs in the signature for the reason the
+# role pair does: they change neither which instances exist nor the plan, only what wlan-sync writes *from* the plan it
+# is given -- and that watcher reacts to plan content alone. So saving any of them has to look like a restart, on either
+# of the two roles that can build something. On the third (a controller that applies nothing here) it must not, because
+# those values have no effect there and the service already says so at start.
 # runs one role/option shape and leaves its signature in SIG (not a subshell: `run` counts the case where it is)
 sig_of() {
 	UCI_TEXT="$BASE
@@ -682,6 +682,26 @@ case "$CHILD_BH" in *'backhaul=multi_ap '*) ;; *) echo "FAIL backhaul-sig: multi
 [ "$ONLY" = "$ONLY_PLAIN" ] ||
 	{ echo "FAIL backhaul-sig: a controller-only box restarts for a value it ignores ('$ONLY_PLAIN' -> '$ONLY')"; fail=$((fail + 1)); }
 case "$ONLY" in *backhaul*) echo "FAIL backhaul-sig: the role that runs no applier carries the mode ($ONLY)"; fail=$((fail + 1)) ;; esac
+sig_of master "option apply_local '1'
+	option extra_slots '1'" slots-on; SLOTS=$SIG
+sig_of master "option apply_local '1'
+	option extra_slots '0'" slots-explicit-off; SLOTS_OFF=$SIG
+sig_of slave "option wifi_2g 'radio1'" child-pin; CHILD_PIN=$SIG
+sig_of master "option extra_slots '1'
+	option backhaul 'multi_ap'
+	option wifi_2g 'radio1'
+	option wifi_5g 'radio0'" only-everything; ONLY_ALL=$SIG
+[ "$BROADCAST" != "$SLOTS" ] ||
+	{ echo "FAIL applier-sig: a broadcasting master kept the same signature without the extra slots ($BROADCAST)"; fail=$((fail + 1)); }
+[ "$CHILD" != "$CHILD_PIN" ] ||
+	{ echo "FAIL applier-sig: a child kept the same signature with a radio pin ($CHILD)"; fail=$((fail + 1)); }
+case "$SLOTS" in *'extra_slots=1 '*) ;; *) echo "FAIL applier-sig: extra_slots missing ($SLOTS)"; fail=$((fail + 1)) ;; esac
+case "$CHILD_PIN" in *'pin2g=radio1 '*) ;; *) echo "FAIL applier-sig: the pin missing on a child ($CHILD_PIN)"; fail=$((fail + 1)) ;; esac
+[ "$BROADCAST" = "$SLOTS_OFF" ] ||
+	{ echo "FAIL applier-sig: extra_slots=0 differs from an unset switch ('$BROADCAST' -> '$SLOTS_OFF')"; fail=$((fail + 1)); }
+[ "$ONLY_ALL" = "$ONLY_PLAIN" ] ||
+	{ echo "FAIL applier-sig: a controller-only box restarts for values it ignores ('$ONLY_PLAIN' -> '$ONLY_ALL')"; fail=$((fail + 1)); }
+case "$ONLY_ALL" in *extra_slots*|*pin*|*backhaul*) echo "FAIL applier-sig: the role that runs no applier carries them ($ONLY_ALL)"; fail=$((fail + 1)) ;; esac
 
 # 8m. written explicitly, apply_local wins over the legacy name: `main` with 0 is a controller that was told to keep
 # its own radios alone.
@@ -1156,7 +1176,7 @@ done
 # applier running on a mode it will never be shown -- and the instance line lives in start_service(), which this
 # harness cannot run, so the source is pinned to the shared helper instead.
 for needle in 'sync_runs()' '&& sync_runs "$role" "$apply_local"' \
-	'if sync_runs "$role" "$apply_local"; then echo "backhaul=$backhaul"; fi'; do
+	'echo "backhaul=$backhaul extra_slots=$EXTRA_SLOTS pin2g=$pin2g pin5g=$pin5g"'; do
 	if grep -q -- "$needle" "$INIT"; then
 		pass=$((pass + 1))
 	else

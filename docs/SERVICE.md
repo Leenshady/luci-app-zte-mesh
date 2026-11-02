@@ -141,6 +141,10 @@ daemon 一侧不再收到 `auto`：那是原厂的"自适应"三件套——`Set
 保存后若不重启 `wlan-sync`，就要等下一次别的原因引起的重启才生效。签名里只有"跑着 applier 的两个角色"带这个值
 （`sync_runs`，与 procd 那段用同一个判据）：`apply_local=0` 的主控不应用任何档案，为一个不起作用的值重启服务是白重启。
 
+`wlan-sync` 直接读 UCI 的另外几项同理，一起进签名：**`extra_slots`**（子节点的 plan 里本来就有槽位行，这个开关只决定它们该不该落到射频上——
+关掉它却不重启，子路由会继续广播一个已经不该存在的 guest）与 **`wifi_2g` / `wifi_5g`**（一个频段有多块同类型射频时点名用哪一块，选出来的设备名不在
+plan 里）。四项共用 `sync_runs` 这一个判据：不跑 applier 的角色一个都不带，否则一次保存就是一次没有意义的重启（子路由最长一分钟掉出拓扑）。
+
 包的默认配置（2026-10-19 起）把能取出厂值的都写上，LuCI 显示同样默认值并标注范围：`mesh_v2=0`、`mlo_enable=1`、
 `wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、
 信标 100 ms、信道 0、功率 20/23 dBm（子节点最大档 = 出厂值）、`band_steer=1`、引导阈值 -60/-110、漫游阈值 -60/-70、
@@ -153,8 +157,8 @@ daemon 一侧不再收到 `auto`：那是原厂的"自适应"三件套——`Set
 
 重载：`reload_service` 只在"需要重启服务"的东西变了才重启——`version_mode` 变了，或策略键（`mesh.role`、`wifi.dual_band_sync`、
 `band_steer.*`、`roam.*`、`mlo.enable`）出现/消失（init 把键名存进 `/run/zte-mesh/restart.sig` 比较）；这些键**值**变了不重启，热更新。
-签名里另有三个是**按值**记的：`role=`、`local=`（`mesh_role` / `apply_local` 改的是 procd 实例集合）和 `backhaul=`
-（`wlan-sync` 只对 plan 的内容起作用，改模式必须重启它才看得见）。
+签名里另有两类是**按值**记的：`role=`、`local=`（`mesh_role` / `apply_local` 改的是 procd 实例集合）和 applier 自己的四个输入
+`backhaul=` / `extra_slots=` / `pin2g=` / `pin5g=`（`wlan-sync` 只对 plan 的内容起作用，改这些必须重启它才看得见；不跑 applier 的角色不带）。
 `zte_mesh_client` 与 `ban_minutes` **不在** restart.sig 里：服务每秒重读这份配置，状态机自己比对新旧规则——新规则立刻发，
 删掉的规则补发一条"放行"再丢弃，所以加/删一条封禁不需要重启。
 
