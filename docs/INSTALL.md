@@ -134,7 +134,7 @@ apk del luci-app-zte-mesh zte-mesh     # 再把装过的包名补进这条：zte
   `/usr/lib/zte-mesh`（运行环境解出来的目录树）。手工编过 `ns-run` / `mesh-search` 的机器，那两个文件
   不属于任何包，apk 不会碰它们。
 - 装的是哪一批可以从包版本读出来：`apk list --installed | grep zte`。三个包的 `PKG_RELEASE` 各自计数、批末对改过的包加一
-  （[PLAN](PLAN.md) 第 6.3 节），现在分别是 `zte-mesh` 0.1.0-r15、`luci-app-zte-mesh` r8、`zte-mesh-launcher` r1。
+  （[PLAN](PLAN.md) 第 6.3 节），现在分别是 `zte-mesh` 0.1.0-r16、`luci-app-zte-mesh` r8、`zte-mesh-launcher` r1。
   不加这一位，装机本身不会失败——`apk add` 给同名同版本的 apk 也会 `Replacing (0.1.0-r7 -> 0.1.0-r7)`，实测在 owrt 上
   中文包就是这样被换掉的。不动的是**记录**：`apk list` 报不出这台机器装的是哪一批，走 feed 的 `apk upgrade` 更不会把它
   当升级推给你。批末不加号，等于这批只在构建机上存在过。
