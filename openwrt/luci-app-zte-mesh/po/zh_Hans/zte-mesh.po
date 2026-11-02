@@ -161,8 +161,14 @@ msgstr "关闭（只应用主 SSID)"
 msgid "Multi-AP (4-address)"
 msgstr "Multi-AP(4 地址）"
 
-msgid "How the child role reaches the controller over the radio. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network the controller sends becomes its own BSS marked as a Multi-AP backhaul, and the main SSIDs are marked as fronthaul, so the mesh control traffic crosses the radio as 4-address Ethernet. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the controller has sent a backhaul network."
-msgstr "子路由通过无线回连控制器的方式。关闭：只应用主 SSID，与之前一致。Multi-AP：控制器下发的隐藏回程网络会成为独立的 BSS 并标记为 Multi-AP 回程，主 SSID 标记为前传，组网控制报文因此能以 4 地址以太网帧穿过无线。需要编译了 Multi-AP 支持的 hostapd（完整 wpad，不是 wpad-basic)；控制器没有下发回程网络之前不会创建任何东西。"
+msgid "Backhaul BSS for the child routers"
+msgstr "给子路由的回程网络"
+
+msgid "How this router reaches the controller over the radio. Off: only the main SSIDs are applied, as before. Multi-AP: the backhaul network the controller sends becomes a client interface (mode sta, marked as a Multi-AP backhaul station, with 4-address mode on and the bridge of that band), so the mesh control traffic crosses the radio instead of the cable. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the controller has sent a backhaul network."
+msgstr "本机如何通过无线连回控制器。关闭：只应用主 SSID，与之前一致。Multi-AP：控制器下发的回程网络会变成一个客户端接口（mode sta、标记为 Multi-AP 回程站、打开 4 地址并挂到该频段的桥上），组网控制报文因此走无线而不是网线。需要编译了 Multi-AP 支持的 hostapd（完整 wpad，不是 wpad-basic）；控制器没有下发回程网络之前不会创建任何东西。"
+
+msgid "Whether this router puts the backhaul network of its profile on the air. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network becomes its own BSS (multi_ap=2) and the main SSIDs are marked as fronthaul, so a child that joins it reaches this router as 4-address Ethernet over the radio. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the profile carries a backhaul network."
+msgstr "本机是否把档案里的回程网络放上天。关闭：只应用主 SSID，与之前一致。Multi-AP：隐藏的回程网络成为独立的 BSS（multi_ap=2），主 SSID 标记为前传，子路由连上它之后以 4 地址以太网帧穿过无线到达本机。需要编译了 Multi-AP 支持的 hostapd（完整 wpad，不是 wpad-basic）；档案里没有回程网络时不会创建任何东西。"
 
 msgid "This router is a mesh child: the controller manages it and gives it the Wi-Fi name, password and security."
 msgstr "本机是 mesh 子路由：由主控管理，Wi-Fi 名称、密码与加密方式都由主控下发。"

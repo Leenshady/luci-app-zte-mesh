@@ -371,14 +371,20 @@ return view.extend({
 		o.description = _('On: this controller puts the Wi-Fi profile below on its own radios as well as handing it to the child routers, so it and they broadcast the same network -- the main router of the factory page. Off: the profile goes to the child routers only and this router\'s own radios are left exactly as they are, which is the shape of most wired OpenWrt boxes at the head of a mesh, so it is the default. On a router that does apply a profile here, a radio device that was switched off is switched on when the band is enabled, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until a different profile arrives.');
 		}
 
-		/* Only a child has a controller to reach over the radio. */
-		if (child) {
-		o = s.taboption('general', form.ListValue, 'backhaul', _('Backhaul to the controller'));
+		/* The backhaul is a link with two ends, and which end this router sits on is the role's business: a child
+		 * reaches the controller as a client, a broadcasting controller puts the backhaul BSS on its own air.
+		 * A controller that leaves its own radios alone (apply_local off) builds neither, so the field there would
+		 * only invite the wrong expectation -- same rule as the extra SSIDs below. */
+		if (child || local) {
+		o = s.taboption('general', form.ListValue, 'backhaul',
+			child ? _('Backhaul to the controller') : _('Backhaul BSS for the child routers'));
 		o.value('off', _('Off (main SSIDs only)'));
 		o.value('multi_ap', _('Multi-AP (4-address)'));
 		o.default = 'off';
 		o.optional = true;
-		o.description = _('How the child role reaches the controller over the radio. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network the controller sends becomes its own BSS marked as a Multi-AP backhaul, and the main SSIDs are marked as fronthaul, so the mesh control traffic crosses the radio as 4-address Ethernet. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the controller has sent a backhaul network.');
+		o.description = child
+			? _('How this router reaches the controller over the radio. Off: only the main SSIDs are applied, as before. Multi-AP: the backhaul network the controller sends becomes a client interface (mode sta, marked as a Multi-AP backhaul station, with 4-address mode on and the bridge of that band), so the mesh control traffic crosses the radio instead of the cable. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the controller has sent a backhaul network.')
+			: _('Whether this router puts the backhaul network of its profile on the air. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network becomes its own BSS (multi_ap=2) and the main SSIDs are marked as fronthaul, so a child that joins it reaches this router as 4-address Ethernet over the radio. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the profile carries a backhaul network.');
 
 		}
 

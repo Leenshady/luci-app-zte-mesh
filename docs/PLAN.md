@@ -81,7 +81,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | B13a | **已完成**。`wlan-sync` 生成 `zte_backhaul_sta_<band>`：由 plan 的回程行驱动，`mode=sta` + `multi_ap 1` + `wds 1`，名称/密钥/加密取 plan 那行（不写 `hidden`，那是 AP 的概念）；由 `mesh_role` 决定写哪一端，换角色时把对端那段还回去；行里声称加密却没有密钥时两端都拒绝应用 | H | `sh tests/test_wlan_sync.sh` 新增回程客户端区块（映射 15 项、幂等、两端互换、缺密钥、禁用行、`role main` 仍走主控端） |
 | B13b | **已完成**。4 地址模式的开关就是 `wds`（见上），`wpad` 变体检查扩到客户端：`wpad-basic` + 回程开 + 本机是子节点时同样把原因写进日志与 `status.message`；`zte-mesh.init` 在 `backhaul=multi_ap` 但本机是主控且 `apply_local=0`（这个开关无事可做）时启动说一句 | H | 同上 + `sh tests/test_init.sh` 新增 3 条源码针 |
 | B13c | 真机关联、断网线仍在线、1905 帧过无线 | D | 见第 5 节 H-01 |
-| B13d | **页面的 `backhaul` 字段只在看得到子节点角色时渲染**（`zte-mesh.js` 的 `if (child)`），可这一项在"主控 + `apply_local=1`"上同样有作用——那一端建的是回程 BSS。要么放开成 `child || local`（和 `extra_slots` 一致），要么在页面上说明只有子节点能用；描述文案也得跟着写两端。改文案要同步 `po/zh_Hans` 并跑 `python tests/test_i18n.py` | H | `node tests/test_luci.js` 的角色可见性断言 + i18n 12 项 |
+| B13d | **已完成**。页面的 `backhaul` 以前只在子节点角色渲染（`if (child)`），可它在"主控 + `apply_local=1`"上同样有作用（那一端建回程 BSS）。现在和 `extra_slots` 一样按 `child || local` 渲染，标题与描述分两端（子节点=连过去 / 主控=放上天），纯主控两个开关都不显示 | H | `node tests/test_luci.js` 三种角色组合的可见性断言 + i18n 12 项（三条新文案已进 `po/zh_Hans`） |
 
 ### 批 5 · 多子节点与稳定性（H + D）
 
@@ -127,7 +127,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci），含回程两端 | 169 项（批 2 加 5 条、批 4 加回程客户端 39 条；Windows 上约 8 分钟，Linux 上快得多） |
 | `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 106 项（批 3 加 7 条、批 4 加回程告警 3 条） |
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 24 项（批 3 加六个 role/`apply_local` 组合；Windows 上要先解决上面那条 `python3` 占位程序） |
-| `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `33 main / 10 slot / 4 ACL / 2 client / child 5`（批 2 加节点表断言，批 3 加动作列表与状态框） |
+| `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `34 main / 10 slot / 4 ACL / 2 client / child 5`（批 2 加节点表断言，批 3 加动作列表与状态框，批 4 加回程开关的两端可见性——纯主控 `apply_local=0` 时 `backhaul` 与 `extra_slots` 都不渲染） |
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94` | 101 断言 + 10 万次有界变异（需要一台能编 C 的机器） |
 | `tests/controller-steer-codec.c`（`make test-host`） | 终端动作消息的编码与两种回报的解码 | 整帧字节比对 + 10 万次有界变异（同上） |
 | `sh tests/test_steer_tshark.sh` | 把上面那几帧交给 tshark，逐字段读回 | 20 项；没有 tshark 时输出 SKIP 并退出 0 |

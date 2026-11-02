@@ -7,6 +7,7 @@ const initTest = process.argv[3] || path.join(__dirname, 'test_init.sh');
 String.prototype.format = function() { let i = 0, a = arguments; return this.replace(/%[sd]/g, () => a[i++]); };
 const registered = {}; // section type -> {option: {datatype, depends, ...}}
 let uciRole = 'master'; // what uci.get('zte_mesh', 'main', 'mesh_role') answers
+let uciLocal = null;   // what uci.get('zte_mesh', 'main', 'apply_local') answers; null = option absent (legacy)
 class Opt { constructor(n, c) { this.name = n; this.cls = c; this.deps = []; this.values = []; }
 	depends(k, v) { this.deps.push([k, v]); } value(v) { this.values.push(v); } }
 class Sec { constructor(type) { this.type = type; registered[type] = registered[type] || {}; }
@@ -29,7 +30,9 @@ const mocks = {
 };
 // GridSection options are keyed by the section TYPE argument of m.section(form.GridSection, TYPE, ...)
 const src = fs.readFileSync(viewFile, 'utf8').replace(/^'use strict';/, '').replace(/^'require [^']*';$/gm, '');
-mocks.uci.get = (pkg, sec, opt) => (pkg === 'zte_mesh' && sec === 'main' && opt === 'mesh_role' ? uciRole : null);
+mocks.uci.get = (pkg, sec, opt) => (pkg !== 'zte_mesh' || sec !== 'main' ? null
+	: opt === 'mesh_role' ? uciRole
+		: opt === 'apply_local' ? uciLocal : null);
 const names = Object.keys(mocks);
 const fn = new Function(...names, '_', 'E', src);
 // dom.create() semantics, as far as the view can trip over them: the first argument is used directly
@@ -129,7 +132,7 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	const extra = Object.keys(registered.zte_mesh || {}).filter(n => !wanted.zte_mesh.has(n));
 	if (extra.length) { console.log('form options the init test does not exercise:', extra.join(' ')); bad++; }
 	// Child role: the settings this router would push to its own child routers do not apply there, so they must not be
-	// offered at all, and the backhaul choice only exists on that side.
+	// offered at all. The backhaul choice is on both sides that touch this router's radios -- different end, same link.
 	/* The action list writes what the init script reads: 'ban' first (it is the default), then 'kick'. A grid option that
 	 * no page can set to a value the init accepts is the failure this checks for. */
 	{
@@ -161,19 +164,33 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 			if (registered.zte_mesh_bss || registered.zte_mesh_acl || registered.zte_mesh_timer || registered.zte_mesh_client) { console.log('child form still offers the controller grids'); bad++; }
 		counts.child = Object.keys(registered.zte_mesh || {}).length + ' options';
 	}
-	// Main router: the controller half is still there -- it is what hands the profile out -- and the local half only
-	// changes the wording, so the form is the controller form. The child-only backhaul choice must not appear.
+	// Main router that broadcasts (the legacy `main` = master + apply_local=1): the controller half is still there -- it
+	// is what hands the profile out -- and the local half owns this router's own radios, so the two radios-side
+	// switches (extra SSIDs and the backhaul) belong here too. The backhaul is the far end of the same link: on this
+	// side it puts the backhaul BSS on the air instead of joining one.
 	{
 		for (const k of Object.keys(registered)) delete registered[k];
 		uciRole = 'main';
 		await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
 		const m = registered.zte_mesh || {};
-		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2', 'extra_slots', 'apply_local'].filter(n => !m[n]);
+		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2', 'extra_slots', 'apply_local', 'backhaul'].filter(n => !m[n]);
 		if (missing.length) { console.log('main router form lacks the controller options:', missing.join(' ')); bad++; }
-		if (m.backhaul) { console.log('main router form offers the child-only backhaul choice'); bad++; }
 		/* The second axis defaults to what the legacy name means, so a page opened on an old `main` configuration shows
 		 * the checkbox ticked and saving it keeps the behaviour instead of quietly dropping the local broadcast. */
 		if (m.apply_local && m.apply_local.default !== '1') { console.log('apply_local default on a legacy main is', m.apply_local.default); bad++; }
+	}
+	// A controller that leaves its own radios alone applies no profile here, so it builds neither end of the backhaul
+	// and no extra SSID: offering those two would invite exactly the "I set it and nothing happened" report.
+	{
+		for (const k of Object.keys(registered)) delete registered[k];
+		uciRole = 'master';
+		uciLocal = '0';
+		await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
+		const m = registered.zte_mesh || {};
+		const unwanted = ['backhaul', 'extra_slots'].filter(n => m[n]);
+		if (unwanted.length) { console.log('controller-only form offers settings that apply to radios it does not touch:', unwanted.join(' ')); bad++; }
+		if (!m.apply_local) { console.log('controller-only form lost the apply_local switch'); bad++; }
+		uciLocal = null;
 	}
 	console.log(bad ? 'luci test: FAIL' : 'luci test: ok (' + counts.main + ' main options, ' + counts.bss + ' slot options, ' + counts.acl + ' ACL options, ' + counts.client + ' client options, child form ' + counts.child + ')');
 	process.exit(bad ? 1 : 0);

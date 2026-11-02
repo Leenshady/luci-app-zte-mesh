@@ -71,7 +71,7 @@ dropbear 没有 sftp（传文件用 `ssh A 'cat f' | ssh B 'cat > f'`）。
 | B6 | 回程 BSS（主控那一端）：`MapAccessAttr&64` → `multi_ap=2` 独立段，主 SSID `multi_ap=1` | ☑️ | 86 项测试含开关双向复原；2026-11-02 起这一段只在 `mesh_role` 不是 `slave` 时生成，子节点那一端见 B13 | — |
 | B7 | UCI / init / LuCI 暴露 `mesh_role`（`master`/`slave`）+ `apply_local` + `backhaul`；旧名 `main`/`auto` 仍被读 | ✅ | init 103 项（`role-local-sig`、`role-slave-local-keeps-plan`、`role-main-local-off`、两个 legacy 别名各出一份 plan）、rpcd 24 项 | — |
 | B8 | **子路由免本地 profile**：没有配置时沿用本机正在广播的网络 | ☑️ | init `role-slave-borrow` | — |
-| B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单） | ☑️ | `test_luci.js`（主控 31 项 / 子路由 4 项） | — |
+| B9 | **LuCI 按角色只显示有效设置**（子路由隐藏 Wi-Fi/漫游/额外网络/子路由清单；**会动本机射频的两个开关只留给"会动射频的角色"**：`extra_slots` 与 `backhaul` 在子路由和"主控 + `apply_local=1`"上显示，在纯主控上都不显示） | ☑️ | `test_luci.js`（主控 34 项 / 子路由 5 项，另加"纯主控不给这两个开关"一条） | — |
 | B10 | rpcd `status` 返回 `role` 与 `local` 两个轴 | ✅ | rpcd 24 项；`main`/`auto` 报成 `master` + `local:true`，子路由永远 `local:false`；页面标题由这两值决定（`test_luci.js`） | — |
 | B11 | **额外槽位（slot 1–3）落到本机**：`extra_slots=1` 时每（频段,槽位）一个 `zte_extra_<band>_<slot>` 段，plan 不再下发的槽位被删除，`extra_slots=0`（默认）与旧行为逐字节相同；`main` 角色的本机 plan 也带上 `zte_mesh_bss` 的行 | ☑️ | `wlan-sync` 123 项（含默认关/开/幂等/删槽位/坏密钥/频段二选一/槽位 4 越界/无名行）、init 87 项（`role-main-slots` 五行的 plan、`role-main-no-slots` 只两行、`role-slave-slots-keeps-plan` 不动子路由 plan、`extra_slots=2` 被拒）。**默认关**，真机效果见 [PLAN](PLAN.md) H-02 | 3 |
 | B12 | **应用结果回传**：`wlan-sync.status` + `status.sync` + 状态页行 | ☑️ | wlan-sync 86 项、rpcd 18 项 | — |
