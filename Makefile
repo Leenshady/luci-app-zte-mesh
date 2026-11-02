@@ -80,10 +80,10 @@ $(LIBDIR)/libzte_controller_route.so: controller-route.c
 	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) $< \
 	  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o $@
 
-$(LIBDIR)/libzte_controller_trace.so: controller-trace.c controller-1905.c controller-1905.h controller-steer.c controller-steer.h
+$(LIBDIR)/libzte_controller_trace.so: controller-trace.c controller-peer.c controller-peer.h controller-1905.c controller-1905.h controller-steer.c controller-steer.h
 	$(ARMCC) $(COMMON) -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
 	  -Wl,-z,defs -Wl,-soname,libzte_controller_trace.so \
-	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) controller-trace.c controller-1905.c controller-steer.c \
+	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) controller-trace.c controller-peer.c controller-1905.c controller-steer.c \
 	  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o $@
 
 # The child-side configuration-manager stand-in. Only the two WLAN setters are interposed, and each of them only
@@ -123,8 +123,10 @@ $(ARTIFACTS)/tests/bridge-codec: tests/bridge-codec.c mesh-bridge.c mesh-bridge.
 $(ARTIFACTS)/tests/cm-profile-codec: tests/cm-profile-codec.c controller-profile.c cm-profile-layout.inc wlan_cfg.def wlan_psk.def vendor-db.h mesh-bridge.h | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/cm-profile-codec.c controller-profile.c -o $@
 
-$(ARTIFACTS)/tests/controller-packet-codec: tests/controller-packet-codec.c controller-packet.c controller-packet.h | $(ARTIFACTS)/tests
-	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/controller-packet-codec.c controller-packet.c -o $@
+# The packet builder also emits the two steering messages, so the steer encoder and the 1905 walk it rides on
+# have to be in the link - they were missing here, and the test only failed to build on a host that rebuilt it.
+$(ARTIFACTS)/tests/controller-packet-codec: tests/controller-packet-codec.c controller-packet.c controller-packet.h controller-steer.c controller-steer.h controller-1905.c controller-1905.h | $(ARTIFACTS)/tests
+	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/controller-packet-codec.c controller-packet.c controller-steer.c controller-1905.c -o $@
 
 # The 1905 decoder: pure functions over one frame, so it runs without a namespace or a vendor library.
 $(ARTIFACTS)/tests/controller-1905-codec: tests/controller-1905-codec.c controller-1905.c controller-1905.h | $(ARTIFACTS)/tests
@@ -134,6 +136,11 @@ $(ARTIFACTS)/tests/controller-1905-codec: tests/controller-1905-codec.c controll
 # reuses the 1905 header/TLV walk, so both objects go in.
 $(ARTIFACTS)/tests/controller-steer-codec: tests/controller-steer-codec.c controller-steer.c controller-steer.h controller-1905.c controller-1905.h | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/controller-steer-codec.c controller-steer.c controller-1905.c -o $@
+
+# What one frame leaves in peers/: the per-node files the topology page reads. The directory is an environment
+# variable, so two constructed frames from two MACs can be checked against a real temporary directory.
+$(ARTIFACTS)/tests/controller-peer-codec: tests/controller-peer-codec.c controller-peer.c controller-peer.h controller-1905.c controller-1905.h controller-steer.c controller-steer.h | $(ARTIFACTS)/tests
+	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/controller-peer-codec.c controller-peer.c controller-1905.c controller-steer.c -o $@
 
 # The client action state machine: what to send, when to repeat it, when to give up. Pure timing logic, driven
 # by a made-up clock, so an hour of behaviour costs nothing to test.
@@ -153,12 +160,13 @@ $(ARTIFACTS)/tests/controller-wsc-crypto-codec: tests/controller-wsc-crypto-code
 $(ARTIFACTS)/tests/agent-sync-codec: tests/agent-sync-codec.c agent-sync.c agent-sync.h wlan_cfg.def wlan_psk.def | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -I. tests/agent-sync-codec.c agent-sync.c -o $@
 
-test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-1905-codec $(ARTIFACTS)/tests/controller-steer-codec $(ARTIFACTS)/tests/controller-actions-test $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec
+test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-1905-codec $(ARTIFACTS)/tests/controller-steer-codec $(ARTIFACTS)/tests/controller-peer-codec $(ARTIFACTS)/tests/controller-actions-test $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec
 	$(ARTIFACTS)/tests/controller-wsc-codec
 	$(ARTIFACTS)/tests/controller-wsc-crypto-codec
 	$(ARTIFACTS)/tests/controller-packet-codec
 	$(ARTIFACTS)/tests/controller-1905-codec
 	$(ARTIFACTS)/tests/controller-steer-codec
+	$(ARTIFACTS)/tests/controller-peer-codec
 	$(ARTIFACTS)/tests/controller-actions-test
 	sh tests/test_steer_tshark.sh $(abspath $(ARTIFACTS))/tests/controller-steer-codec
 	$(ARTIFACTS)/tests/agent-sync-codec

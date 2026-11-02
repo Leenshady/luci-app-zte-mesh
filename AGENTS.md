@@ -48,7 +48,7 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 
 **版本控制**
 
-- 默认**只 commit，不推送**。`main` 直连 ImmortalWrt feed，推上去构建机立刻吃到。仓库只有 `main` 一条分支，不要开长期分支。
+- 默认**只 commit，不推送**。`main` 直连 ImmortalWrt feed，推上去构建机立刻吃到。日常只在 `main` 上做事，不要开长期分支；`feat/child-node` 是**向上游提 PR 用的**那条，别拿它当开发分支。
 
 ## 取证流程（重活前三遍核对，别再犯）
 

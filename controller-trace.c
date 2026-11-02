@@ -17,8 +17,7 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
-#include "controller-1905.h"
-#include "controller-steer.h"
+#include "controller-peer.h"
 #define EXPORT __attribute__((visibility("default")))
 
 static unsigned int lines, packet_lines, trace_all_lines;
@@ -161,111 +160,6 @@ EXPORT ssize_t sendto(int fd, const void *data, size_t length, int flags,
     }
     errno = saved; return result;
 }
-/* What the topology page of the controller shows per child but the database does not hold: the indicator light, the number
- * of associated clients, how many BSS the child reports as up, and whether it reached us over a direct link or through a
- * relay. All of it rides in frames the daemon receives anyway: a HigherLayerResponse carries the light in the vendor sub-TLV
- * 0x21 {AL MAC[6], status} (the master reads it in _topoLightStatusHandle), an AP Metrics Response lists the station count of
- * each BSS, and a Topology Response lists the child's BSS interfaces. controller-1905.c does the parsing - the same decoder
- * is unit-tested on constructed frames and on one captured frame - and keeps no TLV body. The latest values go to
- * /run/zte-mesh/peers/<AL MAC>.<kind>, written atomically; the service reads them for state.json. Only complete,
- * unfragmented frames are looked at. */
-static void write_peer(const unsigned char *mac, const char *kind, const char *text, int bytes)
-{
-    char path[64], temp[72];
-    int fd;
-    snprintf(path, sizeof(path), "/run/zte-mesh/peers/%02x:%02x:%02x:%02x:%02x:%02x",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    snprintf(path + strlen(path), sizeof(path) - strlen(path), ".%s", kind);
-    snprintf(temp, sizeof(temp), "%s.t", path);
-    fd = open(temp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
-    if (fd < 0)
-        return;
-    if (write(fd, text, (size_t)bytes) == bytes && !close(fd))
-        (void)rename(temp, path);
-    else
-        (void)unlink(temp);
-}
-static void note_peer(const unsigned char *f, const size_t n)
-{
-    struct cmdu_header header;
-    struct tlv_cursor cursor;
-    struct node_metrics metrics;
-    unsigned int type;
-    const unsigned char *value, *mac = f + 6;
-    size_t length, used = 0;
-    int light = -1;
-    char text[72];
-    int bytes;
-    if (!cmdu_decode(f, n, &header) || !header.last_fragment || header.fragment)
-        return;
-    /* The answers to a client action: a BTM report (0x8015) says whether the client accepted, and a Steering
-     * Completed (0x8017) says it left. Both name the client, which is what the action table keys on, so the
-     * file is written for the client's MAC and not for the agent that sent the frame. */
-    if (header.type == STEER_MSG_BTM_REPORT) {
-        struct steer_btm_report report;
-        if (steer_decode_btm_report(f, n, &report)) {
-            bytes = snprintf(text, sizeof(text), "ok=%d\n", report.status == 0 ? 1 : 0);
-            write_peer(report.client, "btm", text, bytes);
-        }
-        return;
-    }
-    if (header.type == STEER_MSG_COMPLETED) {
-        struct steer_completed done;
-        static const char accepted[] = "ok=1\n";
-        if (steer_decode_completed(f, n, &done))
-            write_peer(done.client, "btm", accepted, (int)(sizeof(accepted) - 1));
-        return;
-    }
-    tlv_open(&cursor, f, n);
-    while (tlv_next(&cursor, &type, &value, &length)) {
-        struct zte_cursor zte;
-        /* Only a HigherLayerResponse carries the light: the same sub-TLV number inside another message type is a
-         * different field, and the master reads it from the response too. */
-        if (header.type != 0x000e || type != CONTROLLER_TLV_VENDOR || !zte_vendor_open(&zte, value, length))
-            continue;
-        while (zte_vendor_next(&zte, &type, &value, &length))
-            if (type == 0x21 && length >= 7) {
-                light = value[6] ? 1 : 0;
-                mac = value; /* the AL MAC the child reports for itself */
-            }
-    }
-    if (!node_metrics_decode(f, n, &metrics))
-        return;
-    /* Only frames that describe the link or its load are worth a file: the daemon's status chatter (CMDU 0x0004 on the lab
-     * link, ~2/s) says nothing the page shows, and rewriting a file for it would churn the tmpfs for no gain. */
-    if (!(metrics.fields & (NODE_METRIC_STATIONS | NODE_METRIC_BSS)) &&
-        header.type != 0x0003 && header.type != 0x0006 && header.type != 0x000e && light < 0)
-        return;
-    {
-        /* Anybody on the LAN can send a 1905 frame with any AL MAC: remember at most 32 distinct MACs per daemon lifetime so a
-         * flood of forged frames cannot fill the tmpfs with digest files. */
-        static unsigned char known[32][6];
-        static unsigned int known_count;
-        unsigned int k;
-        for (k = 0; k < known_count; k++)
-            if (!memcmp(known[k], mac, 6))
-                break;
-        if (k == known_count) {
-            if (known_count >= 32)
-                return;
-            memcpy(known[known_count++], mac, 6);
-        }
-    }
-    if (light >= 0) {
-        bytes = snprintf(text, sizeof(text), "light=%d\n", light);
-        write_peer(mac, "light", text, bytes);
-    }
-    /* A count that the frame did not carry is left out, so the reader sees "no data" instead of a zero that looks measured. */
-    if (metrics.fields & NODE_METRIC_STATIONS)
-        used += (size_t)snprintf(text + used, sizeof(text) - used, "stations=%u\n", metrics.stations);
-    if (metrics.fields & NODE_METRIC_BSS)
-        used += (size_t)snprintf(text + used, sizeof(text) - used, "bss=%u\n", metrics.bss);
-    if (metrics.hops > 0)
-        used += (size_t)snprintf(text + used, sizeof(text) - used, "hops=%d\n", metrics.hops);
-    if (used)
-        write_peer(mac, "metrics", text, (int)used);
-}
-
 EXPORT ssize_t recvfrom(int fd, void *data, size_t length, int flags,
                         struct sockaddr *source, socklen_t *source_size)
 {
@@ -277,7 +171,7 @@ EXPORT ssize_t recvfrom(int fd, void *data, size_t length, int flags,
     if (data && result >= 22 && !getsockname(fd, (struct sockaddr *)&address, &size) && address.ss_family == AF_PACKET) {
         const unsigned char *bytes = data;
         if (bytes[12] == 0x89 && bytes[13] == 0x3a)
-            note_peer(bytes, (size_t)result);
+            controller_peer_note(bytes, (size_t)result);
         if (bytes[12] == 0x89 && bytes[13] == 0x3a)
             message("ZTE_CONTROLLER_TRACE rx1905 cmdu=%u bytes=%u ifindex=%d protocol=%u\n",
                     ((unsigned int)bytes[16] << 8) | bytes[17], (unsigned int)result,

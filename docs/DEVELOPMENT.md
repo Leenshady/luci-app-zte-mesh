@@ -17,7 +17,7 @@
 | SR1010 路由器 | 从 mac：`ssh root@192.168.5.1` | 实验室脚本默认 `--host root@192.168.5.1 --port 22`。没有 python3、没有 `pkill`，只有 BusyBox 和 `tcpdump` |
 | 真子路由 ZXHN Z506 | 从 mac：telnet `192.168.5.216:23`（`tools/child/ztetn.py` 默认值，可用 `--host`/`CHILD=` 改） | 口令只从 `ZTE_TN_PASS` 读（用户名 `ZTE_TN_USER`，默认 root），**不要写进任何文件** |
 | OpenWrt 构建机 | `ssh -p 2022 192.168.223.19`，树 `~/workspace/immortalwrt` | 只用来编包（第 8 节） |
-| 实验室虚拟机 | `ssh zzb@10.23.90.131`（x86_64 Ubuntu 22.04） | 没 mac、没路由器、没原厂镜像时也能编译、跑主机测试、在沙箱里跑服务（qemu 模拟 ARM32）。见 [LAB.md](LAB.md) |
+| 实验室虚拟机 | 台账在 [LAB.md](LAB.md) 第 2.1 节（x86_64 Ubuntu 22.04） | 没 mac、没路由器、没原厂镜像时也能编译、跑主机测试、在沙箱里跑服务（qemu 模拟 ARM32）。交叉工具链与当初的容器同为 **GCC 11.4.0 Ubuntu 11.4.0-1ubuntu1\~22.04.3**：2026-11-02 在这里重编 `libzte_mesh_shim/route/profile/agent_mm.so`、`db-engine-probe`、`zte-meshctl`，与随包提交的 `zte-mesh-runtime.tar.gz` 里对应成员**逐字节相同**，所以换机的产物可信 |
 
 ## 2. 构建
 
@@ -34,6 +34,10 @@
 - **在 mac 上不要原地覆盖源码文件再编译**：容器经 virtiofs 读源码，变短的文件报 `is shorter than expected`，变长的可能编出
   新旧混合的东西。用 git 更新，或先写临时名再 `mv`。产物同理，所以 `container-make.sh` 在容器里删。
 - 运行包内有 `SHA256SUMS` 自校验，`make-runtime.py` 还会审计 ARM32 ABI（强符号、GNU 符号版本）。
+- 改了 C 产物但手上没有原厂镜像时，用**只换成员**的 `python3 openwrt/repack-runtime.py --replace
+  root/lib/libzte_controller_trace.so=out/runtime/lib/libzte_controller_trace.so`（步骤与两个坑见 LAB.md 第 3.0 节）：
+  其余成员逐字节不动，只重算 `SHA256SUMS`，`python3 tests/test_runtime.py` 的九条守研究会守住"成员与仓库文件一致"。
+  换完要逐条 diff 解出来的两个包，确认只有该成员和 `SHA256SUMS` 变了。
 - x86_64 主机可用 `Dockerfile.cross`（`make ROUTERCC=aarch64-linux-gnu-gcc`）交叉编译。
 
 ## 3. 跑控制器
@@ -55,8 +59,12 @@
 
 ## 4. 测试
 
-- 主机测试全在容器里：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 103 条、rpcd 24 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+- 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
+  启动视图、init 122 条、rpcd 24 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+- 没有原厂镜像的机器（实验室虚拟机）也能跑绝大多数：`make test-host` 直接在 `$PWD/out` 上跑，实测除
+  `test_schema.py`/`test_policies.py`/`test_startup.py` 三组外全绿——那三组要 `out/analysis/cspd`，而 `cspd` 只从
+  哈希钉住的原厂镜像提取（`evidence/` 不入库）。这三组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，
+  `container-make.sh` 的 noexec 注意项在这里不适用。
 - LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；mac 上没有 node，在开发机上跑）。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
 - 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`、`python tests/test_runtime.py`、`python tests/test_i18n.py`。

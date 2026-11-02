@@ -132,7 +132,10 @@ def show_tlvs(frame):
             body = value[offset + 4:offset + 4 + length]
             name = WSC_ATTRIBUTES.get(attribute, f"0x{attribute:04x}")
             if attribute in (0x1021, 0x1023, 0x1024, 0x1011, 0x1042, 0x1045):
-                print(f"        {name:16s} = {body.split(b'\x00')[0]!r}")
+                # The NUL is split out before the f-string: an expression with a backslash there is a syntax
+                # error until Python 3.12, and this script also runs on the lab VM's 3.10.
+                text = body.split(b"\x00")[0]
+                print(f"        {name:16s} = {text!r}")
             elif attribute in (0x1032, 0x101A, 0x1047):
                 print(f"        {name:16s} len={length} head={body[:8].hex()}")
             elif length <= 4:

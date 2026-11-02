@@ -64,7 +64,9 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 | `shim.c` | 沙箱，preload | 数据库初始化边界 |
 | `controller-profile.c`、`cm-profile-layout.inc` | 沙箱，preload | CM 替身；43 个字段偏移由 `cm-profile-evidence.py` 从机器码推出 |
 | `controller-route.c` | 沙箱，preload | 接口身份；`SSEND(0xa96e)` 启动计数替身 |
-| `controller-trace.c` | 沙箱，preload | 受限日志、ASEND 记录、子节点指示灯与终端数摘要 |
+| `controller-trace.c` | 沙箱，preload | 受限日志、ASEND 记录、把收到的 1905 帧交给 `controller-peer.c` |
+| `controller-peer.c`、`controller-peer.h` | 沙箱，preload | 一帧 → `peers/<MAC>.<kind>`：指示灯、终端数、BSS 数、直连还是中继、动作回执；落盘目录是 `ZTE_MESH_PEERS_DIR`，所以主机测试能在临时目录上验整条链 |
+| `controller-1905.c`、`controller-steer.c` | 沙箱 + 主机测试 | 纯函数解码：CMDU 头与 TLV 走查、原厂 vendor 容器（0x0b/0x21）、终端引导三类报文 |
 | `controller-packet.c`、`controller-wsc*.c` | 实验室 | 合成对端和独立的 M2 校验器（只用公开测试值） |
 | `config-bridge-probe.c`、`exec-check.c`、`zte-debugcmd.c` | 实验室 | 早期桥接测试、加载检查、原厂 `sendcmd` 调试通道客户端 |
 | `prepare.py`、`jffs2.py`、`vendor_elf.py`、`schema.py`、`profile_schema.py`、`startup-schema.py`、`bridge_evidence.py`、`cm-profile-evidence.py` | mac | 从固件提取运行环境、按固定哈希审计 ABI、核对表结构与偏移证据 |

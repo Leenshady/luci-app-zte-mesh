@@ -90,7 +90,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
-| A21 | 多个 peer 并存：`peers/` 目录、`state.json` 汇总、动作按 MAC 路由 | H | 用两段构造的 CMDU 喂进 trace，断言两个节点都出现 |
+| A21 | 多个 peer 并存：`peers/` 目录、`state.json` 汇总、动作按 MAC 路由 | H | 用两段构造的 CMDU 喂进 trace，断言两个节点都出现。**做法（2026-11-02）**：原来 `write_peer`/`note_peer` 是 `controller-trace.c` 里的 static 函数，主机测试够不到——拆成 `controller-peer.c`/`controller-peer.h`，对外只留 `controller_peer_note(frame, bytes)`，落盘目录听 `ZTE_MESH_PEERS_DIR`，于是新测试 `tests/controller-peer-codec.c`（58 项）在临时目录上验整条链：两节点并存不互覆盖、一帧多值多行、灯跟 sub-TLV 的 AL MAC、回执记终端名下、碎帧与 `0x0004` 不落盘、32 个 MAC 洪水预算。ARM32 `libzte_controller_trace.so` 已在实验室虚拟机重编并 `repack-runtime.py` 换进随包 tarball（其余成员逐字节未动，`test_runtime.py` 九条守卫 0 失败）；**装到真机看两个子节点要等下一次 CI** |
 | A22 | 长时间稳定性：服务重启计数、plan 抖动抑制、日志轮转 | H | 实验室跑 30 分钟无 `daemon_restarts`（`dev-service-smoke.py`）。**实测到的抖动的样子（2026-11-02，ax3600 装 r15 后重启）**：从服务起到档案收敛用了 8 秒，期间 `ZTE_AGENT_SYNC published` 三次、`wlan-sync: applied` 三次——先是本机默认的两条（`ImmortalWrt`/`ImmortalWrt`），再是主控的 2G 到、5G 后到，每次都 `commit + reload`。收敛之后一分钟再无发布。判据要按"重启允许几次发布"来定，不是按"一次到位"。**30 分钟采样已跑（2026-11-02，owrt 装 r15，`dev-service-smoke.py` 之外的那一半：现役服务本体）**：`daemon_restarts` 与 `attached` 30 次全为 `0`/`true`，`controller`/`attach` 两个 pid 全程不变，日志里 `zte-mesh` 相关只有 13 行、无 error。**但这一条的判据不能写成"pid 不许变"**——`search` 每 300 秒按设计退出一次、被 respawn 拉回来，30 分钟里 pid 换了 6 次；要判的是"设计性退出的周期"和"崩溃"分得清不清。剩下没动的：日志轮转（这个窗口太短，压根没到轮转条件） |
 | A23 | 真机：两台子路由同时在线 | D | 见第 5 节 H-04 |
 
@@ -118,7 +118,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 2 | 主控侧可见性 | ✅ A18a / A18b / A19b 全做完（回程 RSSI 无线索，见 H-05） | **待触发**（批末一次） |
 | 3 | 控制面 | 🔄 A17a/A17b 全做完（能编能解、能发能停、页面能配能看）；**A17c 效果确认等真机**（H-03） | H-03 |
 | 4 | 无线回程 | ✅ 主机侧做完（B13a/b/d/e/f/g：回程 STA 的 `wifi-iface` 两端都生成、`wds` 才是 4 地址的开关、换角色会回收对端段、applier 的四个输入都进签名且页面上都有字段）；**B13c 端到端等真机**（H-01） | H-01 |
-| 5 | 多子节点与稳定性 | 🔄 A22 的"30 分钟无重启"已在装好 r15 的 owrt 上采完（顺带把 A25 在装机后复验了一遍）；A21（多 peer 并存的主机测试）还没动——先要决定"帧→`peers/` 落盘"这步从哪儿能被主机测试够到 | A23（H-04） |
+| 5 | 多子节点与稳定性 | 🔄 A21 主机侧做完（`controller-peer.c` 拆分 + 58 项测试 + 重编换包）；A22 的"30 分钟无重启"已在装好 r15 的 owrt 上采完（顺带把 A25 在装机后复验了一遍），**只剩日志轮转**；A23 的两子节点拓扑要等下一次 CI 装机 | A23（H-04） |
 | 6 | 发布与工程化 | ✅ C9（CI 只构建、发布手工三步）+ C10（`verify-install.sh`，两台实验机各跑一次都 PASS）；**C8 手册写完，"按文档走一遍"这一遍还没跑** | ✅ 两次：41401349851（r14/r7）与 **41410028326（r15/r8，装机读回一致）** |
 
 ## 4. 主机测试口径
