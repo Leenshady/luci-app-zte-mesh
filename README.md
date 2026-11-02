@@ -79,7 +79,7 @@ sh tools/build/runtime.sh install              # 包用的运行包 openwrt/zte-
 | [REAL_CHILD](docs/REAL_CHILD.md) | 真子路由联调：入网门槛、**服务配置语法**、各功能验证记录、风险 |
 | [FINDINGS](docs/FINDINGS.md) | 逆向与真机发现：角色选举、自组网 V2、`VersionMode`、`CurHop`、ACL 等 |
 | [CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md) | 原厂控制器能下发什么、Z506 实际支持什么、本项目覆盖了什么 |
-| [ZTE router model](docs/ZTE router model.md) | 中兴市售与运营商机型的**名称—认证型号—无线规格**对照（巡天 AX3000 = E2631、小方糖 AC1200 = Z506、E2633/E1630/E2638 是同一套 AX3000 的三个渠道定制），判断"这台机器在不在支持范围"与"这颗芯片该按哪款零售机看"用它 |
+| [ZTE router model](<docs/ZTE router model.md>) | 中兴市售与运营商机型的**名称—认证型号—无线规格**对照（巡天 AX3000 = E2631、小方糖 AC1200 = Z506、E2633/E1630/E2638 是同一套 AX3000 的三个渠道定制），判断"这台机器在不在支持范围"与"这颗芯片该按哪款零售机看"用它 |
 | [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：状态与证据、做不到的项 |
 | [PLAN](docs/PLAN.md) | **开发计划**：四个验收场景、分批推进、主机可测与需真机分开、真机待测台账、CI 与装机节奏 |
 | [MESH_INTEROP](docs/research/MESH_INTEROP.md) | 中兴 mesh 的协议归属、外部项目（prplMesh / BBF 1905.1a）能借什么、固件解密的边界（含**内核读路径无解密代码**的实证）、**原厂内核里 1905 的全部字符串/符号**、做功能时的兼容性硬约束（§5.5 已修正为「丢转发、送本机」） |
