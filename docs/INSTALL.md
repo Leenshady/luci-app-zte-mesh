@@ -59,6 +59,13 @@ logread | grep zte-mesh | tail -30      # 起不来的原因都写在这里
 cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（只有会落地的角色才有）
 ```
 
+- **装完要重启两次**：`/etc/init.d/rpcd restart` 和 `/etc/init.d/zte-mesh restart`。`apk add` 只换文件——owrt 上实测
+  替换完 `luci-app-zte-mesh` 之后状态里连 `local` 这个键都没有（rpcd 还拿着装之前加载的那份插件），`attach` 实例报着
+  running 而 `zmesh0` 早就不存在。重启之后 `attached=true`、`zmesh0` 重新挂回 `br-lan`。
+- 这三条加"实例集合对不对、主控给的 SSID 落没落地"合起来就是装机验收的一条命令：
+  `sh tools/lab/verify-install.sh /tmp/zte-apk`（把 apk 放机器上 `/tmp/zte-apk` 再跑；不带目录就只读不装）。
+  它输出 `KEY=VALUE` 证据行和最后的 `RESULT=PASS|FAIL`，判定逻辑由 `sh tests/test_verify_install.sh` 在主机上守着。
+
 ## 4. 场景 S1：OpenWrt 当中控，接一台原厂中兴子路由
 
 **这是出厂默认**，装完不用改角色：`zte_mesh.main.mesh_role=master`、`apply_local=0`（两个开关各自的完整语义见
@@ -127,7 +134,10 @@ apk del luci-app-zte-mesh zte-mesh     # 再把装过的包名补进这条：zte
   `/usr/lib/zte-mesh`（运行环境解出来的目录树）。手工编过 `ns-run` / `mesh-search` 的机器，那两个文件
   不属于任何包，apk 不会碰它们。
 - 装的是哪一批可以从包版本读出来：`apk list --installed | grep zte`。三个包的 `PKG_RELEASE` 各自计数、批末对改过的包加一
-  （[PLAN](PLAN.md) 第 6.3 节），现在分别是 `zte-mesh` 0.1.0-r14、`luci-app-zte-mesh` r7、`zte-mesh-launcher` r1。
+  （[PLAN](PLAN.md) 第 6.3 节），现在分别是 `zte-mesh` 0.1.0-r15、`luci-app-zte-mesh` r8、`zte-mesh-launcher` r1。
+  不加这一位，装机本身不会失败——`apk add` 给同名同版本的 apk 也会 `Replacing (0.1.0-r7 -> 0.1.0-r7)`，实测在 owrt 上
+  中文包就是这样被换掉的。不动的是**记录**：`apk list` 报不出这台机器装的是哪一批，走 feed 的 `apk upgrade` 更不会把它
+  当升级推给你。批末不加号，等于这批只在构建机上存在过。
 - 产物是 `build-apk.yml` **手动触发**跑出来的，push 不会自动构建；发布是另一回事，见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节。
 
 ## 9. 别做这些事

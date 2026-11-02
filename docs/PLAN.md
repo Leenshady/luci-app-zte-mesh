@@ -98,9 +98,9 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 
 | 项 | 内容 | 类型 | 验收 |
 |---|---|---|---|
-| C8 | **手册已写**：`docs/INSTALL.md` 九节——三件前置确认、四个包装法、页面与只读命令、两个开关摆出 S1/S2/S3、额外网络、slave 侧、"设了没动静"四条、卸载、红线。README 索引与 `AGENTS.md` 的入口表各加一行 | H | 按文档从裸机走到 S1/S2，中途不查别的文档——**这一遍还没跑**（要两台实验机，与 C10 同轮） |
+| C8 | **手册已写**：`docs/INSTALL.md` 九节——三件前置确认、四个包装法、页面与只读命令、两个开关摆出 S1/S2/S3、额外网络、slave 侧、"设了没动静"四条、卸载、红线。README 索引与 `AGENTS.md` 的入口表各加一行 | H | 按文档从裸机走到 S1/S2，中途不查别的文档——**还没跑这一遍**；C10 已在两台实验机跑通装包与验收命令，但那是脚本带着走的，不是"只读文档" |
 | C9 | **已完成**。`build-apk.yml` 去掉 release 发布，只留 artifact + 校验和；release 改为手工 | H | workflow 里 `gh release` 不再是任何一步（只剩注释与 summary 里那句"要发布就手工跑这条"），`permissions: contents: read`；`DEVELOPMENT.md` 第 8 节的发布段同步改成"只构建 + 三条手工发布步骤"（以前写的 `release_tag` 输入已经不存在了） |
-| C10 | 装机验收脚本：一条命令装四个包 + 读回版本 + 跑三条冒烟 | H | 在两台实验机上各跑一次，输出可贴进证据 |
+| C10 | **已完成**。`tools/lab/verify-install.sh`：一条命令装四个包（`apk add` 各自一条，架构不合算 `uninstallable` 不算失败）→ 重启 rpcd 与服务 → 读回版本 → 三条冒烟（服务与角色、实例集合、档案落地与主控给的 SSID）。输出 `KEY=VALUE` 证据行 + `RESULT=PASS/FAIL`。判定逻辑由 `tests/test_verify_install.sh`（60 条，桩命令 + fixture）在主机上守 | H | **两台实验机各跑一次，都 `RESULT=PASS`**：owrt（master / apply_local=0，三个实例、无 applier、无 `zte_*` 段）、ax3600（slave，`plan_ssid_0=FRESHR10@default_radio2`、`plan_ssid_1=FRESHR10-5G@default_radio1`）。抓到的三件事：r14 装完没重启（`local` 键缺失＝rpcd 还拿旧插件、`attach` 报 running 而 `zmesh0` 已不存在）、`apk add` 同名同版本也会 Replacing、`uci show` 的值带单引号 |
 
 ### 插队 · 2026-11-02 装机反馈
 
@@ -119,7 +119,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 3 | 控制面 | 🔄 A17a/A17b 全做完（能编能解、能发能停、页面能配能看）；**A17c 效果确认等真机**（H-03） | H-03 |
 | 4 | 无线回程 | ✅ 主机侧做完（B13a/b/d/e/f/g：回程 STA 的 `wifi-iface` 两端都生成、`wds` 才是 4 地址的开关、换角色会回收对端段、applier 的四个输入都进签名且页面上都有字段）；**B13c 端到端等真机**（H-01） | H-01 |
 | 5 | 多子节点与稳定性 | ⬜ | — |
-| 6 | 发布与工程化 | 🔄 C9 做完（CI 只构建、发布改成手工三步，`DEVELOPMENT.md` 的发布段跟着改对了）；**C8 手册写完**，"按文档走一遍"要机器；C10 装机验收脚本未做 | 装机 |
+| 6 | 发布与工程化 | ✅ C9（CI 只构建、发布手工三步）+ C10（`verify-install.sh`，两台实验机各跑一次都 PASS）；**C8 手册写完，"按文档走一遍"这一遍还没跑** | 装机 |
 
 ## 4. 主机测试口径
 
@@ -161,7 +161,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | **H-07** | D5 VLAN / D6 绑定 / D7 BTM 在 E2631 上的实际行为 | 一台市售 E2631/AX3000，停机窗口 | 用它自带 `pktdump 1` 抓线上，按 [MULTIAPD](research/MULTIAPD.md) §5 的命令表 | 三处配置入口能被厂商自己的 web 打开（说明运行时真的读） | 动的是别人的家用路由器 |
 | **H-08** | 出厂 `VersionMode` 与"兼容模式"文案的对应 | E2631 页面 | 改页面开关，看 `MultiAPCfg.VersionMode` 与 `P1905ComCfg.Enable` | 文案 ↔ 字段一一对应 | 已有一半结论（[FINDINGS](FINDINGS.md)），缺厂商侧确认 |
 | **H-09** | 长时间稳定性（A22 的真机版） | 两台实验机 | 装 rXX 后放 24 小时，看 `daemon_restarts`、内存、`dmesg` | 重启计数 0、无 OOM | 会占着机器 |
-| **H-10** | A24 有线口自愈：删掉宿主这头的 `zmesh0` 后自己长回来 | 实验室控制器（owrt VM），页面能看到「有线接口」 | ①`zte-mesh status` 三项都在跑 ②`ip link del zmesh0` ③等 25 秒：页面先「未接入」再恢复「已挂到 LAN 桥」 ④`logread` 里 zte-mesh 先有 `restarting it to rebuild the wire`、随后 `attached zmesh0 to br-lan` ⑤`service list` 里 controller 实例换了 pid ⑥子路由重新出现在拓扑页 | 不需要人重启主控：两分钟内线自愈、拓扑重新填上，`multiapd` 的绑定跟着新 ifindex 走（这正是重启实例的原因） | `attach` 自己也被杀时自愈停摆——它的 respawn 同样是不限次；连续重启会短暂断开子路由的 1905 链路 |
+| **H-10** | A24 有线口自愈：删掉宿主这头的 `zmesh0` 后自己长回来 | 实验室控制器（owrt VM），页面能看到「有线接口」 | ①`ubus call luci.zte-mesh status` 三项都在跑 ②`ip link del zmesh0` ③等 25 秒：页面先「未接入」再恢复「已挂到 LAN 桥」 ④`logread` 里 zte-mesh 先有 `restarting it to rebuild the wire`、随后 `attached zmesh0 to br-lan` ⑤`service list` 里 controller 实例换了 pid ⑥子路由重新出现在拓扑页 | 不需要人重启主控：两分钟内线自愈、拓扑重新填上，`multiapd` 的绑定跟着新 ifindex 走（这正是重启实例的原因） | `attach` 自己也被杀时自愈停摆——它的 respawn 同样是不限次；连续重启会短暂断开子路由的 1905 链路。**2026-11-02 C10 装机抓到现成现场**：`attach` 实例报 running 而 `zmesh0` 已不存在、`attached=false`——但那是重启前的旧进程（自愈代码这一批才刚进包），`/etc/init.d/zte-mesh restart` 之后 `zmesh0` 重新挂回 `br-lan`。所以**症状复现了，自愈本身还没验**，下一步按步骤②主动删线 |
 | **H-11** | A13 角色改成 `master` 后，真中兴子路由照样入网 | ax3600（或 Z506）+ OpenWrt 主控，装机验证 | ①主控 `mesh_role=master`（不再发 `auto`）②子路由开机入网 ③`uci show zte_mesh` 与页面拓扑确认 ④主控改成 `apply_local=1` 再看本机 SSID 与子路由 SSID 同步 ⑤子路由重启一次，等 5 分钟内被 `search` 重新发现（A25 之后才可能） | 入网、下发档案、拓扑填充与 `auto` 时代一致；关键是**没有**出现子路由自当选主控（`MultiAPMaster` 的角色列仍是子） | 改动只在主控写库的 `SetRoleEnable` 与 `Mode`，子路由侧一行没动 |
 
 ## 6. CI 与装机节奏
@@ -182,7 +182,9 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | `192.168.1.20`（VM，x86_64，无无线） | `zte-mesh`（`arch: all`）+ 本地编的 `ns-run` | `ubus call luci.zte-mesh status` 返回角色；`/run/zte-mesh/wlan-sync.status` 有结果 |
 | `192.168.1.1`（ax3600，aarch64，有无线） | 四个包（`--allow-untrusted`） | 同上；`slave` 角色下 `iw dev` 跟着主控改 SSID |
 
-装完先跑 [LAB](LAB.md) 的三条冒烟，再跑本批新增的用例（页面开关、`uci` 选项）。
+装完先跑 `sh tools/lab/verify-install.sh /tmp/zte-apk`（C10：一条命令装四个包 + 读回版本 + 三条冒烟 +
+`RESULT=PASS|FAIL`），再跑本批新增的用例（页面开关、`uci` 选项）。判定逻辑由 `sh tests/test_verify_install.sh`
+在主机上守，不接机器也能跑。
 
 ### 6.3 版本号
 
