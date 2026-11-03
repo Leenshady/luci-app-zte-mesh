@@ -61,7 +61,8 @@
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 122 条、rpcd 24 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  启动视图、init 122 条、rpcd 24 条、装机验收 78 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
 - 没有原厂镜像的机器（实验室虚拟机）也能跑绝大多数：`make test-host` 直接在 `$PWD/out` 上跑，实测除
   `test_schema.py`/`test_policies.py`/`test_startup.py` 三组外全绿——那三组要 `out/analysis/cspd`，而 `cspd` 只从
   哈希钉住的原厂镜像提取（`evidence/` 不入库）。这三组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，

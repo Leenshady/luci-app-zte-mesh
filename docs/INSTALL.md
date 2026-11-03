@@ -65,6 +65,10 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
 - 这三条加"实例集合对不对、主控给的 SSID 落没落地"合起来就是装机验收的一条命令：
   `sh tools/lab/verify-install.sh /tmp/zte-apk`（把 apk 放机器上 `/tmp/zte-apk` 再跑；不带目录就只读不装）。
   它输出 `KEY=VALUE` 证据行和最后的 `RESULT=PASS|FAIL`，判定逻辑由 `sh tests/test_verify_install.sh` 在主机上守着。
+  末尾还会**读回装进机器的那份**：apk 打包会剥掉 ELF 节，设备上的 `.so` 和仓库里的成员不是同一串字节，所以只能按
+  字符串认——`trace_per_bss_name=yes`、`probe_bss_detail=yes` 说明这一批的写入方确实在机器上；
+  `peers_sta` / `peers_software` / `peer_reports_stations` / `state_bss_detail` 是它读到的数据，不当判据
+  （`peers_sta=0` 配 `peer_reports_stations=no` 只说明这台 peer 从没报过终端数）。
 
 ## 4. 场景 S1：OpenWrt 当中控，接一台原厂中兴子路由
 
