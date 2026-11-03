@@ -81,14 +81,27 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 			console.log('link / BSS cells wrong:', text(rows[0]).slice(-500));
 			process.exit(1);
 		}
-		/* Where the frames split the count per BSS, the tooltip says which radio holds whom, and the cell itself stays
-		 * the total. */
+		/* Where the frames split the count per BSS, those rows are a column of their own: one line per BSS, the
+		 * total stays in Clients, and a radio with nobody associated is a real `0` line, not a gap. */
 		{
-			const want = ['"2 BSS reported by the router\\n02:00:00:00:19:e3: 3 (5 s ago)\\n02:00:00:00:19:f3: 5 (2 s ago)"'];
-			for (const w of want) {
-				if (!text(rows[0]).includes(w)) { console.log('station tooltip wrong:', text(rows[0]).slice(-700)); process.exit(1); }
+			const cells = rows[0].c;
+			if (cells.length !== 12) { console.log('node row has', cells.length, 'cells, want 12'); process.exit(1); }
+			const column = JSON.stringify(cells[8]);
+			for (const w of ['"02:00:00:00:19:e3 3"', '"02:00:00:00:19:f3 5"', '"5 s ago"', '"2 s ago"']) {
+				if (!column.includes(w)) { console.log('BSS column lacks ' + w + ':', column); process.exit(1); }
 			}
-			if (text(rows[1]).includes('BSS reported')) { console.log('a node without metrics got a station tooltip'); process.exit(1); }
+			if (text(cells[7]).includes('02:00:00:00:19:e3')) { console.log('the total tooltip still repeats the rows'); process.exit(1); }
+			if (!text(cells[7]).includes('2 BSS reported by the router')) { console.log('Clients lost the reported BSS count'); process.exit(1); }
+		}
+		/* A BSS that reports zero, and a BSS whose age the controller could not work out, both still belong in the
+		 * column: neither may turn into a dash, because a dash is what "never reported" looks like. */
+		{
+			const zero = viewDef.renderNodes({ state: { nodes: [{ mac: 'aa:bb:cc:dd:ee:04', name: 'zero', zte: true, online: true,
+				stations: 0, bss: 1, hops: 1, metrics_age: 0, bss_detail: [ { bssid: '02:00:00:00:19:01', stations: 0, age: -1 } ] }] } }, {});
+			const column = JSON.stringify(zero.kids[0].c[8]);
+			if (!column.includes('"02:00:00:00:19:01 0"')) { console.log('a zero-client BSS is not a line:', column); process.exit(1); }
+			if (column.includes('s ago')) { console.log('an unknown age got a stale tooltip:', column); process.exit(1); }
+			if (!JSON.stringify(rows[1].c[8]).includes('"-"')) { console.log('a node without per-BSS rows shows something else:', JSON.stringify(rows[1].c[8])); process.exit(1); }
 		}
 		if (!text(rows[1]).includes('"-"') || text(rows[1]).includes('"Direct"')) {
 			console.log('a node without metrics should show no link:', text(rows[1]).slice(-400));

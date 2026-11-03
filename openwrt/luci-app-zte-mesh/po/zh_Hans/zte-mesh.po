@@ -608,6 +608,9 @@ msgstr "经中继"
 msgid "%d BSS reported by the router"
 msgstr "路由器上报 %d 个 BSS"
 
+msgid "BSS detail"
+msgstr "逐路 BSS"
+
 msgid "Blocked devices stay off for (minutes)"
 msgstr "被封禁设备保持禁止的时长（分钟）"
 

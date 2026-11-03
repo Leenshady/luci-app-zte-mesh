@@ -235,6 +235,7 @@ return view.extend({
 				E('th', { 'class': 'th' }, _('Type')),
 				E('th', { 'class': 'th' }, _('Light')),
 				E('th', { 'class': 'th' }, _('Clients')),
+				E('th', { 'class': 'th' }, _('BSS detail')),
 				E('th', { 'class': 'th' }, _('Link')),
 				E('th', { 'class': 'th' }, _('State')),
 				E('th', { 'class': 'th' }, _('Actions'))
@@ -254,13 +255,11 @@ return view.extend({
 			var title = aliases[normMac(node.mac)] || node.name || node.model || node.mac;
 			/* The station count comes from the AP Metrics the child sends; the BSS count from its Topology Response.
 			 * Both are -1 (shown as '-') when the child has not reported them, which is not the same as zero.
-			 * Where the frames split that count per BSS, the tooltip lists the rows - one total cannot say which radio
-			 * is busy - and a BSS with nobody associated is a zero line there, not a missing one. */
+			 * Where the frames split that count per BSS, the rows get a column of their own - one total cannot say
+			 * which radio is busy - and a BSS with nobody associated is a zero line there, not a missing one.
+			 * The controller sorted and capped them; re-sorting here would disagree with the total next door. */
+			var detail = node.bss_detail || [];
 			var shown = node.bss >= 0 ? _('%d BSS reported by the router').format(node.bss) : '';
-			(node.bss_detail || []).forEach(function(b) {
-				shown += (shown ? '\n' : '') + b.bssid + ': ' + b.stations + ' ('
-					+ (b.age >= 0 ? _('%d s ago').format(b.age) : '-') + ')';
-			});
 			table.appendChild(E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td' }, title),
 				E('td', { 'class': 'td' }, node.model || '-'),
@@ -273,6 +272,13 @@ return view.extend({
 				E('td', { 'class': 'td' }, node.light === 1 ? _('On') : (node.light === 0 ? _('Off') : '-')),
 				E('td', { 'class': 'td', 'title': shown },
 					(node.online && node.stations >= 0) ? String(node.stations) : '-'),
+				/* One line per BSS the child reported, so a reader can see which radio holds the clients. A node whose
+				 * frames never split the count has nothing here: '-' is "not reported", not "nobody associated". */
+				E('td', { 'class': 'td' }, detail.length ? E('div', { 'class': 'small' },
+					detail.map(function(b) {
+						return E('div', { 'title': b.age >= 0 ? _('%d s ago').format(b.age) : '' },
+							b.bssid + ' ' + b.stations);
+					})) : '-'),
 				/* Reached over its own link or through another node: the 1905 header's relay bit, nothing inferred. */
 				E('td', { 'class': 'td', 'title': (node.metrics_age >= 0 ? _('%d s ago').format(node.metrics_age) : '') },
 					node.hops === 1 ? _('Direct') : (node.hops === 2 ? _('Relayed') : '-')),
@@ -283,7 +289,7 @@ return view.extend({
 
 		if (!nodes.length)
 			table.appendChild(E('tr', { 'class': 'tr placeholder' }, [
-				E('td', { 'class': 'td', 'colspan': 11 },
+				E('td', { 'class': 'td', 'colspan': 12 },
 					E('em', _('No child routers have been discovered yet.')))
 			]));
 
