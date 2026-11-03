@@ -16,6 +16,8 @@
 #   2 instances   -- exactly the procd instances that role implies are running (no missing applier, no stray one)
 #   3 profile     -- what the Wi-Fi applier did last time it ran, or (on a controller that touches no radio) that it
 #                    correctly did nothing at all
+# and when the run actually restarted the service, a fourth: how many times the applier wrote during that restart
+# (a converged child must answer zero -- see `smoke_restart_quiet`).
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
 # installed (`packed_copy`), the peer files it has produced (`peer_files`) and whether the state document carries the
@@ -30,6 +32,10 @@ UCI=${UCI:-uci}
 LOGREAD=${LOGREAD:-logread}
 INIT_D=${INIT_D:-/etc/init.d}
 RESTART_WAIT=${RESTART_WAIT:-12}
+# set RESTART_NOW=1 to ask for a restart even though nothing was installed. That is the drive for PLAN's H-14: the
+# question "does a restart of a converged child write anything" cannot be answered by reading a machine that has
+# already settled -- and on a real device this drops every Wi-Fi client for a few seconds.
+RESTART_NOW=${RESTART_NOW:-0}
 # how long the Wi-Fi applier gets to land the plan before its result is graded (section 3 of INSTALL runs this
 # right after an install, when the child is still waiting for the controller's profile)
 SSID_WAIT=${SSID_WAIT:-60}
@@ -47,6 +53,9 @@ PKG_STEMS='zte-mesh zte-mesh-launcher luci-app-zte-mesh luci-i18n-zte-mesh-zh-cn
 pass=0
 fail=0
 installed_any=
+did_restart=
+BEFORE_WRITES=
+BEFORE_AIR=
 S_ROLE=''
 S_LOCAL=''
 S_RUNNING=''
@@ -97,12 +106,18 @@ install_apks() {
 }
 
 restart_services() {
-	[ "$installed_any" = yes ] || { say restart not_needed; return 0; }
+	if [ "$RESTART_NOW" != 1 ] && [ "$installed_any" != yes ]; then say restart not_needed; return 0; fi
+	did_restart=yes
+	# taken before the restart, because the window being graded is the restart itself: how many times the applier
+	# wrote from here on, and whether the air already carried the plan when this began.
+	BEFORE_WRITES=$(applier_writes)
+	BEFORE_AIR=$(air_carries_plan)
 	$INIT_D/rpcd restart >/dev/null 2>&1
 	$INIT_D/zte-mesh restart >/dev/null 2>&1
 	# The init brings the instances up asynchronously and attach needs a second to create and enslave zmesh0;
 	# reading the machine back before that settles reports the old instance set.
 	sleep "$RESTART_WAIT"
+	[ "$RESTART_NOW" = 1 ] && [ "$installed_any" != yes ] && { say restart now; return 0; }
 	say restart rpcd+zte-mesh
 }
 
@@ -315,6 +330,64 @@ smoke_log() {
 	say log_error_lines "${err:-0}"
 }
 
+# --- did this restart write anything? (B8b, PLAN H-14) ----------------------------------------------------------------
+# A child's restart is supposed to find the air already carrying what the plan asks for, and then write nothing.
+# Reading `/etc/config/wireless` cannot show the difference: the old seed renamed the network and the controller's M2
+# renamed it back, so the file ends up identical either way -- while every client in the house dropped twice. The
+# applier's own line is the only witness, and the window is the restart this script asked for.
+applier_writes() {
+	$LOGREAD 2>/dev/null | grep -c 'applied; wireless committed'
+}
+
+logread_readable() {
+	# a missing logread counts as zero lines, and zero minus zero is a quiet restart that never happened
+	$LOGREAD >/dev/null 2>&1
+}
+
+air_carries_plan() {
+	# air_carries_plan -- `yes` when every enabled row of the plan is already a name in the wireless config, before
+	# the restart. That condition is what turns a write from a convergence into a fault: the applier had nothing to land.
+	[ -s "$PLAN" ] || { printf no-plan; return 0; }
+	rows=$(sed -n 's/^rows=\([0-9]*\)$/\1/p' "$PLAN" | head -1)
+	case "$rows" in ''|*[!0-9]*) printf no-rows; return 0 ;; esac
+	[ "$rows" -gt 0 ] || { printf no-rows; return 0; }
+	missing=
+	i=0
+	while [ "$i" -lt "$rows" ]; do
+		enabled=$(sed -n "s/^$i\.enabled=//p" "$PLAN" | head -1)
+		ssid=$(sed -n "s/^$i\.ssid=//p" "$PLAN" | head -1)
+		if [ "$enabled" = 1 ] && [ -n "$ssid" ]; then
+			[ -n "$(ssid_where "$ssid")" ] || missing="$missing $i"
+		fi
+		i=$((i + 1))
+	done
+	[ -z "$missing" ] && printf yes || printf 'rows-unset:%s' "${missing# }"
+}
+
+smoke_restart_quiet() {
+	[ "$did_restart" = yes ] || { say applier_writes no-restart; return 0; }
+	if [ "$S_ROLE" = master ] && [ "$S_LOCAL" != true ]; then
+		# no applier runs on this role: the restart cannot have written a wireless config it never touches
+		say applier_writes no-applier
+		return 0
+	fi
+	logread_readable || { say applier_writes no-logread; return 0; }
+	after=$(applier_writes)
+	if [ "${after:-0}" -lt "${BEFORE_WRITES:-0}" ]; then
+		# the ring rolled over inside the window: the delta of a truncated window is not a number
+		say applier_writes wrapped
+		return 0
+	fi
+	writes=$(( ${after:-0} - ${BEFORE_WRITES:-0} ))
+	say air_matched_plan "$BEFORE_AIR"
+	if [ "$BEFORE_AIR" = yes ]; then
+		check applier_writes 0 "$writes"
+	else
+		# the air did not carry the plan yet, so this restart had work to do -- say how much, judge nothing
+		say applier_writes "$writes"
+	fi
+}
+
 # --- reading the installed copy back -------------------------------------------------------------------------------
 marker_present() {
 	# marker_present FILE NEEDLE -- a string, not a hash: `apk` strips the ELF sections, so the device copy cannot
@@ -379,6 +452,7 @@ versions
 if smoke_service && smoke_instances && smoke_profile; then :; fi
 # only where an applier is supposed to run: a controller that leaves its own radios alone has no plan to honour
 if [ "$S_ROLE" = master ] && [ "$S_LOCAL" != true ]; then :; else smoke_ssid; fi
+smoke_restart_quiet
 smoke_log
 packed_copy
 peer_files

@@ -95,7 +95,21 @@ mkdir -p "$INIT_D"
 for name in rpcd zte-mesh; do
 	cat > "$INIT_D/$name" <<EOF
 #!/bin/sh
-[ "\$1" = restart ] && echo '$name' >> '$FIX/restarted'
+if [ "\$1" = restart ]; then
+	echo '$name' >> '$FIX/restarted'
+	# the applier's write, once per line this fixture says the restart made. Only zte-mesh: rpcd does not touch
+	# /etc/config/wireless, and the log is the only witness of a restart that renamed the network.
+	if [ '$name' = zte-mesh ] && [ -f '$FIX/writes' ]; then
+		n=\$(cat '$FIX/writes'); i=0
+		while [ "\$i" -lt "\$n" ]; do
+			echo 'Mon Nov  3 09:00:00 UTC 2026 zte-mesh: applied; wireless committed and reloaded' >> '$FIX/log'
+			i=\$((i + 1))
+		done
+	fi
+	# the ring can roll over inside the window: the log left after the restart then holds fewer of those lines than
+	# the log before it. That is not a quiet restart -- it is a truncated window, and the delta is not a number.
+	if [ '$name' = zte-mesh ] && [ -f '$FIX/wrapped' ]; then cat '$FIX/wrapped' > '$FIX/log'; fi
+fi
 exit 0
 EOF
 	chmod +x "$INIT_D/$name"
@@ -156,6 +170,7 @@ sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line RESULT PASS
 check_line restart not_needed
+check_line applier_writes no-restart
 check_line service_role slave
 check_line instance_wlan-sync running
 check_line instance_search absent
@@ -484,6 +499,139 @@ case "\$*" in
 esac
 EOF
 chmod +x "$BIN/uci"
+
+# --- case 13: a restart of a converged child writes nothing (B8b, PLAN H-14) ------------------------------------------
+# The child's seed used to be the profile declared on this router, so every restart renamed the air and the
+# controller's M2 renamed it back. `/etc/config/wireless` ends up identical either way -- the number of applier
+# writes inside the restart window is the only thing that tells the two apart.
+CASE=child-restart-quiet
+status_json true true true slave false > "$FIX/status"
+{
+	printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+	instance controller true
+	instance attach true
+	instance wlan-sync true
+	printf '\t\t}\n\t}\n}\n'
+} > "$FIX/svc"
+printf 'slave\n' > "$FIX/role"
+printf "wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid='FRESHR10'\nwireless.default_radio1=wifi-iface\nwireless.default_radio1.ssid='FRESHR10-5G'\n" > "$FIX/wireless"
+plan_rows FRESHR10 FRESHR10-5G
+printf 'epoch=1\nresult=ok\nchanged=0\nbands=\nmessage=\n' > "$RUN/wlan-sync.status"
+printf 'Mon Nov  3 08:00:00 UTC 2026 zte-mesh: plan applied nothing new\n' > "$FIX/log"
+rm -f "$FIX/writes"
+RESTART_NOW=1 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line RESULT PASS
+check_line restart now
+check_line air_matched_plan yes
+check_line applier_writes 0
+
+# --- case 14: the same machine with the old seed writes twice ---------------------------------------------------------
+# This is r17's shape: the air already carried the controller's pair, the restart still renamed it and renamed it
+# back. It must not pass on the strength of the file looking fine afterwards.
+CASE=child-restart-renamed
+printf '2\n' > "$FIX/writes"
+RESTART_NOW=1 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line RESULT FAIL
+if grep -q 'FAIL applier_writes expected=0 got=2' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: a restart that renamed the network must fail on the write count"; fi
+rm -f "$FIX/writes"
+
+# --- case 15: a child that still had to converge is evidence, not a fault ---------------------------------------------
+# Fresh install, first run: the air carries the router's own network, so the applier has work to do and one write is
+# correct. Judging that would call a healthy install broken -- the same class of mistake as grading the SSID too early.
+CASE=child-restart-converging
+printf "wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid='OldLocalName'\n" > "$FIX/wireless"
+printf "wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid='FRESHR10'\n" > "$FIX/wireless-landed"
+plan_rows FRESHR10
+printf '2\n' > "$FIX/writes"
+rm -f "$FIX/count"
+cat > "$BIN/uci" <<EOF
+#!/bin/sh
+case "\$*" in
+*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*show\ wireless*)
+	n=0
+	[ -f '$FIX/count' ] && n=\$(cat '$FIX/count')
+	n=\$((n + 1)); printf '%s\n' "\$n" > '$FIX/count'
+	# the first read is the one taken before the restart; from the settle pass on, the plan has landed
+	if [ "\$n" -ge 2 ]; then cat '$FIX/wireless-landed'; else cat '$FIX/wireless'; fi ;;
+*) exit 1 ;;
+esac
+EOF
+chmod +x "$BIN/uci"
+RESTART_NOW=1 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line RESULT PASS
+check_line air_matched_plan rows-unset:0
+check_line applier_writes 2
+if grep -q 'FAIL applier_writes' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: nothing to judge while the profile is still landing"; else pass=$((pass + 1)); fi
+rm -f "$FIX/writes" "$FIX/wireless-landed"
+
+# back to the stub every other case uses
+cat > "$BIN/uci" <<EOF
+#!/bin/sh
+case "\$*" in
+*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*show\ wireless*) cat '$FIX/wireless' ;;
+*) exit 1 ;;
+esac
+EOF
+chmod +x "$BIN/uci"
+
+# a controller that touches no radio has no applier to count -- and asking for the restart must not invent one
+CASE=controller-restart-no-applier
+status_json true true true master false > "$FIX/status"
+{
+	printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+	instance controller true
+	instance attach true
+	instance search true
+	printf '\t\t}\n\t}\n}\n'
+} > "$FIX/svc"
+printf 'master\n' > "$FIX/role"
+rm -f "$RUN/wlan-sync.status"
+printf 'Mon Nov  3 08:00:00 UTC 2026 zte-mesh: plan applied nothing new\n' > "$FIX/log"
+RESTART_NOW=1 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line applier_writes no-applier
+if grep -q '^air_matched_plan' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: the write window is not this role's business"; else pass=$((pass + 1)); fi
+
+# --- case 16: no log to count -- zero lines is not a quiet restart ----------------------------------------------------
+# `grep -c` on an unreadable log answers 0, and 0 - 0 is exactly the shape of the verdict we want. The only honest
+# answer on a machine that exposes no log is "I did not look".
+CASE=child-restart-no-logread
+status_json true true true slave false > "$FIX/status"
+{
+	printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+	instance controller true
+	instance attach true
+	instance wlan-sync true
+	printf '\t\t}\n\t}\n}\n'
+} > "$FIX/svc"
+printf 'slave\n' > "$FIX/role"
+printf "wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid='FRESHR10'\nwireless.default_radio1=wifi-iface\nwireless.default_radio1.ssid='FRESHR10-5G'\n" > "$FIX/wireless"
+plan_rows FRESHR10 FRESHR10-5G
+printf 'epoch=1\nresult=ok\nchanged=0\nbands=\nmessage=\n' > "$RUN/wlan-sync.status"
+rm -f "$FIX/log" "$FIX/writes" "$FIX/wrapped"
+RESTART_NOW=1 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line applier_writes no-logread
+if grep -q '^FAIL applier_writes' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: a log that cannot be read is not a fault"; else pass=$((pass + 1)); fi
+
+# --- case 17: the log ring rolled over inside the window --------------------------------------------------------------
+# Three committed lines before the restart, none after: the window was truncated, so the delta would be -3.
+CASE=child-restart-wrapped
+printf 'Mon Nov  3 08:00:00 UTC 2026 zte-mesh: applied; wireless committed and reloaded\n' > "$FIX/log"
+printf 'Mon Nov  3 08:00:00 UTC 2026 zte-mesh: applied; wireless committed and reloaded\n' >> "$FIX/log"
+printf 'Mon Nov  3 08:00:00 UTC 2026 zte-mesh: applied; wireless committed and reloaded\n' >> "$FIX/log"
+printf 'Mon Nov  3 08:30:00 UTC 2026 zte-mesh: plan applied nothing new\n' > "$FIX/wrapped"
+RESTART_NOW=1 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line applier_writes wrapped
+if grep -q '^FAIL applier_writes' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: a truncated window is not a count"; else pass=$((pass + 1)); fi
+rm -f "$FIX/wrapped"
 
 printf 'verify-install test: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]
