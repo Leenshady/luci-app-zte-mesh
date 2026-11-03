@@ -138,13 +138,21 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
 1. 「常规」→ **设备角色** 选「子路由」。页面随即只留下这台机器用得上的几项（Wi-Fi / 漫游 / 额外网络的配置消失，
    因为档案由主控下发）。
 2. 网线插到主控的 LAN 口。入网时**先沿用本机正在广播的无线**，等主控下发自己的名称/密码/加密——
-   所以不需要在 OpenWrt 上填任何 Wi-Fi 参数。要说清楚的是这台机器**每次重启服务都会把空中名字翻两次**：
-   起来头几秒它广播自己那份档案（ax3600 上实测 `radio 0 (2g…): name set to 11 characters, security sae-mixed`，
-   正是它本地 `wifi_24g_ssid` / `wifi_24g_security` 那一对），二十秒左右主控的 M2 到了才翻成主控的名字
-   （`name set to 8 characters … psk-mixed`）。家里有人连着的时候，这就是两次掉线——本文第 9 节说的
-   "先确认你能接受设备掉线"包括重启服务这一条。
+   所以不需要在 OpenWrt 上填任何 Wi-Fi 参数。"沿用"是**逐频段从空中读回来**的：服务起来前 `zte-mesh.init`
+   看这块板子每个频段正在广播的那一段，把名称、密码、加密、隐藏、开关原样当种子写进服务配置，于是主控档案
+   落地时 `wlan-sync` 逐字段一比，**没有要改的**——不 `commit`、不 `wifi reload`（`wifi reload` 是全局的：
+   任何一个频段上的一次空写就把所有频段的终端一起踢掉）。两个频段广播的不是同一对时，各频段按各自的样子写，
+   并把 `wifi_dual_band_sync` 落成 0，免得守护进程把 2.4G 的名称与安全派到 5G 上；页面上那对
+   `wifi_24g_ssid` 若与空中不同，日志会明说以空中为准（`wifi_24g_ssid is not the seed on this router`）。
+   **装机的 r17 还不是这样**：它拿页面填的那一对当种子，ax3600 上实测每次重启服务都把空中名字翻两次——
+   头几秒广播自己那份（`radio 0 (2g…): name set to 11 characters, security sae-mixed`，正是本地
+   `wifi_24g_ssid` / `wifi_24g_security`），二十秒左右主控的 M2 到了才翻成主控的名字（`name set to 8 characters …
+   psk-mixed`）。家里有人连着的时候这就是两次掉线。仓库版本要做的是**一次都不翻**：实验台上能证的是配置面
+   （新种子与 `/etc/config/wireless` 逐字段相同，拿它喂 `wlan-sync` 报 `changed=0`、`wifi` 一次没被调用、
+   配置文件 md5 没变），真的 `/etc/init.d/zte-mesh restart` 要等一个会掉线的窗口（[PLAN](PLAN.md) H-14，
+   属于第 9 节说的"先确认你能接受设备掉线"）。
 3. 判据（S2 怎么算过）：**中兴主控**上改 SSID，20 秒内在这台机器上 `iw dev` 看到的名称跟着变，改回来也能回退。
-   实验台上能测的是"本插件当主控"这一半：上面那两次翻转之间的间隔实测就是 21 秒，与"20 秒内"同量级；
+   实验台上能测的是"本插件当主控"这一半：从子节点服务起到主控的名字翻上去实测 21 秒，与"20 秒内"同量级；
    真中兴主控那一半还在等真机窗口。
 
 **无线回程（S3，未端到端验证）**：同一页会出现「回控制器的方式」，选「Multi-AP（4 地址）」后，主控下发的回程网络
@@ -152,7 +160,7 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
 且**拔掉网线还能不能连上、1905 帧能不能过无线，目前只有配置面的证据**（[PLAN](PLAN.md) H-01）。
 当主控的那一端在同一页上叫「给子路由的回程网络」，把回程做成独立 BSS（`multi_ap=2`）、主 SSID 标成前传。
 
-## 7. 四类"我设了却没动静"
+## 7. 五类"我设了却没动静"
 
 这几条的共同点：**选项写了，不代表这个角色的服务会用它**。角色决定两件事——页面上出现哪些字段，以及这台机器上有没有一个
 applier 会把档案落到本机射频；换过角色或手改过 `/etc/config/zte_mesh` 的机器，最容易出现"配了没动静"。逐条对照：
@@ -162,7 +170,8 @@ applier 会把档案落到本机射频；换过角色或手改过 `/etc/config/z
 | 服务起不来，日志 `execv errno=8` | 内核跑不了 32 位 ARM 程序，且没有模拟器 | 第 1 节第一条（owrt 上实测：`ZTE_DB_SANDBOX error=execv errno=8` 每 5 秒一条，页面状态这时还是 `running=true`，只有 `attached=false` 露出馅） |
 | 回程开关设了，射频上什么都没有 | ①**手改 UCI 写进 `multi-ap` 这类第三种写法，不是"读成 off"，是整个配置被拒绝、服务不起**（`zte-mesh.init` 的取值表只认 `off` / `multi_ap`；owrt 上实测日志 `backhaul must be off or multi_ap; not starting`，状态变第 3 节那个 `state=null` 形状）——页面保存同样的写法是另一回事，它会当场拒绝并说明原因；②值本身合法但这台机器是不落地档案的主控，本来就不动射频：日志会明说 `zte_mesh.main.backhaul=multi_ap has nothing to do while apply_local is off: ...`（owrt 实测），并把两条出路写在那一句里 | 用页面而不是编辑器改它；确认这台是会落地档案的角色（「本机也广播」开着，或角色是子路由）。看页面「状态」与 `logread` |
 | 一个频段有两块射频，改了却没生效 | 控制器档案不知道该写到哪块，`wlan-sync` 会**放弃这个频段**，日志原文是 `several 5g radios (radio0 radio1) and no way to tell which one carries the mesh; set zte_mesh.main.wifi_5g to one of them, this band is left alone until then`——它点名的是 UCI 项，页面上对应「2.4 GHz 射频设备」/「5 GHz 射频设备」两个字段 | 按日志列出的候选名填进那两个字段（例如 `radio1`）。保存这两项会重启服务，因为不重启就等于没选。ax3600 正是这块有两张 5G 卡的板子，它现在靠 `radio0.disabled=1` 避开这一条（候选只剩一块），不是测不出来 |
-| 有线口显示"未接入" | veth 两端一起没了，只有重启实例才能重建 | `attach` 兼任看门狗：连续 20 秒看不到这个口就重启沙箱实例，通常两分钟内自己恢复（这一条还没在实验机上复现过，见 [PLAN](PLAN.md) H-10）；想立刻恢复就重启服务 |
+| 有线口显示"未接入" | veth 两端一起没了，只有重启实例才能重建 | `attach` 兼任看门狗：连续 20 秒看不到这个口就重启沙箱实例，owrt 上实测删掉 `zmesh0` 后 25 秒自己长回来（[PLAN](PLAN.md) H-10，2026-11-02 已验）；想立刻恢复就重启服务 |
+| 角色是子路由，手改的 `wifi_24g_ssid` 没动静 | 子路由的档案由主控下发，而服务起来时的**种子**是从空中读回的（第 6 节第 2 条）。这几项在子角色上顶不上本机正在广播的那一段，页面上也根本不显示它们（[FEATURE_STATUS](FEATURE_STATUS.md) B9）；日志会明说 `child role: wifi_24g_ssid is not the seed on this router: ...` | 想改空中的名称就改**主控**的档案；想把这台变成能自己定的，就改成主控并开「本机也广播」。手工改 `/etc/config/wireless` 也能生效，但下一次 M2 到达时会被主控的档案盖掉 |
 
 ## 8. 卸载与版本
 

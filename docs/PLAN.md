@@ -128,6 +128,16 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 |---|---|---|---|
 | A18e | **已完成（主机侧）**。批 8 把每一路 BSS 的终端数记成了各自一个文件，页面还只有一个总数。现在 `controller_peer_bss_load()` 顺手把**活着的条目本身**带出来（`struct peer_bss_load.detail`，按 BSSID 排好序——目录顺序会随重写变，一秒换一次行的页面看着像网络在动），`state.json` 的每个节点多一个 `bss_detail: [{bssid, stations, age}]`，拓扑页「终端数」那一格的悬停改成**一行一路**（`aa:…:e3: 3 (5 s ago)`），后面仍跟着原来那句 `2 BSS reported by the router`。列表满 16 条时**总数照旧全加、行只留最小的 16 个**，页面那个数不会因为一行放不下就变小。没加新的界面文案（拼出来的都是 BSSID 与已有短句），一格数字仍然是总数——**逐路的列还没上页**，那要动表单与翻译，排在后面 | H | `tests/controller-peer-codec.c` 103 → **162** 项（两路时 `detail` 的两行、BSSID 升序、`age` 对得上；二十路时 `entries=20 / listed=16 / stations=210`，按 BSSID 取最小的 16 个）；`node tests/test_luci.js` 新增一条悬停整串断言 + "没有指标就没有悬停"；`python tests/test_i18n.py` 12 项仍绿（没新文案）；`sh tests/test_rpcd.sh` 不涉及这些字段（只走 actions）；`state.json` 缓冲从 16 KiB 放到 32 KiB、每节点预算 1200 → 2400，节点条数上限没有降 |
 
+### 批 10 · 子节点重启不再把空中名字翻两次（H）
+
+C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行为：装 r17 的 ax3600 **每次重启服务都把空中名称翻两次**——
+头几秒广播页面填的那对，二十秒左右主控的 M2 到了才翻成主控的。家里有人连着的时候那是两次掉线。根因是种子来自
+`/etc/config/zte_mesh` 而不是来自空中，而 `wlan-sync` 只看 plan。
+
+| 项 | 内容 | 类型 | 验收 |
+|---|---|---|---|
+| B8b | **已完成（主机侧 + 设备配置面）**。子角色的种子**逐频段从空中读回**：`live_ap_iface` 复刻 `wlan-sync` 的两条解析（`radio_section_of` 的点名/单候选/单活着 + `ap_iface_of` 跳过回程段与 `mode != ap`、优先 `default_*`），`borrow_profile` 拿那一段的名称/密钥/加密/隐藏/开关填进种子；广播已关的射频不借（applier 会为落地而 `enable_radio`，那是另一次全量 reload）；`wifi.dual_band_sync` 变成**关于空中的断言**——两频段是同一对才写 1，否则写 0 并把 5G 的名称/密钥逐字段写全（守护进程按 2.4G 派生 5G，写错就要改名）。`wlan-sync` 这边补 `set_flag`：UCI 里没写过的 `disabled`/`hidden` 含义就是 0，**按含义比而不是按拼写比**，否则一次"补一个 0"的空写就把所有频段踢掉 | H | `sh tests/test_init.sh` **130**（`role-slave-borrow` 用 ax3600 真实形状：关掉的空卡 `radio0` 挂着 `ZTEMESHCTRL`，配置里必须零次出现；`-same-pair`、`-same-pair-derived`、`-synced-one-band`、`-two-live`、`-pinned`、`-radio-off`、`-unreadable`、`master-ignores-air`）；`sh tests/test_wlan_sync.sh` **182**（种子==空中 ⇒ `changed=0`、无 commit、桩 `wifi` 未被调用；改一个字符作反证仍要 commit；缺写的 flag 不算变化）；两份都在 owrt 的 busybox ash 上过。**设备上的配置面**：新种子与 ax3600 的 `/etc/config/wireless` 逐字段相同，`UCI_CONFIG_DIR=/tmp/b17etc` 喂 `wlan-sync --once` 报 `result=ok changed=0 bands=`，副本与真文件 md5 相同、`wifi` 一次没跑；同一台机器上装机的 r17 写出的是 `radio0.ssid=ImmortalWrt` / `key=labbpass123` / `beacon_type=12`。**真机缺**：`/etc/init.d/zte-mesh restart` 之后日志里没有 `applied` / `wifi reload`——见第 5 节 **H-14**（会掉线，要先征得同意） |
+
 ### 状态速览
 
 | 批次 | 主题 | 状态 | 批末 CI |
@@ -141,6 +151,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 7 | 拓扑页缺的那一格 | ✅ 主机侧做完（A18c：软件版本走 `0x8002`/`0xd4` → `peers/<MAC>.software` → `state.json`，页面一行没改；192 断言 + 71 项，批 8 之后是 212 + 103）；**r17 已装机**：两台的 `.so` 都带 `software` 这个后缀，但 `peers/` 里没有 `.software` 文件 | H-12。实验台那台 peer 从来没发过带 `0xd4` 的 `0x8002`（读回打印 `peers_software=0`），所以这一条还是只能等真 Z506 |
 | 8 | 终端数按 BSSID 记账 | ✅ 主机侧做完（A18d：`0x94` 逐路 → `peers/<MAC>.<BSSID>.sta` → 服务把没过期的一路一路加起来；212 断言 + 103 项）；**r17 已装机**：`.so` 里逐路文件名格式串（六个 `%02x` 加 `.sta` 尾巴）在、`state.json` 有 `bss_detail` 键，但没有 `.sta` 文件 | H-13（真子节点是否一射频一帧）。**判据已改写**：实验台的 `.metrics` 只有 `hops=1`，即从没收到带终端数的 `0x94`，所以"没有 `.sta`"在这里不能当判据——先看读回的 `peer_reports_stations=yes`，再看逐路 |
 | 9 | 逐路终端数上页面 | ✅ 主机侧做完（A18e：`bss_detail` 进 `state.json`，拓扑页悬停一行一路；162 项 peer 测试 + LuCI 断言 + i18n 无新增文案）；**r17 已装机**：主控的 `state.json` 每个节点都带 `"bss_detail":[]`（空数组＝没有逐路数据，正常回落） | 随批 8 的 H-13 一起看：实验室那台 peer 只有一路，悬停要真子路由多 BSS 才看得出逐路 |
+| 10 | 子节点重启不再翻两次名称 | ✅ 主机侧 + 设备配置面做完（B8b：种子逐频段读回空中、`set_flag` 按含义比；init 130 / wlan-sync 182，两份都在 owrt 的 busybox ash 上过；ax3600 上 `changed=0`、`wifi` 未被调用、配置文件 md5 没变） | **H-14**：真的 `/etc/init.d/zte-mesh restart` 要看日志里再无 `applied`/`wifi reload`——会掉线，等窗口 |
 
 ## 4. 主机测试口径
 
@@ -148,8 +159,8 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 
 | 命令 | 覆盖 | 基线 |
 |---|---|---|
-| `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci），含回程两端 | 169 项（批 2 加 5 条、批 4 加回程客户端 39 条；Windows 上约 8 分钟，Linux 上快得多） |
-| `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 122 项（批 3 加 7 条、批 4 加回程告警 3 条 + `backhaul` 取值 2 条 + applier 四个输入的签名 11 条 + 共用判据 3 条源码针） |
+| `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci），含回程两端 | 182 项（批 2 加 5 条、批 4 加回程客户端 39 条、批 10 加"子节点种子等于空中"13 条；Windows 上约 8 分钟，Linux 上快得多——**这批的 53 次调用在 Git Bash 上跑不完，去 ubuntu 或 owrt**） |
+| `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 130 项（批 3 加 7 条、批 4 加回程告警 3 条 + `backhaul` 取值 2 条 + applier 四个输入的签名 11 条 + 共用判据 3 条源码针、批 10 加空中种子 8 条）；同一份在 owrt 的 busybox ash 上也是 130 项 |
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 24 项（批 3 加六个 role/`apply_local` 组合；Windows 上要先解决上面那条 `python3` 占位程序） |
 | `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `38 main / 10 slot / 4 ACL / 2 client / child 7`（批 2 加节点表断言，批 3 加动作列表与状态框，批 4 加回程开关的两端可见性与两个射频点名——纯主控 `apply_local=0` 时 `backhaul`、`extra_slots`、`wifi_2g`、`wifi_5g` 都不渲染；"每个选项都要有表单项"这一遍现在渲染**会落地的**主控，因为纯主控按设计就少几个字段） |
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94`、`0x94` 逐路的 BSSID/终端数、`0xd4` 里的软件版本 | 212 断言 + 10 万次有界变异（批 7 的 192 加批 8 的 `bss_list_tests()`；需要一台能编 C 的机器） |
@@ -188,6 +199,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | **H-11** | A13 角色改成 `master` 后，真中兴子路由照样入网 | ax3600（或 Z506）+ OpenWrt 主控，装机验证 | ①主控 `mesh_role=master`（不再发 `auto`）②子路由开机入网 ③`uci show zte_mesh` 与页面拓扑确认 ④主控改成 `apply_local=1` 再看本机 SSID 与子路由 SSID 同步 ⑤子路由重启一次，等 5 分钟内被 `search` 重新发现（A25 之后才可能） | 入网、下发档案、拓扑填充与 `auto` 时代一致；关键是**没有**出现子路由自当选主控（`MultiAPMaster` 的角色列仍是子） | 改动只在主控写库的 `SetRoleEnable` 与 `Mode`，子路由侧一行没动 |
 | **H-12** | A18c 子路由固件版本上页——布局是 [代码] 级推的，真机没看过一眼 | 一台真中兴子路由（Z506，页面上写着 `V1.0.0.2B2.8000`）+ 主控已装机；`tcpdump` 抓 `zmesh0` | ①抓主控收到的 CMDU，找 `0x8002`（AP Capability Report）②在它的 TLV 里找 `0xd4`（厂商自定义 Device Inventory Type），按 `[len][text]` 手工切三段，看顺序是否 序列号 → 软件版本 → 硬件版本 ③`cat /run/zte-mesh/peers/<MAC>.software` 看是否落地、内容是否与页面「型号/名称」同源 ④刷新拓扑页，看 `nodes[].software` 是否显示 `V1.0.0.2B2.8000` 而不是 `-` | ②切出来的第二段与子路由「关于」页的版本号逐字符相同；③④有值即通路全绿。**负结果同样有用**：若 `0x8002` 里根本没有 `0xd4`，说明这颗 Z506 不发库存字段，解码器留着但页面无数据，要另找来源（HLR 厂商 TLV 已在 [CAPTURE_1905 §5](research/CAPTURE_1905.md) 证伪）。**注意别拿实验台当负结果**：那台 peer 从不发带 `0xd4` 的 `0x8002`，r17 装完读回是 `peers_software=0`——这只说明没收到过库存字段，不说明 Z506 也不发 | 只读抓包，不推配置；子路由侧一行没动 |
 | **H-13** | A18d 的前提：真子节点回 `0x800c` 时**一帧列全所有 BSS** 还是**一射频一帧**（实验台那份抓包里没有 `0x800c`） | 一台真中兴子路由 + 主控已装机；`tcpdump -i zmesh0` 抓 1905；页面上这个节点已能看到终端数 | ①2.4G 和 5G 各挂一个终端 ②抓 `0x800c` AP Metrics Response，数每条消息里 `0x94` 的个数与各自 BSSID ③`ls /run/zte-mesh/peers/` 看是否出现 `<MAC>.<BSSID>.sta`（几路 BSS 就几个）④断开 5G 那个终端，看页面数字是否只降这一路 ⑤关掉子节点一个 BSS，30 秒后看它是否从总和里退出 | ②③ 对得上即通路成立：**一帧一 BSS** ⇒ 每个 `.sta` 各自有时间戳、页面读的是"还活着的几路之和"；**一帧列全** ⇒ 每次上报同时刷新全部文件，两者等价，`bss=` 应等于条目数。失败的样子是 `peers/` 里只有 `.metrics` 没有 `.sta`，说明这份布局没切出列表，页面退回摘要（数字还是最后一帧的总数，不算错但不保真）。**先确认这一步有没有输入**：`.metrics` 里必须有 `stations=`，读回会打印 `peer_reports_stations=yes`。2026-11-03 在 r17 上实测，实验台那台 peer 的 `.metrics` 只有 `hops=1`——主控从没收到过带终端数的 `0x94`，所以在这种机器上"没有 `.sta`"什么也不说明，判据要挂在真子路由上 | 只读抓包，不推配置；子路由侧一行没动 |
+| **H-14** | B8b 的最后一步：子节点**真重启一次**，看服务是否再也不动空中。批 10 只证到配置面——仓库版的 init 与 `wlan-sync` 在 ax3600 上是**对着 `/etc/config/wireless` 的副本**跑的（`UCI_CONFIG_DIR=/tmp/b17etc`、`wifi` 换成桩），射频一下都没被碰 | ax3600（`mesh_role=slave`，挂在 owrt 主控下面，`radio0` 是那块关掉的空卡）＋**下一次 CI 的包**（r18 起才带 B8b；装机的 r17 仍是旧种子）；家里没人连着的时候做 | ①重启前留基线：`md5sum /etc/config/wireless`、`iw dev` 的两个名称、`logread` 的最后时间 ②`/etc/init.d/zte-mesh restart` ③看 `logread` 里 `zte-mesh` 的行：`wlan-sync` 不许出现 `applied` / `committed` / `reloaded`，也不许出现 `several 5g radios`（那是 `radio0.disabled` 被改动的信号）④再 `md5sum /etc/config/wireless` 与 `iw dev` 逐字符比 ⑤拿这一份 `/run/zte-mesh/config` 与 r17 那一份对照：仓库版应写 `radio0.ssid=FRESHR10` / `radio1.ssid=FRESHR10-5G` / `wifi.dual_band_sync=0`，r17 写的是 `ImmortalWrt` / `labbpass123` / `beacon_type=12` ⑥只从**主控侧**改一次 SSID，确认该翻的那一次照翻（20 秒内）且翻完没有多余的第二次 | ③④ 全静 ⇒ 结案：一次重启＝零掉线。**反面是看得见的**：r17 重启时先广播页面填的那对（`name set to 11 characters, security sae-mixed`），约 21 秒后 M2 才把名字翻过去——两次掉线。若 ④ 变了而 ③ 说 `changed=0`，改文件的就不是 `wlan-sync`（记下当时还在跑什么，`netifd`？手工 `wifi reload`？） | **重启服务会让 ax3600 上的终端掉线**，红线里"先征得同意"包括这一条；测前留基线，测后确认名称回到主控下发的那对 |
 
 ## 6. CI 与装机节奏
 
