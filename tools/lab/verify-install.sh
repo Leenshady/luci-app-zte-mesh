@@ -20,7 +20,9 @@
 # (a converged child must answer zero -- see `smoke_restart_quiet`). A fifth reads the hop count the daemon itself
 # put into the database (`smoke_cur_hop`): the child's startup fixture writes -2 and never overwrites it, so on a
 # child any other number is the vendor daemon's own update -- but only once the daemon has had the chance to learn it,
-# so a witness younger than CUR_HOP_GRACE seconds is reported without being judged.
+# so a witness younger than CUR_HOP_GRACE seconds is reported without being judged. A sixth checks that the one lab
+# override of that column -- `MultiAPCfg 0 CurHop <n>` in /run/zte-mesh/db-profile, see PLAN's H-14 ⑦ -- is what the
+# controller's own database row now carries (`smoke_cur_hop_override`); a machine with no such file judges nothing.
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
 # installed (`packed_copy`), the two that say the batch's shell files are (`package_scripts` -- a batch that changes
@@ -359,6 +361,8 @@ smoke_cur_hop() {
 	line=$(cur_hop_line)
 	[ -n "$line" ] || { say cur_hop no-cfg-line; return 0; }
 	hop=$(field "$line" cur_hop)
+	max=$(field "$line" max_hop)
+	[ -n "$max" ] && say max_hop "$max"
 	stamp=$(field "$line" epoch)
 	now=$($DATE +%s 2>/dev/null)
 	age=
@@ -383,6 +387,43 @@ smoke_cur_hop() {
 		pass=$((pass + 1))
 		say cur_hop "$hop"
 	fi
+}
+
+# --- is the lab CurHop override live? (B16b, PLAN H-14 ⑦ 后半) -------------------------------------------------------
+# The question left over there is which number a child's hop column carries: the value the controller advertises in
+# its 1905 vendor TLV, or the child's own MaxHop. As long as the controller writes CurHop=2 and a child's MaxHop is
+# also 2 those are the same number, so the only way to separate them is to make the controller say something else.
+# The switch is the startup profile that already exists: one line `MultiAPCfg 0 CurHop 5` in
+# /run/zte-mesh/db-profile. That is a file under /run, not an option in any package -- no page, no UCI file and no
+# apk can set it, so it cannot reach a user's machine, and the master startup path writes no CurHop at all (only the
+# slave path does, as -2), so the line survives a restart. Proving it is live matters before reading the child: a
+# controller that silently rejected the field would leave the child at 2 and the observation would look like an
+# answer.
+db_profile_field() {
+	# the last line the daemon would have applied: profile_apply walks the file and writes each match, so a repeated
+	# field is won by the later line. Empty output covers both "no file" and "no such line".
+	[ -r "$RUNDIR/db-profile" ] || return 0
+	awk -v want="$1" '$1 == "MultiAPCfg" && $3 == want { value = $4 } END { if (value != "") print value }' "$RUNDIR/db-profile"
+}
+
+smoke_cur_hop_override() {
+	want=$(db_profile_field CurHop)
+	[ -n "$want" ] || { say db_profile_cur_hop absent; return 0; }
+	say db_profile_cur_hop "$want"
+	# A child's number is the daemon's answer to the air (that is `smoke_cur_hop`), not this write -- and its startup
+	# path puts -2 back over the profile, so on that side there is nothing here to verify.
+	[ "$S_ROLE" = master ] || { say master_cur_hop not-master; return 0; }
+	line=$(cur_hop_line)
+	[ -n "$line" ] || { say master_cur_hop no-cfg-line; return 0; }
+	got=$(field "$line" cur_hop)
+	[ -n "$got" ] || { say master_cur_hop no-cfg-line; return 0; }
+	case "$got" in -98) say master_cur_hop not-read; return 0 ;; esac
+	# the same settling window as the child's: a snapshot taken before the daemon finished starting says nothing
+	# about whether the override reached the database.
+	stamp=$(field "$line" epoch)
+	now=$($DATE +%s 2>/dev/null)
+	[ -n "$stamp" ] && [ -n "$now" ] && [ $((now - stamp)) -lt "$CUR_HOP_GRACE" ] && { say master_cur_hop "$got"; return 0; }
+	check master_cur_hop "$want" "$got"
 }
 
 # --- did this restart write anything? (B8b, PLAN H-14) ----------------------------------------------------------------
@@ -526,6 +567,7 @@ if [ "$S_ROLE" = master ] && [ "$S_LOCAL" != true ]; then :; else smoke_ssid; fi
 smoke_restart_quiet
 smoke_log
 smoke_cur_hop
+smoke_cur_hop_override
 packed_copy
 package_scripts
 peer_files

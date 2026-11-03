@@ -793,5 +793,106 @@ if grep -q '^cur_hop_age' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE
 if grep -q 'FAIL cur_hop expected=updated got=-2' "$out"; then pass=$((pass + 1)); else
 	fail=$((fail + 1)); echo "FAIL case $CASE: an unstamped -2 on a child must still be named"; fi
 
+# --- case 21: the lab CurHop override reached the controller's own row (B16b, PLAN H-14 ⑦ 后半) -----------------------
+# The switch is one line in /run/zte-mesh/db-profile, a file no package writes. Before a child's number can be read
+# as an answer to "TLV or MaxHop", the controller has to be shown to carry that number itself -- a field the daemon
+# rejected would leave the child at 2 and look like a conclusion.
+status_json true true true master false > "$FIX/status"
+{
+	printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+	instance controller true
+	instance attach true
+	instance search true
+	printf '\t\t}\n\t}\n}\n'
+} > "$FIX/svc"
+printf 'master\n' > "$FIX/role"
+rm -f "$RUN/wlan-sync.status"
+plan_rows SHOULD-NOT-BE-APPLIED
+printf 'MultiAPCfg 0 CurHop 5\n' > "$RUN/db-profile"
+printf 'Mon Nov  3 14:00:00 UTC 2026 ns-run[88]: ZTE_MESH_SERVICE cfg mode=2 set_role_enable=0 en_master_only=1 cur_hop=5 max_hop=2 epoch=1793678000\n' > "$FIX/log"
+CASE=cur-hop-override-live
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line RESULT PASS
+check_line db_profile_cur_hop 5
+check_line master_cur_hop 5
+# the two columns of the same row, side by side: this is the pair a child's own reading is compared against
+check_line max_hop 2
+
+# a profile the daemon did not take is the failure this line exists for -- the child would read 2 either way
+CASE=cur-hop-override-ignored
+printf 'Mon Nov  3 14:00:00 UTC 2026 ns-run[88]: ZTE_MESH_SERVICE cfg mode=2 set_role_enable=0 en_master_only=1 cur_hop=2 max_hop=2 epoch=1793678000\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+if grep -q 'FAIL master_cur_hop expected=5 got=2' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: an override that never reached the row must be named"; fi
+
+# and the window that excuses it is the same one the child's number uses: the supervisor's baseline snapshot is
+# written seconds after a restart, before the daemon has had the row read back to it
+CASE=cur-hop-override-young
+printf 'Mon Nov  3 14:00:00 UTC 2026 ns-run[88]: ZTE_MESH_SERVICE cfg mode=2 set_role_enable=0 en_master_only=1 cur_hop=2 max_hop=2 epoch=%s\n' "$((FIXED_NOW - 50))" > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line master_cur_hop 2
+if grep -q '^FAIL master_cur_hop' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: a witness this young says nothing about the row"; else pass=$((pass + 1)); fi
+CASE=cur-hop-override-young-no-grace
+CUR_HOP_GRACE=0 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+if grep -q 'FAIL master_cur_hop expected=5 got=2' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: the grace window must be what excuses that same line"; fi
+
+# a machine with no profile is the normal machine: the override line is reported as absent and nothing is judged
+CASE=cur-hop-no-override
+rm -f "$RUN/db-profile"
+printf 'Mon Nov  3 14:00:00 UTC 2026 ns-run[88]: ZTE_MESH_SERVICE cfg mode=2 set_role_enable=0 en_master_only=1 cur_hop=2 max_hop=2 epoch=1793678000\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line db_profile_cur_hop absent
+if grep -q '^master_cur_hop' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: a machine that set no override gets no verdict about one"; else pass=$((pass + 1)); fi
+
+# a profile that carries other tables and other fields is still no override
+CASE=cur-hop-override-other-field
+printf 'MultiAPMaster 0 EnBtmKickoff 1\nP1905ComCfg 0 Enable 1\n' > "$RUN/db-profile"
+sh "$SCRIPT" > "$out" 2>&1
+check_line db_profile_cur_hop absent
+rm -f "$RUN/db-profile"
+
+# no witness line in the ring, an unreadable column, a profile asking for a number: three shapes that report and judge
+# nothing, none of them a fault of this batch
+CASE=cur-hop-override-no-line
+printf 'MultiAPCfg 0 CurHop 5\n' > "$RUN/db-profile"
+printf 'Mon Nov  3 14:00:00 UTC 2026 zte-mesh: plan applied nothing new\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line master_cur_hop no-cfg-line
+CASE=cur-hop-override-unreadable
+printf 'Mon Nov  3 14:00:00 UTC 2026 ns-run[88]: ZTE_MESH_SERVICE cfg mode=-98 set_role_enable=-98 en_master_only=-98 cur_hop=-98 max_hop=-98 epoch=1793678000\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line master_cur_hop not-read
+
+# on a child the same file is not ours to verify: its startup path puts -2 back over the profile, and the number that
+# appears afterwards is the daemon's answer to the air -- which is `smoke_cur_hop`, a different judgement.
+CASE=cur-hop-override-on-child
+status_json true true true slave false > "$FIX/status"
+{
+	printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+	instance controller true
+	instance attach true
+	instance wlan-sync true
+	printf '\t\t}\n\t}\n}\n'
+} > "$FIX/svc"
+printf 'slave\n' > "$FIX/role"
+printf "wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid='FRESHR10'\nwireless.default_radio1=wifi-iface\nwireless.default_radio1.ssid='FRESHR10-5G'\n" > "$FIX/wireless"
+plan_rows FRESHR10 FRESHR10-5G
+printf 'epoch=1\nresult=ok\nchanged=0\nbands=\nmessage=\n' > "$RUN/wlan-sync.status"
+printf 'Mon Nov  3 14:00:00 UTC 2026 ns-run[77]: ZTE_MESH_SERVICE cfg mode=1 set_role_enable=0 en_master_only=0 cur_hop=2 max_hop=2 epoch=1793678000\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line db_profile_cur_hop 5
+check_line master_cur_hop not-master
+check_line cur_hop 2
+rm -f "$RUN/db-profile"
+
 printf 'verify-install test: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]
