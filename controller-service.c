@@ -952,10 +952,14 @@ static int write_state(const struct service_state *state)
             {
                 /* The same frames leave one file per BSS. Where those exist they are the total: the digest above
                  * only ever holds the last frame that arrived, so a child that answers one frame per radio would
-                 * otherwise alternate between the radios instead of showing both. */
+                 * otherwise alternate between the radios instead of showing both. The freshness shown with that sum
+                 * is the oldest entry in it, not the digest's own mtime - a number assembled from two frames is as
+                 * old as its stalest part. */
                 struct peer_bss_load counted;
-                if (controller_peer_bss_load(nodes[i].mac, 30, &counted))
+                if (controller_peer_bss_load(nodes[i].mac, 30, &counted)) {
                     stations = (int)counted.stations;
+                    metrics_age = counted.age;
+                }
             }
             used += (size_t)snprintf(json + used, sizeof(json) - used,
                                      "%s,\"zte\":%s,\"online\":%s,\"light\":%d,\"light_age\":%ld,\"stations\":%d,"

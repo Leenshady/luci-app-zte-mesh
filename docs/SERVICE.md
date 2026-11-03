@@ -182,8 +182,8 @@ plan 里）。四项共用 `sync_runs` 这一个判据：不跑 applier 的角�
 - `state.json` 的节点多了 `light`（-1 未知）、`light_age`、`stations`（-1 未知）；`sched` 有 `rules`、`off_all`、`off_guest`、
   `access`（各访客倒计时）。`light` 来自 trace 库对子节点帧的摘要（`/run/zte-mesh/peers/`，启动时清空）。`stations`
   优先取**逐路 BSS 的和**：`0x94` 每一路落一个 `peers/<MAC>.<BSSID>.sta`，服务把 30 秒内还活着的那几路加起来（读不到
-  才退回 `<MAC>.metrics` 摘要里的总数——摘要只有最后一帧的数，子节点按射频分别上报时会在两路之间来回换）。页面上仍是
-  一个数，看不出哪一路，每 AP 的明细还没上页。
+  才退回 `<MAC>.metrics` 摘要里的总数——摘要只有最后一帧的数，子节点按射频分别上报时会在两路之间来回换），这时
+  `metrics_age` 也跟着改成其中最老一路的年龄。页面上仍是一个数，看不出哪一路，每 AP 的明细还没上页。
 - **封禁与踢终端**（`controller-actions.c`）：`ban` 是"持续规则"——首次即发 `0x8016`，之后每 120 秒重发一次
   （子节点重启后不会忘记），到 `ban_minutes` 或规则被删时补发一条"放行"；`kick` 是"点一下"——`0x8014` 每 5 秒一次、
   最多 3 次，收到 `0x8015`/`0x8017` 回报即结案，超时标 `failed`。`state.json` 的 `clients[]` 每项
