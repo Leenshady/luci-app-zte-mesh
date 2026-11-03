@@ -101,6 +101,12 @@ python3 tests/test_runtime.py                                                 # 
 2. 重打的**基线**必须是仓库里已提交的那份 tarball。从别处（比如刚把打好的包传回工作区）再往回
    传，会把基线换成"已经被换过的"那份，成员就退回旧版本了 —— `test_runtime.py` 的
    "byte-for-byte" 守卫能抓到这件事。
+3. **在 Windows 上别用"解出来再 `diff -r`"比包**：归档里 `root/var/tmp`、`root/var/run`、`root/var/log`
+   是指向 `/tmp` 的符号链接，Git Bash 的 `tar` 建不出链接，就写成真目录并把后续路径穿到**本机临时目录**里。
+   结果是解出来的树里冒出 `root/var/log/tmp.XXXX/controller-trace.c` 这种根本不在包里的文件（实测那批
+   `tmp.*` 是本机 10 月留下的旧物），看着像"随包带了源码副本"。逐成员比字节（`tarfile` 读两遍归档，比
+   名称/类型/模式/大小/内容哈希）不受影响，也是上面第 4 步用的方法；要列成员就用 `tar tvzf`，它会照出
+   `lrwxrwxrwx`。
 
 包里的 probe 只要一条性质：不能引用比原厂 glibc 2.26 更新的符号。CI 在 `debian:bookworm`
 里编，本机在 Ubuntu 22.04 里编也成立，编完这样自查：
