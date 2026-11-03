@@ -25,10 +25,13 @@ LOGREAD=$BIN/logread
 INIT_D=$T/init.d
 ROOTFS=$T/rootfs
 RESTART_WAIT=0
+# the profile smoke is the one that waits; the fixtures answer immediately, so no case pays for a settle
+SSID_WAIT=0
+SSID_POLL=1
 ZTE_MESH_RUNDIR=$RUN
 ZTE_MESH_ROOTFS=$ROOTFS
 mkdir -p "$ROOTFS/root/lib" "$ROOTFS/root/bin"
-export UBUS APK UCI LOGREAD INIT_D RESTART_WAIT ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS
+export UBUS APK UCI LOGREAD INIT_D RESTART_WAIT SSID_WAIT SSID_POLL ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS
 
 pass=0
 fail=0
@@ -348,6 +351,9 @@ check_rc $? 1
 check_line RESULT FAIL
 if grep -q 'FAIL plan_ssid_0 expected=FRESHR10 got=absent' "$out"; then pass=$((pass + 1)); else
 	fail=$((fail + 1)); echo "FAIL case $CASE: an SSID the applier claims but the config does not carry must fail"; fi
+# the wait is what makes the FAIL mean "still wrong after the settle", so name the rows that never landed
+check_line ssid_wait 0
+check_line ssid_pending 0
 
 # --- case 10: the installed copy is the one this batch wrote ---------------------------------------------------------
 # The device copy cannot be hashed (apk strips the sections), so the script greps the two strings that only this
@@ -419,14 +425,65 @@ if grep -q 'FAIL trace_per_bss_name expected=yes got=no' "$out"; then pass=$((pa
 	fail=$((fail + 1)); echo "FAIL case $CASE: a library that never writes the per-BSS file must fail the run"; fi
 
 # --- case 11: no rootfs on this machine is not a stale rootfs --------------------------------------------------------
-# The script also runs on machines where the runtime tarball was never unpacked; turning that environment fact into
-# a batch verdict would fail every such run.
+# This harness has no private root at all; turning that environment fact into a batch verdict would fail every run.
 CASE=packed-absent
 rm -f "$ROOTFS/root/lib/libzte_controller_trace.so" "$ROOTFS/root/bin/db-engine-probe"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line trace_per_bss_name unreadable
 check_line probe_bss_detail unreadable
+
+# --- case 12: the profile lands a few seconds after the restart -------------------------------------------------------
+# Measured on ax3600 (2026-11-03): after a restart the plan has no rows at t=0, its rows are there at t=2s while
+# /etc/config/wireless still carries the previous profile, and the applier lands the new one at t=4s. Grading once
+# right after the restart -- which is what INSTALL section 3 tells a reader to do after an install -- failed a
+# healthy child. The stub answers with the old name for the first two `show wireless` calls (the profile smoke's
+# own read, then the first settle pass) and with the landed name after that, so the wait is what turns it green.
+CASE=ssid-late-landed
+status_json true true true slave false > "$FIX/status"
+{
+	printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+	instance controller true
+	instance attach true
+	instance wlan-sync true
+	printf '\t\t}\n\t}\n}\n'
+} > "$FIX/svc"
+printf 'slave\n' > "$FIX/role"
+printf 'wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid=OldLocalName\n' > "$FIX/wireless"
+printf 'wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid=FRESHR10\n' > "$FIX/wireless-landed"
+plan_rows FRESHR10
+printf 'epoch=1\nresult=ok\nchanged=1\nbands=2g\nmessage=\n' > "$RUN/wlan-sync.status"
+rm -f "$FIX/count"
+cat > "$BIN/uci" <<EOF
+#!/bin/sh
+case "\$*" in
+*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*show\ wireless*)
+	n=0
+	[ -f '$FIX/count' ] && n=\$(cat '$FIX/count')
+	n=\$((n + 1)); printf '%s\n' "\$n" > '$FIX/count'
+	if [ "\$n" -ge 3 ]; then cat '$FIX/wireless-landed'; else cat '$FIX/wireless'; fi ;;
+*) exit 1 ;;
+esac
+EOF
+chmod +x "$BIN/uci"
+SSID_WAIT=6 SSID_POLL=2 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line RESULT PASS
+check_line ssid_wait 2
+check_line plan_ssid_0 FRESHR10@default_radio0
+if grep -q '^ssid_pending' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: a settled profile must not report pending rows"; else pass=$((pass + 1)); fi
+
+# back to the stub every other case uses
+cat > "$BIN/uci" <<EOF
+#!/bin/sh
+case "\$*" in
+*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*show\ wireless*) cat '$FIX/wireless' ;;
+*) exit 1 ;;
+esac
+EOF
+chmod +x "$BIN/uci"
 
 printf 'verify-install test: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

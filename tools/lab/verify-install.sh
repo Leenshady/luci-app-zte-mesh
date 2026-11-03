@@ -30,8 +30,13 @@ UCI=${UCI:-uci}
 LOGREAD=${LOGREAD:-logread}
 INIT_D=${INIT_D:-/etc/init.d}
 RESTART_WAIT=${RESTART_WAIT:-12}
+# how long the Wi-Fi applier gets to land the plan before its result is graded (section 3 of INSTALL runs this
+# right after an install, when the child is still waiting for the controller's profile)
+SSID_WAIT=${SSID_WAIT:-60}
+SSID_POLL=${SSID_POLL:-3}
 RUNDIR=${ZTE_MESH_RUNDIR:-/run/zte-mesh}
-# the sandbox rootfs the runtime tarball unpacks to (openwrt/zte-mesh/Makefile copies `root/` under here)
+# the private root the runtime tree is shipped in (openwrt/zte-mesh/Makefile copies `root/` into the package itself,
+# so `apk del` removes it again -- what survives is only the qemu-arm-static a machine needed and someone put here)
 ROOTFS=${ZTE_MESH_ROOTFS:-/usr/lib/zte-mesh}
 PEERS=$RUNDIR/peers
 STATE=$RUNDIR/state.json
@@ -209,24 +214,60 @@ pair_value() {
 # writes ssid/key there), so on a slave the visible result is not a `zte_*` section -- it is the SSID of the
 # interface that was already there. Reading only zte_* names would report `none` on a machine where the applier
 # did exactly the right thing.
+# ssid_where SSID -> the wireless sections that carry this SSID, space separated.
+# The same SSID may legitimately exist on more than one section, so the evidence is the sections that have it.
+# `uci show` prints values in single quotes (wireless.default_radio2.ssid='FRESHR10'), so the quotes have to be
+# optional -- matching only the bare form calls a healthy applier a missing SSID. Measured on ax3600, where
+# FRESHR10 and FRESHR10-5G were both live and the first version of this smoke reported absent.
+# `|` as the sed delimiter and every sed-special character escaped: an SSID is user data and can contain
+# `/`, `.` or `+`, which would otherwise break the expression or match something else.
+ssid_where() {
+	$UCI show wireless 2>/dev/null |
+		sed -n "s|^wireless\.\([^.=]*\)\.ssid='\{0,1\}$(printf '%s' "$1" | sed 's/[][\\.*^$/|]/\\&/g')'\{0,1\}$|\1|p" |
+		tr '\n' ' '
+}
+
 smoke_ssid() {
+	# The plan and the wireless config are two files written by two processes, and a restart rewrites both:
+	# measured on ax3600, the plan had no rows at t=0 (the applier had not run yet), at t=2s its rows were there
+	# but wireless still carried the previous profile, and at t=4s the applier had landed the new one. Asserting
+	# once, right after the restart this script itself asked for, fails a healthy slave -- and a reader following
+	# INSTALL section 3 would take that as a broken install. So wait for the pair to settle, then grade once.
+	waited=0
+	settled=no
+	pending=
+	rows=0
+	while :; do
+		rows=$(sed -n 's/^rows=\([0-9]*\)$/\1/p' "$PLAN" 2>/dev/null | head -1)
+		[ -n "$rows" ] || rows=0
+		pending=
+		i=0
+		while [ "$i" -lt "$rows" ]; do
+			enabled=$(sed -n "s/^$i\.enabled=//p" "$PLAN" | head -1)
+			ssid=$(sed -n "s/^$i\.ssid=//p" "$PLAN" | head -1)
+			if [ "$enabled" = 1 ] && [ -n "$ssid" ]; then
+				[ -n "$(ssid_where "$ssid")" ] || pending="$pending $i"
+			fi
+			i=$((i + 1))
+		done
+		if [ "$rows" -gt 0 ] && [ -z "$pending" ]; then
+			settled=yes
+			break
+		fi
+		[ "$waited" -lt "$SSID_WAIT" ] || break
+		sleep "$SSID_POLL"
+		waited=$((waited + SSID_POLL))
+	done
+	say ssid_wait "$waited"
 	[ -s "$PLAN" ] || { say profile_ssid no-plan; return 0; }
-	rows=$(sed -n 's/^rows=\([0-9]*\)$/\1/p' "$PLAN" | head -1)
-	[ -n "$rows" ] || { say profile_ssid no-rows; return 0; }
+	[ "$rows" -gt 0 ] || { say profile_ssid no-rows; return 0; }
+	[ "$settled" = yes ] || say ssid_pending "${pending# }"
 	i=0
 	while [ "$i" -lt "$rows" ]; do
 		enabled=$(sed -n "s/^$i\.enabled=//p" "$PLAN" | head -1)
 		ssid=$(sed -n "s/^$i\.ssid=//p" "$PLAN" | head -1)
 		if [ "$enabled" = 1 ] && [ -n "$ssid" ]; then
-			# the same ssid may legitimately exist on more than one section; the evidence is the section that has it
-			# `uci show` prints values in single quotes (wireless.default_radio2.ssid='FRESHR10'), so the quotes have
-			# to be optional -- matching only the bare form calls a healthy applier a missing SSID. Measured on ax3600,
-			# where FRESHR10 and FRESHR10-5G were both live and the first version of this smoke reported absent.
-			# `|` as the sed delimiter and every sed-special character escaped: an SSID is user data and can contain
-			# `/`, `.` or `+`, which would otherwise break the expression or match something else.
-			where=$($UCI show wireless 2>/dev/null |
-				sed -n "s|^wireless\.\([^.=]*\)\.ssid='\{0,1\}$(printf '%s' "$ssid" | sed 's/[][\\.*^$/|]/\\&/g')'\{0,1\}$|\1|p" |
-				tr '\n' ' ')
+			where=$(ssid_where "$ssid")
 			where=${where% }
 			if [ -n "$where" ]; then
 				pass=$((pass + 1))
