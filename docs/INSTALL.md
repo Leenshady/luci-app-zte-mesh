@@ -14,9 +14,9 @@
 
 | 要确认 | 怎么看 | 不对会怎样 |
 |---|---|---|
-| **这台机器能不能直接跑 32 位 ARM 程序** | `uname -m` 是 `aarch64` 且固件带 `CONFIG_COMPAT=y` → 能。`x86_64` 或没有 compat 的 arm64 → 不能，必须自己把 `qemu-arm-static` 放进私有根 `/usr/lib/zte-mesh/root` | 控制器实例每 5 秒以 `execv errno=8` 退出，页面显示没跑起来。模拟器**不在任何包里**，判定表与三条出路见 [LAB](LAB.md) 第 4.2 节 |
-| **无线回程要完整 `wpad`** | `apk info wpad` / `opkg list-installed \| grep wpad`；`wpad-basic` 不够 | 只有开 `backhaul`（第 5、6 节）才受影响；`wlan-sync` 会把原因写进日志与页面状态行，不会静默失败 |
-| **flash 够不够** | `zte-mesh` 这个 apk 约 4.1 MB，装上占 jffs2 约 4.9 MB、解压约 8 MB（大头是原厂库）；LuCI 与中文包是 KB 量级 | 换 `wpad` 变体也可能挤爆小 flash |
+| **这台机器能不能直接跑 32 位 ARM 程序** | `uname -m` 是 `aarch64` 且固件带 `CONFIG_COMPAT=y` → 能。`x86_64` 或没有 compat 的 arm64 → 不能，必须自己把 `qemu-arm-static` 放进私有根 `/usr/lib/zte-mesh/root` | 控制器实例每 5 秒以 `execv errno=8` 退出，页面显示没跑起来。模拟器**不在任何包里**，判定表与三条出路见 [LAB](LAB.md) 第 4.2 节。多数固件不导出 `/proc/config.gz`（两台实验机都没有），所以这一条别看配置文件，看服务起来没起来、日志有没有 `errno=8` |
+| **无线回程要完整 `wpad`** | `apk info wpad`（`wpad-openssl` 这类变体也算，它 provides `wpad`）。25.12 起的 ImmortalWrt 用 apk，**机器上没有 `opkg` 这个命令**，`opkg list-installed \| grep wpad` 只在老 release 上有意义；`wpad-basic` 不够 | 只有开 `backhaul`（第 5、6 节）才受影响；`wlan-sync` 会把原因写进日志与页面状态行，不会静默失败 |
+| **flash 够不够** | `zte-mesh` 这个 apk 是 3.9 MB（r17 实测 3 872 842 字节），`apk info -s zte-mesh` 报 8 007 KiB，装完 `apk del` 释放 7.8 MiB——文档以前写的"约 4.1 MB / 4.9 MB"是 r5 那一批的数；LuCI 与中文包是 KB 量级。**要跑模拟器的那台机器上，占地方的是你自己放的那份 `qemu-arm-static`（10.7 MB），不是包** | 换 `wpad` 变体也可能挤爆小 flash |
 
 ## 2. 装包
 
@@ -29,18 +29,33 @@
 | `luci-app-zte-mesh` | `all` | 配置页面（`网络 → ZTE Mesh`） |
 | `luci-i18n-zte-mesh-zh-cn` | `all` | 中文文案。**装应用包不会自动带上它**，要中文就单独装 |
 
-**手工装（最常用）**：从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 里拿四个 apk（同一个 artifact 带
-`SHA256SUMS.txt`，先 `sha256sum -c` 再装）。包没签名，所以要 `--allow-untrusted`：
+**手工装（最常用）**：从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 里拿四个 apk（解开是一个平铺目录，
+`SHA256SUMS.txt` 就在里面，所以 `sha256sum -c` 要 `cd` 进那个目录再跑）。包没签名，所以要 `--allow-untrusted`：
 
 ```sh
-scp dist/*.apk root@<这台路由器的IP>:/tmp/
-ssh root@<这台路由器的IP> 'apk add --allow-untrusted /tmp/zte-mesh*.apk /tmp/luci-*.apk'
+ssh root@<这台路由器的IP> 'mkdir -p /tmp/zte-apk'
+scp dist/*.apk root@<这台路由器的IP>:/tmp/zte-apk/     # 这个目录只放这一批的 apk
+ssh root@<这台路由器的IP> 'cd /tmp/zte-apk && sha256sum -c SHA256SUMS.txt'
+ssh root@<这台路由器的IP> 'apk add --allow-untrusted /tmp/zte-apk/zte-mesh*.apk /tmp/zte-apk/luci-*.apk'
 ```
 
-- 装与升级**不会覆盖**你改过的 `/etc/config/zte_mesh`（它是 conffile）。
-- `x86_64` 的机器（比如虚拟机）**装不上 `zte-mesh-launcher`**——架构不匹配是预期的，`apk` 会报 `uninstallable`。
-  这种机器要自己编 `ns-run` / `mesh-search`，命令见 [LAB](LAB.md)；`zte-mesh` 本体照装。
-- 只有 `zte-mesh` 没有启动器 = 页面能打开、控制器起不来（缺 `ns-run`）。四个包是"一套"，不是可选菜单。
+（`scp` 的目标目录不存在时它会把最后一个文件**写成那个名字**，所以先 `mkdir`；artifact 解开是平铺的，
+`dist/*.apk` 那一行按你放的位置换。）
+
+- **一个目录只放一批**。`sha256sum -c` 只证明"文件没坏"，证明不了"这是这一批"——上一批那四个 apk 和它们的
+  `SHA256SUMS.txt` 一起留在 `/tmp/zte-apk` 里时，校验照样全 OK。而 glob 一旦同时命中两批，`apk` 解出来的目标版本
+  连文件名都对不上（实测在 owrt 上报 `Downgrading zte-mesh (0.1.0-r17 -> 0.1.0-r9)`，而目录里根本没有 r9 的文件）。
+  换批之前把旧 apk 挪走或改名成 `*.apk.stale`，别指望 `sha256sum -c` 替你把关。
+- 装与升级**不会覆盖**你改过的 `/etc/config/zte_mesh`（它是 conffile；实测往里面加一行注释、`apk del` 再 `apk add`，
+  那一行还在）。但页面存过一次之后，本地这份就和包里那份默认的长得不一样了，于是**每次装都会在旁边落一个
+  `/etc/config/zte_mesh.apk-new`**（8 KB 的出厂默认档案，带全部注释）。它不是备份也不是垃圾，是 apk 的"这里有冲突"
+  记号；想清掉就按第 8 节那条 `zte_mesh*` 的 glob 一起删。
+- **x86_64 的机器（比如虚拟机）上面那条 `apk add` 会一条都不装**：`zte-mesh-launcher` 是
+  `aarch64_cortex-a53`，架构不匹配 → `ERROR: unable to select packages: ... uninstallable`，`rc=1`，另外三个
+  `all` 的包**也跟着不装**（apk 的求解是全有或全无）。这种机器把启动器从那条命令里拿掉再装，
+  然后自己编 `ns-run` / `mesh-search`，命令见 [LAB](LAB.md)；`zte-mesh` 本体照装。
+- 只有 `zte-mesh` 没有启动器 = 页面能打开、控制器起不来（缺 `ns-run`，它在 `/usr/libexec/zte-mesh/`）。
+  四个包是"一套"，不是可选菜单。
 
 **编进固件**（长期用这台机器当控制器时更省事）：把本仓库当 feed 加进 ImmortalWrt 树，
 `./scripts/feeds update zte_mesh && ./scripts/feeds install -a -p zte_mesh`，在 `.config` 里勾上这四个包
@@ -51,7 +66,7 @@ ssh root@<这台路由器的IP> 'apk add --allow-untrusted /tmp/zte-mesh*.apk /t
 
 1. LuCI 登录 → **网络 → ZTE Mesh**（页面标题 `ZTE Mesh`，中文版是「中兴组网」）。
 2. 「常规」tab 最上面是**启用**（默认开）与服务状态；状态框会写这台机器现在的角色和有没有在跑。
-3. 命令行等价检查（页面打不开时先看这两条）：
+3. 命令行等价检查（页面打不开时先看这三条）：
 
 ```sh
 ubus call luci.zte-mesh status          # 返回 role / local / 实例是否在跑
@@ -59,12 +74,22 @@ logread | grep zte-mesh | tail -30      # 起不来的原因都写在这里
 cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（只有会落地的角色才有）
 ```
 
+- 配置被拒绝时这三条长什么样（实测 owrt）：`logread` 里是一行 `daemon.warn zte-mesh: <哪个选项> ...; not starting`，
+  `status` 变成 `running=false`、`attached=false`、`age=-1`、`state=null`，`wlan-sync.status` 干脆不存在。
+  看到 `state=null` 就别再读后面那些键了——服务根本没起来。反过来，`ns-run` 打的那几行
+  `ZTE_CONTROLLER_TRACE unix_bind ... errno=98/111` 是套接字重绑的过程记录，不代表故障。
+- `wlan-sync.status` 的 `bands=` 那一行说的是**这一次落地时改动了哪些频段**，不是"这台机器只管这些频段"：
+  ax3600 上实测 `bands=5g` 而两个频段的名字都是这次档案里带的（日志会一行一个频段说清楚）。
 - **装完要重启两次**：`/etc/init.d/rpcd restart` 和 `/etc/init.d/zte-mesh restart`。`apk add` 只换文件——owrt 上实测
   替换完 `luci-app-zte-mesh` 之后状态里连 `local` 这个键都没有（rpcd 还拿着装之前加载的那份插件），`attach` 实例报着
   running 而 `zmesh0` 早就不存在。重启之后 `attached=true`、`zmesh0` 重新挂回 `br-lan`。
 - 这三条加"实例集合对不对、主控给的 SSID 落没落地"合起来就是装机验收的一条命令：
   `sh tools/lab/verify-install.sh /tmp/zte-apk`（把 apk 放机器上 `/tmp/zte-apk` 再跑；不带目录就只读不装）。
   它输出 `KEY=VALUE` 证据行和最后的 `RESULT=PASS|FAIL`，判定逻辑由 `sh tests/test_verify_install.sh` 在主机上守着。
+  **带目录那一档会装、会重启服务**，所以它读到的不是"上一批留下的样子"而是这一批跑起来的样子；SSID 那一项现在会
+  等档案落地（`ssid_wait=<秒>`，上限 `SSID_WAIT`，默认 60 秒）再判——早期版本在重启后 12 秒就断言，ax3600 上实测
+  把一个健康的子节点判成 `RESULT=FAIL`（那一秒无线配置里还是上一个名字）。等不到才 FAIL，并把没落地的行号写成
+  `ssid_pending=0 1`。
   末尾还会**读回装进机器的那份**：apk 打包会剥掉 ELF 节，设备上的 `.so` 和仓库里的成员不是同一串字节，所以只能按
   字符串认——`trace_per_bss_name=yes`、`probe_bss_detail=yes` 说明这一批的写入方确实在机器上；
   `peers_sta` / `peers_software` / `peer_reports_stations` / `state_bss_detail` 是它读到的数据，不当判据
@@ -73,7 +98,8 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
 ## 4. 场景 S1：OpenWrt 当中控，接一台原厂中兴子路由
 
 **这是出厂默认**，装完不用改角色：`zte_mesh.main.mesh_role=master`、`apply_local=0`（两个开关各自的完整语义见
-[SERVICE](SERVICE.md) 的「设备角色（两个开关）」）。
+[SERVICE](SERVICE.md) 的「设备角色（两个开关）」）。`uci show zte_mesh | grep apply_local` 很可能**一行都不出**——
+这一项没写就是 0，页面只在把它打开时才写进去；别把"读不到"当成"文档写的默认不存在"。
 
 1. 页面上决定**要不要自己也发 Wi-Fi**（这就是第二个开关）：
    - 「本机也广播」**关**（默认）：这台机器只当中控，把档案下发给子路由，**自己的无线一个字节都不动**。
@@ -91,6 +117,8 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
 
 **判据**（S1 怎么算过）：在页面「Wi-Fi 配置」里改 SSID / 密码 / 信道 / ACL，子路由的空中名称跟着变；
 节点表里这台子路由显示 `ZXHN Z506` 这类型号、状态在线，「重启」与「开灯 / 关灯」两个按钮点得动（只中兴子路由有）。
+这条**要有真子路由才能判**：实验台上中控的对端是另一台刷了本插件的 OpenWrt，它报的是插件自己的型号字符串，
+按不了"显示 `ZXHN Z506`"这半句，改 SSID 那一半又会把家里正在用的无线翻掉——两边都记在 [PLAN](PLAN.md) 第 5 节。
 
 ## 5. 想让它连访客网络、额外 SSID
 
@@ -99,13 +127,25 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
 **会不会把这些槽位落到本机射频**；下发本身不受它影响。注意：额外槽位和该频段的主网络**共用同一个网桥**，
 这个镜像还没有做 VLAN 隔离，所以访客网络并没有和主网络隔开。
 
+"被拒绝"是哪种拒绝（owrt 上实测，只留 2 号槽、不给 1 号）：服务**整个不起来**，`logread` 里一句
+`zte_mesh_bss '<段名>': ...; not starting`（槽位这一条是 `24g slot 2 needs slot 1 (slots must be 1..k); not starting`），
+`status` 是第 3 节写的那个 `state=null` 形状。页面存得下去，但服务不认——改错了先看日志那一行，别猜。
+手敲 UCI 时 `uci add zte_mesh zte_mesh_bss` 只回一个段名（`cfg02306b`），要写成
+`uci set zte_mesh.cfg02306b.band=24g`，漏掉 `zte_mesh.` 前缀就是五个 `uci: Entry not found` 加一个空段。
+
 ## 6. 场景 S2：OpenWrt 当中兴主控下面的子节点
 
 1. 「常规」→ **设备角色** 选「子路由」。页面随即只留下这台机器用得上的几项（Wi-Fi / 漫游 / 额外网络的配置消失，
    因为档案由主控下发）。
 2. 网线插到主控的 LAN 口。入网时**先沿用本机正在广播的无线**，等主控下发自己的名称/密码/加密——
-   所以不需要在 OpenWrt 上填任何 Wi-Fi 参数。
+   所以不需要在 OpenWrt 上填任何 Wi-Fi 参数。要说清楚的是这台机器**每次重启服务都会把空中名字翻两次**：
+   起来头几秒它广播自己那份档案（ax3600 上实测 `radio 0 (2g…): name set to 11 characters, security sae-mixed`，
+   正是它本地 `wifi_24g_ssid` / `wifi_24g_security` 那一对），二十秒左右主控的 M2 到了才翻成主控的名字
+   （`name set to 8 characters … psk-mixed`）。家里有人连着的时候，这就是两次掉线——本文第 9 节说的
+   "先确认你能接受设备掉线"包括重启服务这一条。
 3. 判据（S2 怎么算过）：**中兴主控**上改 SSID，20 秒内在这台机器上 `iw dev` 看到的名称跟着变，改回来也能回退。
+   实验台上能测的是"本插件当主控"这一半：上面那两次翻转之间的间隔实测就是 21 秒，与"20 秒内"同量级；
+   真中兴主控那一半还在等真机窗口。
 
 **无线回程（S3，未端到端验证）**：同一页会出现「回控制器的方式」，选「Multi-AP（4 地址）」后，主控下发的回程网络
 会落成一个客户端接口（`zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` + `wds 1`）。它要求完整 `wpad`，
@@ -119,9 +159,9 @@ applier 会把档案落到本机射频；换过角色或手改过 `/etc/config/z
 
 | 现象 | 为什么 | 怎么办 |
 |---|---|---|
-| 服务起不来，日志 `execv errno=8` | 内核跑不了 32 位 ARM 程序，且没有模拟器 | 第 1 节第一条 |
-| 回程开关设了，射频上什么都没有 | ①这个值只接受 `off` / `multi_ap`：页面上写错的写法保存时会被拒绝并说明原因，但**直接编辑 UCI 写进去的 `multi-ap` 这类值会被读成 off**（宁可不半开回程）；②这台机器是不落地档案的主控，本来就不动射频 | 用页面而不是编辑器改它；确认这台是会落地档案的角色（「本机也广播」开着，或角色是子路由）。看页面「状态」与 `logread` |
-| 一个频段有两块射频，改了却没生效 | 控制器档案不知道该写到哪块，`wlan-sync` 会**放弃这个频段**并在日志里点名让你去设 `2.4 GHz 射频设备` / `5 GHz 射频设备` | 按日志列出的候选名填进那两个字段（例如 `radio1`）。保存这两项会重启服务，因为不重启就等于没选 |
+| 服务起不来，日志 `execv errno=8` | 内核跑不了 32 位 ARM 程序，且没有模拟器 | 第 1 节第一条（owrt 上实测：`ZTE_DB_SANDBOX error=execv errno=8` 每 5 秒一条，页面状态这时还是 `running=true`，只有 `attached=false` 露出馅） |
+| 回程开关设了，射频上什么都没有 | ①**手改 UCI 写进 `multi-ap` 这类第三种写法，不是"读成 off"，是整个配置被拒绝、服务不起**（`zte-mesh.init` 的取值表只认 `off` / `multi_ap`；owrt 上实测日志 `backhaul must be off or multi_ap; not starting`，状态变第 3 节那个 `state=null` 形状）——页面保存同样的写法是另一回事，它会当场拒绝并说明原因；②值本身合法但这台机器是不落地档案的主控，本来就不动射频：日志会明说 `zte_mesh.main.backhaul=multi_ap has nothing to do while apply_local is off: ...`（owrt 实测），并把两条出路写在那一句里 | 用页面而不是编辑器改它；确认这台是会落地档案的角色（「本机也广播」开着，或角色是子路由）。看页面「状态」与 `logread` |
+| 一个频段有两块射频，改了却没生效 | 控制器档案不知道该写到哪块，`wlan-sync` 会**放弃这个频段**，日志原文是 `several 5g radios (radio0 radio1) and no way to tell which one carries the mesh; set zte_mesh.main.wifi_5g to one of them, this band is left alone until then`——它点名的是 UCI 项，页面上对应「2.4 GHz 射频设备」/「5 GHz 射频设备」两个字段 | 按日志列出的候选名填进那两个字段（例如 `radio1`）。保存这两项会重启服务，因为不重启就等于没选。ax3600 正是这块有两张 5G 卡的板子，它现在靠 `radio0.disabled=1` 避开这一条（候选只剩一块），不是测不出来 |
 | 有线口显示"未接入" | veth 两端一起没了，只有重启实例才能重建 | `attach` 兼任看门狗：连续 20 秒看不到这个口就重启沙箱实例，通常两分钟内自己恢复（这一条还没在实验机上复现过，见 [PLAN](PLAN.md) H-10）；想立刻恢复就重启服务 |
 
 ## 8. 卸载与版本
@@ -133,11 +173,15 @@ apk del luci-app-zte-mesh zte-mesh     # 再把装过的包名补进这条：zte
 ```
 
 - **一条 `apk del` 里只要有一个包名不在这台机器上，整条就失败**。虚拟机上没装 launcher 和中文包，
-  第一次整条报错——按实际装过的分开删，或者先 `apk info -e | grep zte` 看清楚。
-- apk 清不掉的要手工删：`/etc/config/zte_mesh*`（受保护的配置，apk 故意留着）、`/run/zte-mesh`、
-  `/usr/lib/zte-mesh`（运行环境解出来的目录树）。手工编过 `ns-run` / `mesh-search` 的机器，那两个文件
-  不属于任何包，apk 不会碰它们。
-- 装的是哪一批可以从包版本读出来：`apk list --installed | grep zte`。三个包的 `PKG_RELEASE` 各自计数、批末对改过的包加一
+  第一次整条报错（实测 owrt：`ERROR: No such package: zte-mesh-launcher`，`rc=1`，一个包都没被删）——
+  按实际装过的分开删，或者先 `apk info -e | grep zte` 看清楚。
+- apk 清不掉的要手工删：`/etc/config/zte_mesh*`（受保护的配置，apk 故意留着，第 2 节说的 `.apk-new` 也在这一条里）、
+  `/run/zte-mesh`（tmpfs，重启就没了）。**`/usr/lib/zte-mesh` 那棵运行环境树是包自己装进去的，`apk del` 会连它一起删**——
+  owrt 上实测删完只剩你手工放的 `root/qemu-arm-static`（10.7 MB，占地方的一直是它，不是包）和那个空目录。
+  手工编过 `ns-run` / `mesh-search` 的机器，那两个文件在 `/usr/libexec/zte-mesh/`，跟同目录里属于包的
+  `attach` / `wlan-sync` 放一起，不属于任何包，apk 不碰它们（实测删完只剩这两个）。
+- 装的是哪一批可以从包版本读出来：`apk list --installed | grep zte`，它报的就是 `pkgver`（实测与文件名里那一位一致，
+  `zte-mesh-0.1.0-r17` / `luci-app-zte-mesh-0.1.0-r9` / `zte-mesh-launcher-0.1.0-r1`）。三个包的 `PKG_RELEASE` 各自计数、批末对改过的包加一
   （[PLAN](PLAN.md) 第 6.3 节），现在分别是 `zte-mesh` 0.1.0-r17、`luci-app-zte-mesh` r9、`zte-mesh-launcher` r1。
   不加这一位，装机本身不会失败——`apk add` 给同名同版本的 apk 也会 `Replacing (0.1.0-r7 -> 0.1.0-r7)`，实测在 owrt 上
   中文包就是这样被换掉的。不动的是**记录**：`apk list` 报不出这台机器装的是哪一批，走 feed 的 `apk upgrade` 更不会把它
