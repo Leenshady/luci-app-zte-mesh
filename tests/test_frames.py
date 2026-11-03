@@ -58,8 +58,11 @@ def write_pcap(path, frames):
 
 
 def run(path, *flags):
+    # The report carries 240B×1 and Chinese; on a GBK console the child would write those bytes in GBK and the
+    # parent's UTF-8 decode would hand back None stdout -- pin both ends to UTF-8 so the assertion sees text.
     result = subprocess.run([sys.executable, FRAMES, path] + list(flags),
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8",
+                            env={**os.environ, "PYTHONUTF8": "1"})
     if result.returncode != 0:
         raise AssertionError(f"frames.py 退出码 {result.returncode}\n{result.stdout}\n{result.stderr}")
     return result.stdout

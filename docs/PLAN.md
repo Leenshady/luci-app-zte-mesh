@@ -4,7 +4,9 @@
 > 功能本身的状态与证据在 [FEATURE_STATUS](FEATURE_STATUS.md)（唯一总账），协议与逆向在
 > [research/](research/)，装机与踩坑在 [LAB](LAB.md)。三处不重复列同一件事。
 >
-> 最后更新：2026-11-03（批 7/8/9 的批末走完：`ci/batch9` 出 r17/r9，两台实验机装上并读回，`verify-install.sh` 多了"装机读回"一段。H-13 的判据据此改写——实验台根本没收过 `0x94`；批 5 仍只剩要第二台子路由的 A21/H-04、A23。**同日 C8 收掉**：`INSTALL.md` 按文档从头走了一遍，改口八处，并修掉 `verify-install.sh` 在健康子节点上的假 FAIL——现在"手册写完"和"按文档走通"是同一件事）
+> 最后更新：2026-11-03（批 10/11/12 走完并合批末：`PKG_RELEASE` 升到 r18，CI 从临时分支 `ci/batch12` 触发、两台实验机装机读回。
+> 这三件是 B8b（子节点种子来自空中）、C11（`applier_writes`，H-14 成了一条命令）、B16（`cur_hop=` 读回）。
+> 同日早些时候：批 7/8/9 的批末走完——`ci/batch9` 出 r17/r9，两台实验机装上并读回，`verify-install.sh` 多了"装机读回"一段。H-13 的判据据此改写——实验台根本没收过 `0x94`；批 5 仍只剩要第二台子路由的 A21/H-04、A23。**同日 C8 收掉**：`INSTALL.md` 按文档从头走了一遍，改口八处，并修掉 `verify-install.sh` 在健康子节点上的假 FAIL——现在"手册写完"和"按文档走通"是同一件事）
 
 ## 1. 终点：四个可验收的场景
 
@@ -169,7 +171,7 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 | 7 | 拓扑页缺的那一格 | ✅ 主机侧做完（A18c：软件版本走 `0x8002`/`0xd4` → `peers/<MAC>.software` → `state.json`，页面一行没改；192 断言 + 71 项，批 8 之后是 212 + 103）；**r17 已装机**：两台的 `.so` 都带 `software` 这个后缀，但 `peers/` 里没有 `.software` 文件 | H-12。实验台那台 peer 从来没发过带 `0xd4` 的 `0x8002`（读回打印 `peers_software=0`），所以这一条还是只能等真 Z506 |
 | 8 | 终端数按 BSSID 记账 | ✅ 主机侧做完（A18d：`0x94` 逐路 → `peers/<MAC>.<BSSID>.sta` → 服务把没过期的一路一路加起来；212 断言 + 103 项）；**r17 已装机**：`.so` 里逐路文件名格式串（六个 `%02x` 加 `.sta` 尾巴）在、`state.json` 有 `bss_detail` 键，但没有 `.sta` 文件 | H-13（真子节点是否一射频一帧）。**判据已改写**：实验台的 `.metrics` 只有 `hops=1`，即从没收到带终端数的 `0x94`，所以"没有 `.sta`"在这里不能当判据——先看读回的 `peer_reports_stations=yes`，再看逐路 |
 | 9 | 逐路终端数上页面 | ✅ 主机侧做完（A18e：`bss_detail` 进 `state.json`，拓扑页悬停一行一路；162 项 peer 测试 + LuCI 断言 + i18n 无新增文案）；**r17 已装机**：主控的 `state.json` 每个节点都带 `"bss_detail":[]`（空数组＝没有逐路数据，正常回落） | 随批 8 的 H-13 一起看：实验室那台 peer 只有一路，悬停要真子路由多 BSS 才看得出逐路 |
-| 10 | 子节点重启不再翻两次名称 | ✅ 主机侧 + 设备配置面做完（B8b：种子逐频段读回空中、`set_flag` 按含义比；init 130 / wlan-sync 182，两份都在 owrt 的 busybox ash 上过；ax3600 上 `changed=0`、`wifi` 未被调用、配置文件 md5 没变） | **H-14**：真的 `/etc/init.d/zte-mesh restart` 要看日志里再无 `applied`/`wifi reload`——会掉线，等窗口 |
+| 10 | 子节点重启不再翻两次名称 | ✅ 主机侧 + 设备配置面做完（B8b：种子逐频段读回空中、`set_flag` 按含义比；init 130 / wlan-sync 182，两份都在 owrt 的 busybox ash 上过；ax3600 上 `changed=0`、`wifi` 未被调用、配置文件 md5 没变） | **H-14**：真的 `/etc/init.d/zte-mesh restart` 要看日志里再无 `applied`/`wifi reload`——会掉线，等窗口。**批 10/11/12 合批末**：`PKG_RELEASE` 升到 r18——只有 `zte-mesh` 这一个包改过（`luci-app-zte-mesh` 仍 r9、`zte-mesh-launcher` 仍 r1，按 6.3 只给改过的包加一），随包 tarball 不重打（三个批次一个 `.c`/`.h` 都没动，`git diff` 只有 shell 与文档） |
 | 11 | 把 H-14 变成一条命令 | ✅ 做完（C11：`applier_writes` 读回 + `RESTART_NOW=1`；装机验收 85 → 108 条，busybox ash 同样 108） | 判据本身要等带 B8b 的那一次 CI（r18）：`RESTART_NOW=1 sh verify-install.sh` 读回 `applier_writes=0` |
 | 12 | 把子节点的跳数读回来 | ✅ 做完（B16：`cur_hop=` 读回，子角色判"不是 `-2`"；装机验收 108 → 124 条，busybox ash 同样 124；两台只读跑 `RESULT=PASS`） | 结案用的是今天还在环里的那行 cfg（ax3600 `mode=1 … cur_hop=2`）；"设成 MaxHop"还是"采用主控下发的值"分不开，等 H-14 第 ⑦ 步把主控那一侧改成不等于 2 |
 
@@ -191,7 +193,7 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 | `tests/controller-actions-test.c`（`make test-host`） | 终端动作的去抖、重发、超时、回滚、每秒重配置、到期不复发、时钟域 | 239 断言，假时钟 |
 | `tests/controller-log-codec.c`（`make test-host`） | 谁有资格进设备的日志环：分类预算、重复状态行按分钟采样、打光/采样时那句提示（采样那句要报出累计丢了几个）、带密钥的格式永不展开值 | 655 671 断言（含 2^17 次有界变异），假 `CLOCK_MONOTONIC`（同上） |
 | `python tests/test_runtime.py`、`test_i18n.py`、`test_schema.py out` 等 | 运行包完整性、翻译、表结构 | 各自脚本末尾 |
-| `sh tests/test_frames.py`（`python tests/test_frames.py`） | pcap 帧长/配对/周期 | 4 项 |
+| `sh tests/test_frames.py`（`python tests/test_frames.py`） | pcap 帧长/配对/周期 | 4 项（子进程的输出两端都钉成 UTF-8——以前在 GBK 控制台上解码失败，`stdout` 变 `None`，第 2 项看着像断言挂了） |
 | `sh tools/build/container-make.sh test-host` | C 编解码（含 10 万次变异）+ 沙箱 | 需要容器或 Ubuntu（`192.168.1.191`） |
 
 本机（Windows + Git Bash + Python 3.13 + Node 22）能跑表里的 shell / python / JS 那几行；C 那几行必须借容器或 Ubuntu 机器。
