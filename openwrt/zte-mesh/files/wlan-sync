@@ -244,6 +244,19 @@ set_opt() {
 	return 0
 }
 
+# set_flag SECTION OPTION VALUE -> set_opt for an option whose absence already answers 0 (`disabled`, `hidden`).
+# Writing the 0 a config does not spell out changes nothing about the network, but it does mark the plan as applied,
+# and an applied plan commits and reloads every radio on this router. On a child that is a drop for clients on the
+# band whose settings did not move, so the comparison is against what the flag means, not how it is spelled.
+set_flag() {
+	local current
+	current=$(uci_true "$(uci -q get "wireless.$1.$2" 2>/dev/null)")
+	[ "$current" = "$3" ] && return 1
+	uci -q set "wireless.$1.$2=$3"
+	changed
+	return 0
+}
+
 # apply_key SECTION ENCRYPTION KEY -> write the key where this image keeps it
 apply_key() {
 	local iface="$1" enc="$2" key="$3"
@@ -529,9 +542,9 @@ apply_plan() {
 		device=$(radio_section_of "$band") || { log "no usable $band radio; left alone"; continue; }
 		iface=$(ap_iface_of "$device") || { log "no AP interface on $device ($band); left alone"; continue; }
 		[ "$enabled" = 1 ] && enable_radio "$device" "$band"
-		set_opt "$iface" disabled "$([ "$enabled" = 1 ] && echo 0 || echo 1)"
+		set_flag "$iface" disabled "$([ "$enabled" = 1 ] && echo 0 || echo 1)"
 		set_opt "$iface" ssid "$ssid"
-		[ -n "$hidden" ] && set_opt "$iface" hidden "$hidden"
+		[ -n "$hidden" ] && set_flag "$iface" hidden "$hidden"
 		set_opt "$iface" encryption "$enc"
 		# The main BSS is the fronthaul half of a Multi-AP pair; without the flag a matching backhaul STA
 		# would not know this BSS carries the Multi-AP element.

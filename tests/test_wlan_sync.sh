@@ -135,6 +135,9 @@ val() { cat "$DB/$1" 2>/dev/null; }
 # The band lookup runs once per plan row and once more from clear_backhaul, so a message about a band can appear
 # more than once in a run: these cases ask whether it was said, not how many times.
 has() { [ "$(grep -c "$1" "$LOG" 2>/dev/null)" -ge 1 ] && echo yes || echo no; }
+# Every run leaves a status file next to the plan (wlan-sync.status): the sandboxed service and the page cannot see
+# what happens outside the sandbox, and without it a failed apply is only a line in the system log.
+status_val() { sed -n "s/^$1=//p" "$T/wlan-sync.status" 2>/dev/null | head -n 1; }
 
 PLAN=$T/plan
 cat > "$PLAN" <<'PLAN'
@@ -298,6 +301,72 @@ seed_db
 printf 'true' > "$DB/radio1.disabled"
 sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
 check "radio off spelled true: switched on" 0 "$(val radio1.disabled)"
+
+# --- a child's seed that equals the air ---------------------------------------------------------------------
+# zte-mesh.init seeds a child from the network this router is already broadcasting, band by band, and its
+# `live_ap_iface` resolves the same sections `radio_section_of` + `ap_iface_of` resolve here (tests/test_init.sh has
+# the ax3600 fixture; the plan below is the service config it produced). The restart then has to find nothing to
+# write: a single no-op write marks the plan applied, and an applied plan commits and reloads every radio on this
+# router -- which is the client drop the two name flips used to cause.
+PLAN_SEED=$T/plan-seed
+cat > "$PLAN_SEED" <<'PLAN'
+rows=2
+0.radio=0
+0.slot=0
+0.instance=DEV.WIFI.AP1
+0.ssid=FRESHR10
+0.key=Ztemesh2631!
+0.enabled=1
+0.hidden=0
+0.access=32
+0.beacon_type=12
+1.radio=1
+1.slot=0
+1.instance=DEV.WIFI.AP5
+1.ssid=FRESHR10-5G
+1.key=Ztemesh2631!
+1.enabled=1
+1.hidden=0
+1.access=32
+1.beacon_type=6
+PLAN
+seed_db_two_5g
+rm -f "$DB/radio1.disabled"
+printf 'FRESHR10' > "$DB/default_radio2.ssid"; printf 'Ztemesh2631!' > "$DB/default_radio2.key"
+printf 'sae-mixed' > "$DB/default_radio2.encryption"; printf '0' > "$DB/default_radio2.hidden"
+printf 'FRESHR10-5G' > "$DB/default_radio1.ssid"; printf 'Ztemesh2631!' > "$DB/default_radio1.key"
+printf 'psk-mixed' > "$DB/default_radio1.encryption"; printf '0' > "$DB/default_radio1.hidden"
+sh "$WLAN_SYNC" "$PLAN_SEED" --once >"$T/out" 2>&1
+check "seed equals air: nothing written" 0 "$(grep -c '^set ' "$LOG")"
+check "seed equals air: no commit" 0 "$(grep -c '^commit ' "$LOG")"
+check "seed equals air: no reload" 0 "$(grep -c '^wifi ' "$LOG")"
+check "seed equals air: reports no change" 0 "$(status_val changed)"
+check "seed equals air: names no band" "" "$(status_val bands)"
+check "seed equals air: still ok" ok "$(status_val result)"
+
+# The same pair one letter away is still a change, so this cannot pass by never writing anything.
+: > "$LOG"
+sed -e 's/^0.ssid=FRESHR10$/0.ssid=FRESHR11/' "$PLAN_SEED" > "$T/plan-seed-diff"
+sh "$WLAN_SYNC" "$T/plan-seed-diff" --once >"$T/out" 2>&1
+check "seed differs: the name is written" FRESHR11 "$(val default_radio2.ssid)"
+check "seed differs: one commit" 1 "$(grep -c '^commit wireless$' "$LOG")"
+
+# A flag the config does not spell out already answers off, so the 0 a plan carries for it is not a difference:
+# writing it would churn UCI and reload the radios for a network that did not move.
+seed_db
+rm -f "$DB/default_radio0.disabled" "$DB/default_radio1.disabled"
+sed -e 's/^0.ssid=zte-agent-2g$/0.ssid=old-2g/' -e 's/^0.key=m2-public-2g-key$/0.key=old-key-2g/' \
+	-e 's/^0.beacon_type=6$/0.beacon_type=3/' -e 's/^1.ssid=zte-agent-5g$/1.ssid=old-5g/' \
+	-e 's/^1.key=m2-public-5g-key$/1.key=old-key-5g/' -e 's/^1.hidden=1$/1.hidden=0/' "$PLAN" > "$T/plan-absent-flags"
+sh "$WLAN_SYNC" "$T/plan-absent-flags" --once >"$T/out" 2>&1
+check "absent flags: nothing invented for disabled" "" "$(val default_radio0.disabled)"
+check "absent flags: nothing invented for hidden" "" "$(val default_radio0.hidden)"
+check "absent flags: no write" 0 "$(grep -c '^set ' "$LOG")"
+check "absent flags: no reload" 0 "$(grep -c '^wifi ' "$LOG")"
+# and a flag the plan *does* want on is still written
+sed -e 's/^1.hidden=0$/1.hidden=1/' "$T/plan-absent-flags" > "$T/plan-hidden-on"
+sh "$WLAN_SYNC" "$T/plan-hidden-on" --once >"$T/out" 2>&1
+check "absent flags: a real 1 is written" 1 "$(val default_radio1.hidden)"
 
 # --- backhaul (multi_ap) ---------------------------------------------------------------------------------
 # A plan as the controller actually fills it: slot 0 is the fronthaul BSS (MapAccessAttr 32) and slot 3 of
@@ -701,9 +770,7 @@ check "ambiguous band: no section" "" "$(val type.zte_extra_5g_1)"
 check "ambiguous band: reported" 1 "$(grep -c 'no usable 5g radio; slot 1 left alone' "$LOG")"
 check "ambiguous band: the old main SSID stays" old-card-5g "$(val default_radio0.ssid)"
 
-# Every run leaves a status file next to the plan (wlan-sync.status): the sandboxed service and the page cannot see
-# what happens outside the sandbox, and without it a failed apply is only a line in the system log.
-status_val() { sed -n "s/^$1=//p" "$T/wlan-sync.status" 2>/dev/null | head -n 1; }
+# Every run leaves a status file next to the plan (wlan-sync.status).
 seed_db
 sh "$WLAN_SYNC" "$PLAN" --once >"$T/out" 2>&1
 check "status: result" ok "$(status_val result)"

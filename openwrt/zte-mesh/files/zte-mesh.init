@@ -99,6 +99,9 @@ band_name() { [ "$1" = 0 ] && echo 24g || echo 5g; }
 
 # Optional per-band options of the main section. $1 = radio (0/1), $2 = 1 when the bands are synchronised: the 5 GHz
 # radio then takes the hidden flag, security and MAC filter policy of the 2.4 GHz band, as it takes its name and key.
+# $3 / $4 are what this router is already broadcasting on this band (a child's seed, see borrow_profile): the
+# declared hidden flag and security of a band the applier is about to compare against the air are not used at all --
+# reading them here would put a name nobody chose in front of the network that is already up.
 # Returns non-zero (after logging) on a bad value.
 emit_band_options() {
 	local radio="$1" b s v code
@@ -108,17 +111,27 @@ emit_band_options() {
 	# Read back by write_config for the local Wi-Fi plan (write_local_plan): the plan has to spell out the hidden flag
 	# and the security of each band, and this is the one place that knows how the two bands relate to each other.
 	BAND_HIDDEN="" BAND_BEACON=""
-	config_get v main "wifi_${s}_hidden" ""
-	if [ -n "$v" ]; then
-		v=$(bool01 "$v") || { bad "wifi_${s}_hidden must be 0 or 1"; return 1; }
-		BAND_HIDDEN=$v
-		emit "radio$radio.hidden" "$v"
+	if [ -n "${3:-}" ]; then
+		BAND_HIDDEN=$3
+		emit "radio$radio.hidden" "$3"
+	else
+		config_get v main "wifi_${s}_hidden" ""
+		if [ -n "$v" ]; then
+			v=$(bool01 "$v") || { bad "wifi_${s}_hidden must be 0 or 1"; return 1; }
+			BAND_HIDDEN=$v
+			emit "radio$radio.hidden" "$v"
+		fi
 	fi
-	config_get v main "wifi_${s}_security" ""
-	if [ -n "$v" ]; then
-		code=$(security_code "$v") || { bad "wifi_${s}_security must be none, psk2, psk-mixed, sae or sae-mixed"; return 1; }
-		BAND_BEACON=$code
-		emit "radio$radio.beacon_type" "$code"
+	if [ -n "${4:-}" ]; then
+		BAND_BEACON=$4
+		emit "radio$radio.beacon_type" "$4"
+	else
+		config_get v main "wifi_${s}_security" ""
+		if [ -n "$v" ]; then
+			code=$(security_code "$v") || { bad "wifi_${s}_security must be none, psk2, psk-mixed, sae or sae-mixed"; return 1; }
+			BAND_BEACON=$code
+			emit "radio$radio.beacon_type" "$code"
+		fi
 	fi
 	config_get v main "wifi_${b}_beacon_interval" ""
 	if [ -n "$v" ]; then
@@ -319,25 +332,110 @@ timer_section() {
 	emit "timer.$n.scope" "$scope"
 }
 
-# borrow_profile -> 0 when this router has a wireless network to borrow a name and key from
+# ---- what this router is already broadcasting -------------------------------------------------------
 #
-# A child does not need a Wi-Fi profile of its own: the controller sends one in the M2 and wlan-sync writes it into
-# /etc/config/wireless. Until that happens the child keeps broadcasting whatever it already broadcasts, so the profile
-# it starts with is that network and not something the user has to make up. Sets BORROWED_SSID / BORROWED_KEY.
+# A child does not own its air: the controller sends the profile in the M2 and wlan-sync writes it into
+# /etc/config/wireless. So the profile a child starts from has to be the network it is broadcasting right now --
+# anything else is a difference, and a difference is a commit plus `wifi reload`, which drops every client.
+#
+# switched_off SECTION -> 0 when that wifi-device or wifi-iface is switched off. A missing `disabled` means on,
+# which is also what netifd writes today; the truth table is wlan-sync's `uci_true`, kept identical on purpose.
+switched_off() {
+	case "$(uci -q get "wireless.$1.disabled" 2>/dev/null)" in
+	1|[Tt][Rr][Uu][Ee]|on|yes) return 0 ;;
+	esac
+	return 1
+}
+
+# live_ap_iface BAND -> the wifi-iface broadcasting on that band, non-zero when there is no way to tell
+#
+# This is the same decision wlan-sync makes when it picks the section to write (its `radio_section_of` +
+# `ap_iface_of`), and it has to be the same one: seeding from one section while the applier compares and writes
+# another is the two-flip restart again, just with the names swapped. Both sides are pinned by the ax3600-shaped
+# cases in tests/test_init.sh and the child-plan cases in tests/test_wlan_sync.sh.
+#
+# In order: an explicit pin wins (`zte_mesh.main.wifi_2g` / `wifi_5g`) when it names a device of that band; a band
+# with one device needs no guess; with several, the only one that is not switched off. A switched-off device stays a
+# candidate because the applier counts it too, and a band that cannot be resolved is simply not borrowed.
+live_ap_iface() {
+	local want="$1" pin band hwmode section device mode candidates="" live="" found=""
+	command -v uci >/dev/null 2>&1 || return 1
+	config_get pin main "wifi_$want" ""
+	for section in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
+		band=$(uci -q get "wireless.$section.band" 2>/dev/null)
+		hwmode=$(uci -q get "wireless.$section.hwmode" 2>/dev/null)
+		case "$band:$hwmode" in
+		2g:*|*:11g) [ "$want" = 2g ] || continue ;;
+		5g:*|*:11a) [ "$want" = 5g ] || continue ;;
+		*) continue ;;
+		esac
+		candidates="$candidates $section"
+		switched_off "$section" || live="$live $section"
+	done
+	[ -n "$candidates" ] || return 1
+	device=""
+	if [ -n "$pin" ]; then
+		case " $candidates " in *" $pin "*) device=$pin ;; esac
+	fi
+	if [ -z "$device" ]; then
+		set -- $candidates
+		[ $# -eq 1 ] && device=$1
+	fi
+	if [ -z "$device" ]; then
+		set -- $live
+		[ $# -eq 1 ] && device=$1
+	fi
+	[ -n "$device" ] || return 1
+	# A device that is switched off broadcasts nothing, whatever its interfaces say, so there is no network here to
+	# borrow. Declining is also what keeps the seed honest: the applier would switch that radio on the moment the plan
+	# claims the band is up, and a `wifi reload` takes every other band down with it.
+	switched_off "$device" && return 1
+	for section in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-iface$/\1/p"); do
+		case "$section" in zte_backhaul_*) continue ;; esac
+		[ "$(uci -q get "wireless.$section.device" 2>/dev/null)" = "$device" ] || continue
+		mode=$(uci -q get "wireless.$section.mode" 2>/dev/null)
+		[ -z "$mode" ] || [ "$mode" = ap ] || continue
+		[ "$(uci -q get "wireless.$section.multi_ap" 2>/dev/null)" = 2 ] && continue
+		case "$section" in
+		default_*|*_default*) echo "$section"; return 0 ;;
+		esac
+		[ -n "$found" ] || found=$section
+	done
+	[ -n "$found" ] && { echo "$found"; return 0; }
+	return 1
+}
+
+# borrow_profile BAND -> 0 with BORROWED_* filled from the network broadcasting on that band
+#
+# Everything wlan-sync compares for the main BSS comes back from here, because one missing field is still a
+# difference: name, key, the security the service file spells as BeaconType, the hidden flag (only when the
+# interface carries one -- seeding a flag the air does not have makes the applier write it) and whether the band
+# is on. A band whose interface cannot be read cleanly is not borrowed: the declared profile stays in front of it,
+# which is what a router with no wireless at all needs.
 BORROWED_SSID=""
 BORROWED_KEY=""
+BORROWED_BEACON=""
+BORROWED_HIDDEN=""
+BORROWED_ENABLED=""
 borrow_profile() {
-	local section ssid key
-	BORROWED_SSID="" BORROWED_KEY=""
-	command -v uci >/dev/null 2>&1 || return 1
-	for section in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-iface$/\1/p"); do
-		ssid=$(uci -q get "wireless.$section.ssid" 2>/dev/null)
-		key=$(uci -q get "wireless.$section.key" 2>/dev/null)
-		[ -n "$ssid" ] && [ -n "$key" ] || continue
-		BORROWED_SSID=$ssid BORROWED_KEY=$key
-		return 0
-	done
-	return 1
+	local iface ssid key enc hidden
+	BORROWED_SSID="" BORROWED_KEY="" BORROWED_BEACON="" BORROWED_HIDDEN="" BORROWED_ENABLED=""
+	iface=$(live_ap_iface "$1") || return 1
+	ssid=$(uci -q get "wireless.$iface.ssid" 2>/dev/null)
+	key=$(uci -q get "wireless.$iface.key" 2>/dev/null)
+	# the key has two spellings in /etc/config/wireless -- `key` beside the psk options, `password` beside sae --
+	# and wlan-sync writes both, so read whichever the image uses
+	[ -n "$key" ] || key=$(uci -q get "wireless.$iface.password" 2>/dev/null)
+	enc=$(uci -q get "wireless.$iface.encryption" 2>/dev/null)
+	BORROWED_BEACON=$(security_code "${enc:-none}") || return 1
+	[ "${#ssid}" -ge 1 ] && [ "${#ssid}" -le 31 ] && plain "$ssid" || return 1
+	[ "${#key}" -ge 8 ] && [ "${#key}" -le 63 ] && plain "$key" || return 1
+	BORROWED_SSID=$ssid BORROWED_KEY=$key
+	hidden=$(uci -q get "wireless.$iface.hidden" 2>/dev/null)
+	[ -n "$hidden" ] && hidden=$(bool01 "$hidden") || hidden=""
+	BORROWED_HIDDEN=$hidden
+	switched_off "$iface" && BORROWED_ENABLED=0 || BORROWED_ENABLED=1
+	return 0
 }
 
 # ---- the two things a role is made of -------------------------------------------------------------------
@@ -445,6 +543,7 @@ write_local_plan() {
 # Writes $RUNDIR/config atomically (0600). Returns non-zero when incomplete or invalid.
 write_config() {
 	local e0 s0 k0 e1 s1 k1 sync suffix v radio key a b role apply_local backhaul pin2g pin5g h0 b0 h1 b1 s1_air k1_air
+	local sh0 sb0 sh1 sb1 seed2g="" seed5g="" sync_forced="" declared0="" bands=""
 	config_load zte_mesh
 	config_get role main mesh_role ""
 	config_get apply_local main apply_local ""
@@ -461,14 +560,41 @@ write_config() {
 	e0=$(bool01 "$e0") && e1=$(bool01 "$e1") || { bad "wifi_24g_enabled / wifi_5g_enabled must be 0 or 1"; return 1; }
 	sync=$(bool01 "$sync") || { bad "wifi_dual_band_sync must be 0 or 1"; return 1; }
 
-	# A child takes its profile from the controller (M2 -> WLANCfg/WLANPSK -> wlan-sync). Requiring the user to type a
-	# name and key that are about to be overwritten is what made "child router" a form to fill in instead of one option,
-	# so a child with nothing configured borrows the network this router already broadcasts.
-	if [ "$role" = slave ] && { [ -z "$s0" ] || [ -z "$k0" ]; }; then
-		if borrow_profile; then
-			[ -n "$s0" ] || s0=$BORROWED_SSID
-			[ -n "$k0" ] || k0=$BORROWED_KEY
-			log "child role: no Wi-Fi profile configured, starting from the network this router broadcasts until the controller sends one"
+	# A child takes its profile from the controller (M2 -> WLANCfg/WLANPSK -> wlan-sync), so the name and key typed on
+	# this page describe a network this router is not going to keep. What they still decide is what goes on the air
+	# until that M2 lands, because they are the seed the daemon starts from -- and a seed that differs from the
+	# network already broadcasting is a write, a commit and a `wifi reload`. Every restart of a child therefore
+	# renamed the network twice: once to this seed and once again when the controller's profile arrived. The seed is
+	# read back from the air instead, band by band, so the applier finds nothing to change and the clients stay up.
+	if [ "$role" = slave ]; then
+		declared0=$s0
+		if borrow_profile 2g; then
+			s0=$BORROWED_SSID k0=$BORROWED_KEY e0=$BORROWED_ENABLED
+			sh0=$BORROWED_HIDDEN sb0=$BORROWED_BEACON
+			seed2g=1 bands="$bands 2g"
+		fi
+		if borrow_profile 5g; then
+			e1=$BORROWED_ENABLED sh1=$BORROWED_HIDDEN sb1=$BORROWED_BEACON
+			seed5g=1 bands="$bands 5g"
+			# The two bands are only "synchronised" if the air says so in every field the applier compares. Otherwise
+			# the 5 GHz pair has to be spelled out, and said so to the daemon: leaving wifi_dual_band_sync at 1 would
+			# derive the 2.4 GHz name and security onto a radio broadcasting a different network.
+			if [ "$seed2g" = 1 ] && [ "$BORROWED_SSID" = "$s0" ] && [ "$BORROWED_KEY" = "$k0" ] &&
+				[ "$BORROWED_HIDDEN" = "$sh0" ] && [ "$BORROWED_BEACON" = "$sb0" ]; then
+				sync=1
+			else
+				sync=0 s1=$BORROWED_SSID k1=$BORROWED_KEY
+			fi
+			sync_forced=1
+		elif [ "$seed2g" = 1 ] && [ "$sync" = 1 ]; then
+			# only the 2.4 GHz band could be read: the synchronised 5 GHz row takes that seed too, because with
+			# wifi_dual_band_sync on it is the 2.4 GHz profile the daemon derives for it
+			sh1=$sh0 sb1=$sb0
+		fi
+		if [ -n "$seed2g$seed5g" ]; then
+			log "child role: starting from the network this router broadcasts (${bands# }) until the controller sends one"
+			[ -z "$declared0" ] || [ "$declared0" = "$s0" ] ||
+				log "child role: wifi_24g_ssid is not the seed on this router: the network it is broadcasting takes its place, and the controller's profile replaces both"
 		fi
 	fi
 
@@ -509,14 +635,14 @@ write_config() {
 	emit radio0.enabled "$e0"
 	emit radio0.ssid "$s0"
 	emit radio0.key "$k0"
-	emit_band_options 0 || { rm -f "$CFG_TMP"; return 1; }
+	emit_band_options 0 "" "$sh0" "$sb0" || { rm -f "$CFG_TMP"; return 1; }
 	h0=$BAND_HIDDEN b0=$BAND_BEACON
 	emit radio1.enabled "$e1"
 	if [ "$sync" = 0 ]; then
 		[ -n "$s1" ] && emit radio1.ssid "$s1"
 		[ -n "$k1" ] && emit radio1.key "$k1"
 	fi
-	emit_band_options 1 "$sync" || { rm -f "$CFG_TMP"; return 1; }
+	emit_band_options 1 "$sync" "$sh1" "$sb1" || { rm -f "$CFG_TMP"; return 1; }
 	h1=$BAND_HIDDEN b1=$BAND_BEACON
 
 	# The 5 GHz pair as it ends up on the air. The daemon derives it from wifi.dual_band_sync / wifi.essid_suffix
@@ -530,7 +656,10 @@ write_config() {
 
 	# Network-level and policy options: written only when set, so an untouched router keeps the fixed defaults.
 	config_get v main wifi_dual_band_sync ""
-	[ -n "$v" ] && emit wifi.dual_band_sync "$sync"
+	# `sync_forced`: a child whose seed came from its own radios has to say which bands are synchronised even when the
+	# page never set it. The daemon derives the 5 GHz name and security from this line, and a missing one is a guess
+	# about the factory default -- the guess that would rename the band the air disagrees with.
+	if [ -n "$v" ] || [ -n "$sync_forced" ]; then emit wifi.dual_band_sync "$sync"; fi
 	[ -n "$suffix" ] && emit wifi.essid_suffix "$suffix"
 	config_get v main mesh_v2 ""
 	if [ -n "$v" ]; then
