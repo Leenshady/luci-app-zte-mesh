@@ -147,6 +147,15 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 |---|---|---|---|
 | C11 | **已完成**。`verify-install.sh` 第四条冒烟 `applier_writes`：数日志里 `applied; wireless committed` 的**增量**，窗口就是脚本自己要求的那次重启。**比文件不行**——旧种子改了名、M2 又改回来，`/etc/config/wireless` 前后一样，可家里已经掉了两次线；只有 applier 那行留了痕。**判 0 要有前提**：重启前先读"空中是否已带着 plan 每个启用行的名字"（`air_matched_plan`），是才判 0；否则只报数不判（把一次正常收敛说成故障，就是 C10 那个假 FAIL 的重演）。`no-restart` / `no-applier` / `no-logread`（读不出来当成 0 行，`0 - 0` 恰好像一次安静重启）/ `wrapped`（日志环翻圈，截断的窗口不是个数）四种形状都不判。新增 `RESTART_NOW=1`：不装机也驱动这一次重启——**它会真掉线，所以默认关** | H | `sh tests/test_verify_install.sh` **85 → 108**（安静重启 PASS、`writes=2` 必须 FAIL 且 `RESULT=FAIL`、收敛中只报不判、纯主控 `no-applier` 且不打印 `air_matched_plan`、没重启 `no-restart`、读不到日志 `no-logread`、窗口翻圈 `wrapped`；`zte-mesh` 的 init 桩现在按 `$FIX/writes` 往日志里长那几行、按 `$FIX/wrapped` 整份换掉日志）；owrt 上 busybox ash 同样 108 条；两台只读跑各 `RESULT=PASS`（owrt 11 项、ax3600 11 项）都打 `applier_writes=no-restart`。**这一条不判 r17**：装机的包仍是旧种子，要等带 B8b 的下一次 CI（H-14 就是它的执行入口） |
 
+### 批 12 · 把子节点的跳数读回来（H）
+
+`CurHop` 这件小事在总账里挂了两天 `⬜`，可它的答案**早就在实验机上读到了**——只是没人把它做成一条能重复跑的命令。
+这一批补读数，并顺带把总账与它自己的结案注对上。
+
+| 项 | 内容 | 类型 | 验收 |
+|---|---|---|---|
+| B16 | **已完成**。`verify-install.sh` 再读一行：守护进程自己那行 `ZTE_MESH_SERVICE cfg` 里的 `cur_hop=`。子角色判"不是 `-2`"——`-2` 是我们的启动路径写的"未接入"，子节点方向再没有第二处写它，所以别的值只能是守护进程更新的（`slave_init` 的 `CfMultiapSetCurHop`，或主控 TLV `0x43` 采用的值）。主控那一列本来就是我们自己写的，只当证据；`no-cfg-line`（日志环把那一行翻出去了——实验台跑久就是这一种，实测 ax3600 十点四十一分那行到中午已经不在环里）、`-98`（守护进程读不到那一列）、这一次运行刚重启过服务（新守护进程的基线快照可能落在我们读之后，**又是"问得太早"**），三种形状都不判 | H | `sh tests/test_verify_install.sh` **108 → 124**（健康子节点 `cur_hop=2` 算一条断言、`-2` 必须 `FAIL cur_hop expected=updated got=-2` 且 `RESULT=FAIL`、环里没有 cfg 行只报 `no-cfg-line`、`-98` 不判、主控的 `-2` 只报不判、刚重启过不判）；owrt 的 busybox ash 同样 124 条；两台只读跑 `RESULT=PASS`：owrt（master）打 `cur_hop=2`（**不计数**，那一列是我们自己写的）、ax3600（slave）打 `cur_hop=no-cfg-line`。**结案的依据是今天还在环里的那一行**：ax3600 上 `mode=1 … cur_hop=2 max_hop=2`，而 `mode=1` 正是子角色那三支——分不开的一种登记进 H-14 第 ⑦ 步 |
+
 ### 状态速览
 
 | 批次 | 主题 | 状态 | 批末 CI |
@@ -162,6 +171,7 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 | 9 | 逐路终端数上页面 | ✅ 主机侧做完（A18e：`bss_detail` 进 `state.json`，拓扑页悬停一行一路；162 项 peer 测试 + LuCI 断言 + i18n 无新增文案）；**r17 已装机**：主控的 `state.json` 每个节点都带 `"bss_detail":[]`（空数组＝没有逐路数据，正常回落） | 随批 8 的 H-13 一起看：实验室那台 peer 只有一路，悬停要真子路由多 BSS 才看得出逐路 |
 | 10 | 子节点重启不再翻两次名称 | ✅ 主机侧 + 设备配置面做完（B8b：种子逐频段读回空中、`set_flag` 按含义比；init 130 / wlan-sync 182，两份都在 owrt 的 busybox ash 上过；ax3600 上 `changed=0`、`wifi` 未被调用、配置文件 md5 没变） | **H-14**：真的 `/etc/init.d/zte-mesh restart` 要看日志里再无 `applied`/`wifi reload`——会掉线，等窗口 |
 | 11 | 把 H-14 变成一条命令 | ✅ 做完（C11：`applier_writes` 读回 + `RESTART_NOW=1`；装机验收 85 → 108 条，busybox ash 同样 108） | 判据本身要等带 B8b 的那一次 CI（r18）：`RESTART_NOW=1 sh verify-install.sh` 读回 `applier_writes=0` |
+| 12 | 把子节点的跳数读回来 | ✅ 做完（B16：`cur_hop=` 读回，子角色判"不是 `-2`"；装机验收 108 → 124 条，busybox ash 同样 124；两台只读跑 `RESULT=PASS`） | 结案用的是今天还在环里的那行 cfg（ax3600 `mode=1 … cur_hop=2`）；"设成 MaxHop"还是"采用主控下发的值"分不开，等 H-14 第 ⑦ 步把主控那一侧改成不等于 2 |
 
 ## 4. 主机测试口径
 
@@ -172,7 +182,7 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 | `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci），含回程两端 | 182 项（批 2 加 5 条、批 4 加回程客户端 39 条、批 10 加"子节点种子等于空中"13 条；Windows 上约 8 分钟，Linux 上快得多——**这批的 53 次调用在 Git Bash 上跑不完，去 ubuntu 或 owrt**） |
 | `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 130 项（批 3 加 7 条、批 4 加回程告警 3 条 + `backhaul` 取值 2 条 + applier 四个输入的签名 11 条 + 共用判据 3 条源码针、批 10 加空中种子 8 条）；同一份在 owrt 的 busybox ash 上也是 130 项 |
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 24 项（批 3 加六个 role/`apply_local` 组合；Windows 上要先解决上面那条 `python3` 占位程序） |
-| `sh tests/test_verify_install.sh` | 装机验收脚本的判定逻辑（桩 `ubus`/`uci`/`apk`/`logread` 与两个 init 脚本） | 108 项（批 10 走查到 85，批 11 加"这一次重启写了几次无线"23 项）；owrt 的 busybox ash 上同样 108 项 |
+| `sh tests/test_verify_install.sh` | 装机验收脚本的判定逻辑（桩 `ubus`/`uci`/`apk`/`logread` 与两个 init 脚本） | 124 项（C8 走查收到 85，批 11 加"这一次重启写了几次无线"23 项，批 12 加子节点的跳数 16 项）；owrt 的 busybox ash 上同样 124 项 |
 | `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `38 main / 10 slot / 4 ACL / 2 client / child 7`（批 2 加节点表断言，批 3 加动作列表与状态框，批 4 加回程开关的两端可见性与两个射频点名——纯主控 `apply_local=0` 时 `backhaul`、`extra_slots`、`wifi_2g`、`wifi_5g` 都不渲染；"每个选项都要有表单项"这一遍现在渲染**会落地的**主控，因为纯主控按设计就少几个字段） |
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94`、`0x94` 逐路的 BSSID/终端数、`0xd4` 里的软件版本 | 212 断言 + 10 万次有界变异（批 7 的 192 加批 8 的 `bss_list_tests()`；需要一台能编 C 的机器） |
 | `tests/controller-peer-codec.c`（`make test-host`） | 一帧落到哪几个文件：分 MAC、多值多文件、灯跟 AL MAC、不落盘的碎帧、MAC 洪水预算、每路 BSS 一个 `.sta` 与读回的求和/过期/坏名字/逐路明细（满 16 路只留最小的 16 行、总数照旧全加） | 162 项（批 7 的 71 加批 8 的 `stations_are_per_bss()` 与批 9 的明细断言） |
@@ -210,7 +220,7 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 | **H-11** | A13 角色改成 `master` 后，真中兴子路由照样入网 | ax3600（或 Z506）+ OpenWrt 主控，装机验证 | ①主控 `mesh_role=master`（不再发 `auto`）②子路由开机入网 ③`uci show zte_mesh` 与页面拓扑确认 ④主控改成 `apply_local=1` 再看本机 SSID 与子路由 SSID 同步 ⑤子路由重启一次，等 5 分钟内被 `search` 重新发现（A25 之后才可能） | 入网、下发档案、拓扑填充与 `auto` 时代一致；关键是**没有**出现子路由自当选主控（`MultiAPMaster` 的角色列仍是子） | 改动只在主控写库的 `SetRoleEnable` 与 `Mode`，子路由侧一行没动 |
 | **H-12** | A18c 子路由固件版本上页——布局是 [代码] 级推的，真机没看过一眼 | 一台真中兴子路由（Z506，页面上写着 `V1.0.0.2B2.8000`）+ 主控已装机；`tcpdump` 抓 `zmesh0` | ①抓主控收到的 CMDU，找 `0x8002`（AP Capability Report）②在它的 TLV 里找 `0xd4`（厂商自定义 Device Inventory Type），按 `[len][text]` 手工切三段，看顺序是否 序列号 → 软件版本 → 硬件版本 ③`cat /run/zte-mesh/peers/<MAC>.software` 看是否落地、内容是否与页面「型号/名称」同源 ④刷新拓扑页，看 `nodes[].software` 是否显示 `V1.0.0.2B2.8000` 而不是 `-` | ②切出来的第二段与子路由「关于」页的版本号逐字符相同；③④有值即通路全绿。**负结果同样有用**：若 `0x8002` 里根本没有 `0xd4`，说明这颗 Z506 不发库存字段，解码器留着但页面无数据，要另找来源（HLR 厂商 TLV 已在 [CAPTURE_1905 §5](research/CAPTURE_1905.md) 证伪）。**注意别拿实验台当负结果**：那台 peer 从不发带 `0xd4` 的 `0x8002`，r17 装完读回是 `peers_software=0`——这只说明没收到过库存字段，不说明 Z506 也不发 | 只读抓包，不推配置；子路由侧一行没动 |
 | **H-13** | A18d 的前提：真子节点回 `0x800c` 时**一帧列全所有 BSS** 还是**一射频一帧**（实验台那份抓包里没有 `0x800c`） | 一台真中兴子路由 + 主控已装机；`tcpdump -i zmesh0` 抓 1905；页面上这个节点已能看到终端数 | ①2.4G 和 5G 各挂一个终端 ②抓 `0x800c` AP Metrics Response，数每条消息里 `0x94` 的个数与各自 BSSID ③`ls /run/zte-mesh/peers/` 看是否出现 `<MAC>.<BSSID>.sta`（几路 BSS 就几个）④断开 5G 那个终端，看页面数字是否只降这一路 ⑤关掉子节点一个 BSS，30 秒后看它是否从总和里退出 | ②③ 对得上即通路成立：**一帧一 BSS** ⇒ 每个 `.sta` 各自有时间戳、页面读的是"还活着的几路之和"；**一帧列全** ⇒ 每次上报同时刷新全部文件，两者等价，`bss=` 应等于条目数。失败的样子是 `peers/` 里只有 `.metrics` 没有 `.sta`，说明这份布局没切出列表，页面退回摘要（数字还是最后一帧的总数，不算错但不保真）。**先确认这一步有没有输入**：`.metrics` 里必须有 `stations=`，读回会打印 `peer_reports_stations=yes`。2026-11-03 在 r17 上实测，实验台那台 peer 的 `.metrics` 只有 `hops=1`——主控从没收到过带终端数的 `0x94`，所以在这种机器上"没有 `.sta`"什么也不说明，判据要挂在真子路由上 | 只读抓包，不推配置；子路由侧一行没动 |
-| **H-14** | B8b 的最后一步：子节点**真重启一次**，看服务是否再也不动空中。批 10 只证到配置面——仓库版的 init 与 `wlan-sync` 在 ax3600 上是**对着 `/etc/config/wireless` 的副本**跑的（`UCI_CONFIG_DIR=/tmp/b17etc`、`wifi` 换成桩），射频一下都没被碰。**判据现在是一条命令**（批 11 的 C11 就是为它做的） | ax3600（`mesh_role=slave`，挂在 owrt 主控下面）＋**下一次 CI 的包**（r18 起才带 B8b；装机的 r17 仍是旧种子）；家里没人连着的时候做 | ①`rssh.py ax3600 put tools/lab/verify-install.sh /tmp/` ②`RESTART_NOW=1 sh /tmp/verify-install.sh` ③读 `air_matched_plan` 与 `applier_writes` ④`logread` 里 `wlan-sync` 不许出现 `several 5g radios`（那是 `radio0.disabled` 被改动的信号）⑤拿这一份 `/run/zte-mesh/config` 与 r17 那一份对照：仓库版应写 `radio0.ssid=FRESHR10` / `radio1.ssid=FRESHR10-5G` / `wifi.dual_band_sync=0`，r17 写的是 `ImmortalWrt` / `labbpass123` / `beacon_type=12` ⑥只从**主控侧**改一次 SSID，确认该翻的那一次照翻（20 秒内）且翻完没有多余的第二次 | ③ 是 `air_matched_plan=yes` 且 `applier_writes=0` ⇒ 结案：一次重启＝零掉线。**反面是看得见的**：r17 重启时先广播页面填的那对（`name set to 11 characters, security sae-mixed`），约 21 秒后 M2 才把名字翻过去——两次掉线，而这一条**现在会被判 FAIL**（`applier_writes` 非 0），这正是它值得自动化地方。若 `air_matched_plan` 不是 `yes`，脚本只报数不判——那一次窗口要重跑，不算结论 | **`RESTART_NOW=1` 会让 ax3600 上的终端掉线**（哪怕什么都没装），红线里"先征得同意"包括这一条；测前留 `iw dev` 的基线，测后确认名称回到主控下发的那对 |
+| **H-14** | B8b 的最后一步：子节点**真重启一次**，看服务是否再也不动空中。批 10 只证到配置面——仓库版的 init 与 `wlan-sync` 在 ax3600 上是**对着 `/etc/config/wireless` 的副本**跑的（`UCI_CONFIG_DIR=/tmp/b17etc`、`wifi` 换成桩），射频一下都没被碰。**判据现在是一条命令**（批 11 的 C11 就是为它做的） | ax3600（`mesh_role=slave`，挂在 owrt 主控下面）＋**下一次 CI 的包**（r18 起才带 B8b；装机的 r17 仍是旧种子）；家里没人连着的时候做 | ①`rssh.py ax3600 put tools/lab/verify-install.sh /tmp/` ②`RESTART_NOW=1 sh /tmp/verify-install.sh` ③读 `air_matched_plan` 与 `applier_writes` ④`logread` 里 `wlan-sync` 不许出现 `several 5g radios`（那是 `radio0.disabled` 被改动的信号）⑤拿这一份 `/run/zte-mesh/config` 与 r17 那一份对照：仓库版应写 `radio0.ssid=FRESHR10` / `radio1.ssid=FRESHR10-5G` / `wifi.dual_band_sync=0`，r17 写的是 `ImmortalWrt` / `labbpass123` / `beacon_type=12` ⑥只从**主控侧**改一次 SSID，确认该翻的那一次照翻（20 秒内）且翻完没有多余的第二次 ⑦重启后过一两分钟读 `logread` 里 `ZTE_MESH_SERVICE cfg` 那几行：应看到两行——基线快照 `cur_hop=-2`（我们启动路径写的"未接入"）之后一行不是 `-2`（守护进程自己更新的）。**顺手把 B16 分不开的那种也分开**：`multiap-cfg.c` 那张表现在给主控写的是 `CurHop=2`＝`MaxHop`，把它摆成一个不等于子节点 `MaxHop` 的值，子节点上跟随那个值＝采用主控下发的 TLV `0x43`，仍是本机 `MaxHop`＝`slave_init` 自己设的 | ③ 是 `air_matched_plan=yes` 且 `applier_writes=0` ⇒ 结案：一次重启＝零掉线。**反面是看得见的**：r17 重启时先广播页面填的那对（`name set to 11 characters, security sae-mixed`），约 21 秒后 M2 才把名字翻过去——两次掉线，而这一条**现在会被判 FAIL**（`applier_writes` 非 0），这正是它值得自动化地方。若 `air_matched_plan` 不是 `yes`，脚本只报数不判——那一次窗口要重跑，不算结论。**⑦ 是 B16 的复验**：脚本自己在刚重启过的这一趟**不判** `cur_hop`（新的守护进程那行基线快照可能落在我们读之后，又是"问得太早"），所以这一步要等一两分钟再读一次 | **`RESTART_NOW=1` 会让 ax3600 上的终端掉线**（哪怕什么都没装），红线里"先征得同意"包括这一条；测前留 `iw dev` 的基线，测后确认名称回到主控下发的那对 |
 
 ## 6. CI 与装机节奏
 
@@ -246,7 +256,7 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 
 ## 7. 已知的文档漂移（顺手收）
 
-**当前没有待收的漂移**（2026-11-02 清空）。收掉的几条留在这里，因为它们各自代表一类只有读文档的人才会撞上的错：
+**当前没有待收的漂移**（2026-11-02 清空，2026-11-03 又收一条——见末项）。收掉的几条留在这里，因为它们各自代表一类只有读文档的人才会撞上的错：
 
 - `DEVELOPMENT.md` §1 的机器表是老的（mac `192.168.167.93`、SR1010 `192.168.5.1`），与 `LAB.md` §2.1 的三台台账冲突。
   —— 批 1 的 D0 收掉：LAB 2.1 是唯一权威，DEVELOPMENT §1 只留指针 + 一张标明"旧实验台，复盘历史证据时才用"的表。
@@ -255,3 +265,7 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 - `FEATURE_STATUS.md` 的 C3 写成 ⬜，实际 `.gitattributes` 早已存在。—— 批 1 的 C3 核对后改成 ✅。
 - README 文档索引的**份数**是抄来的：加 `INSTALL` 之前写"二十一份为准"，加完仍然数错（那个区间本身 22 行，而且区间里
   恰好含被排除的机型表）。—— 现在按 `grep -c '^| \['` 真数一次：逐条列出 22 份，其中本项目结论二十份。
+- `FEATURE_STATUS.md` 的 **B16 挂着 `⬜`，而同一份文档末尾写着"B16 已结案"**，结案注引的还是真机读数；实验机上
+  早就读到过子节点的 `cur_hop=2`（`AGENT_PROBE` §13.7 那张"现在的事实"表），只是**没人把它做成一条能重复跑的命令**，
+  于是总账不敢改。—— 批 12 的 B16 收掉：读数进 `verify-install.sh`（`cur_hop=`），总账那行改成 ☑️ 并写清"分不开的
+  那一种"留在 H-14 第 ⑦ 步。**这一类错的形状是**：结论已经有了，缺的只是可重复的判据——那就去补判据，别把结论删掉。
