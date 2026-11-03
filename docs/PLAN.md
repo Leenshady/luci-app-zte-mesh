@@ -4,7 +4,7 @@
 > 功能本身的状态与证据在 [FEATURE_STATUS](FEATURE_STATUS.md)（唯一总账），协议与逆向在
 > [research/](research/)，装机与踩坑在 [LAB](LAB.md)。三处不重复列同一件事。
 >
-> 最后更新：2026-11-03（批 8 · A18d 主机侧完成，真机缺 H-13；批 7 的 A18c 同样只欠真机 H-12；批 5 只剩要第二台子路由的 A21/H-04、A23）
+> 最后更新：2026-11-03（批 9 · A18e 主机侧完成；批 8 · A18d 与批 7 · A18c 各欠一次真机（H-13 / H-12）；批 5 只剩要第二台子路由的 A21/H-04、A23）
 
 ## 1. 终点：四个可验收的场景
 
@@ -122,6 +122,12 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 |---|---|---|---|
 | A18d | **已完成（主机侧）**。子节点的终端数不再被"最后一帧"顶掉。原先 `peers/<MAC>.metrics` 是一份摘要，**谁最后到谁写整份**：子节点按射频分别回 `0x800c` AP Metrics 时，页面就在 2.4G 的数字和 5G 的数字之间来回换；夹进一条不带计数的消息，`stations=` 干脆没了。做法：`controller-1905.c` 加 `ap_metrics_by_bss()`，把 `0x94` 逐条解成 `{BSSID, 终端数}`——**同一 BSSID 出现两次、或路数超过 16** 都返回 0，宁可回落到摘要，也不能让一个"偏小的和"看起来像一次测量；`controller-peer.c` 每路落一个 `peers/<MAC>.<BSSID>.sta`（各自的时间戳，摘要照旧留着）；`controller-peer.h` 新增 `controller_peer_bss_load(mac, max_age, &load)` 把没过期的条目求和、`load.age` 报其中最老的一条；`controller-service.c` 的 `stations` 改用这个和，读不到时才用摘要。落盘文件名多了第二段，读侧对名字和文本都不信任（半段反着写、尾巴多一个字符、值不是数字都不算条目）。**真机缺**：这颗子路由到底一帧列全还是每射频一帧，见 H-13 | H | `tests/controller-1905-codec.c` 212 断言（新 `bss_list_tests()`：两路保序、20 字节带"估计服务时长"参数、0 终端是真条目、没有 metrics TLV、8 字节残帧、切在计数中间、重复 BSSID、`max` 比路数小、`max=0`/`NULL`）；`tests/controller-peer-codec.c` 103 项（新 `stations_are_per_bss()`：空目录不等于 0、一帧两路落三个文件、单射频帧后摘要变小而总和含两边、单独让一路过期、条目属于报它的这台、重复 BSSID 不落 per-BSS、三种坏文件都不读、手写一条合法的能读） |
 
+### 批 9 · 逐路终端数上页面（H）
+
+| 项 | 内容 | 类型 | 验收 |
+|---|---|---|---|
+| A18e | **已完成（主机侧）**。批 8 把每一路 BSS 的终端数记成了各自一个文件，页面还只有一个总数。现在 `controller_peer_bss_load()` 顺手把**活着的条目本身**带出来（`struct peer_bss_load.detail`，按 BSSID 排好序——目录顺序会随重写变，一秒换一次行的页面看着像网络在动），`state.json` 的每个节点多一个 `bss_detail: [{bssid, stations, age}]`，拓扑页「终端数」那一格的悬停改成**一行一路**（`aa:…:e3: 3 (5 s ago)`），后面仍跟着原来那句 `2 BSS reported by the router`。列表满 16 条时**总数照旧全加、行只留最小的 16 个**，页面那个数不会因为一行放不下就变小。没加新的界面文案（拼出来的都是 BSSID 与已有短句），一格数字仍然是总数——**逐路的列还没上页**，那要动表单与翻译，排在后面 | H | `tests/controller-peer-codec.c` 103 → **162** 项（两路时 `detail` 的两行、BSSID 升序、`age` 对得上；二十路时 `entries=20 / listed=16 / stations=210`，按 BSSID 取最小的 16 个）；`node tests/test_luci.js` 新增一条悬停整串断言 + "没有指标就没有悬停"；`python tests/test_i18n.py` 12 项仍绿（没新文案）；`sh tests/test_rpcd.sh` 不涉及这些字段（只走 actions）；`state.json` 缓冲从 16 KiB 放到 32 KiB、每节点预算 1200 → 2400，节点条数上限没有降 |
+
 ### 状态速览
 
 | 批次 | 主题 | 状态 | 批末 CI |
@@ -134,6 +140,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | 6 | 发布与工程化 | ✅ C9（CI 只构建、发布手工三步）+ C10（`verify-install.sh`，两台实验机各跑一次都 PASS）；**C8 手册写完，"按文档走一遍"这一遍还没跑** | ✅ 三次：41401349851（r14/r7）、41410028326（r15/r8，装机读回一致）与 **`ci/batch5` 那次（r16，两台 PASS）** |
 | 7 | 拓扑页缺的那一格 | ✅ 主机侧做完（A18c：软件版本走 `0x8002`/`0xd4` → `peers/<MAC>.software` → `state.json`，页面一行没改；192 断言 + 71 项，批 8 之后是 212 + 103） | H-12（这一批只这一项，CI 与 `PKG_RELEASE` 留到下一次批末一起走） |
 | 8 | 终端数按 BSSID 记账 | ✅ 主机侧做完（A18d：`0x94` 逐路 → `peers/<MAC>.<BSSID>.sta` → 服务把没过期的一路一路加起来；212 断言 + 103 项） | H-13（真子节点是否一射频一帧）；与 H-12 同属真机窗口，CI/`PKG_RELEASE` 一起留到批末 |
+| 9 | 逐路终端数上页面 | ✅ 主机侧做完（A18e：`bss_detail` 进 `state.json`，拓扑页悬停一行一路；162 项 peer 测试 + LuCI 断言 + i18n 无新增文案） | 随批 8 的 H-13 一起看：实验室那台 peer 只有一路，悬停要真子路由多 BSS 才看得出逐路 |
 
 ## 4. 主机测试口径
 
@@ -146,7 +153,7 @@ S3 的前半步。netifd 侧要生成回程 STA 的 `wifi-iface`（`mode=sta`、
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 24 项（批 3 加六个 role/`apply_local` 组合；Windows 上要先解决上面那条 `python3` 占位程序） |
 | `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `38 main / 10 slot / 4 ACL / 2 client / child 7`（批 2 加节点表断言，批 3 加动作列表与状态框，批 4 加回程开关的两端可见性与两个射频点名——纯主控 `apply_local=0` 时 `backhaul`、`extra_slots`、`wifi_2g`、`wifi_5g` 都不渲染；"每个选项都要有表单项"这一遍现在渲染**会落地的**主控，因为纯主控按设计就少几个字段） |
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94`、`0x94` 逐路的 BSSID/终端数、`0xd4` 里的软件版本 | 212 断言 + 10 万次有界变异（批 7 的 192 加批 8 的 `bss_list_tests()`；需要一台能编 C 的机器） |
-| `tests/controller-peer-codec.c`（`make test-host`） | 一帧落到哪几个文件：分 MAC、多值多文件、灯跟 AL MAC、不落盘的碎帧、MAC 洪水预算、每路 BSS 一个 `.sta` 与读回的求和/过期/坏名字 | 103 项（批 7 的 71 加批 8 的 `stations_are_per_bss()`） |
+| `tests/controller-peer-codec.c`（`make test-host`） | 一帧落到哪几个文件：分 MAC、多值多文件、灯跟 AL MAC、不落盘的碎帧、MAC 洪水预算、每路 BSS 一个 `.sta` 与读回的求和/过期/坏名字/逐路明细（满 16 路只留最小的 16 行、总数照旧全加） | 162 项（批 7 的 71 加批 8 的 `stations_are_per_bss()` 与批 9 的明细断言） |
 | `tests/controller-steer-codec.c`（`make test-host`） | 终端动作消息的编码与两种回报的解码 | 整帧字节比对 + 10 万次有界变异（同上） |
 | `sh tests/test_steer_tshark.sh` | 把上面那几帧交给 tshark，逐字段读回 | 20 项；没有 tshark 时输出 SKIP 并退出 0 |
 | `tests/controller-actions-test.c`（`make test-host`） | 终端动作的去抖、重发、超时、回滚、每秒重配置、到期不复发、时钟域 | 239 断言，假时钟 |

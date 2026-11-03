@@ -883,7 +883,7 @@ static struct action_table actions;
 
 static int write_state(const struct service_state *state)
 {
-    static char json[16384];
+    static char json[32768]; /* one node prints up to 2400 of it (see the loop below): the strings plus sixteen BSS rows */
     struct controller_node nodes[MAX_NODES];
     unsigned int count = controller_read_nodes(nodes, MAX_NODES), i;
     struct timespec now;
@@ -906,7 +906,7 @@ static int write_state(const struct service_state *state)
         quoted, state->version_mode, state->applied, state->restart_required ? "true" : "false");
     json_string(quoted, sizeof(quoted), state->config_error);
     used += (size_t)snprintf(json + used, sizeof(json) - used, "%s,\"nodes\":[", quoted);
-    for (i = 0; i < count && used + 1200 < sizeof(json); i++) {
+    for (i = 0; i < count && used + 2400 < sizeof(json); i++) {
         /* A node that reports no model or name is common enough (a non-ZTE child, or a row added before its identity
          * TLV arrived). "router" is what the page shows instead of an empty cell. The row that carries our own
          * address is this router, so it gets this router's system model and host name. */
@@ -943,29 +943,36 @@ static int write_state(const struct service_state *state)
              * them, controller-1905.c decodes them). A value of -1 means the node has not reported it, which is not
              * the same as zero: a node that reports no BSS is different from one this router never heard from. */
             long light_age = -1, metrics_age = -1;
+            struct peer_bss_load counted = {0};
             int light = read_peer(nodes[i].mac, "light", "light", 0, &light_age);
             int stations = read_peer(nodes[i].mac, "metrics", "stations", 30, &metrics_age);
             int bss = read_peer(nodes[i].mac, "metrics", "bss", 30, NULL);
             int hops = read_peer(nodes[i].mac, "metrics", "hops", 300, NULL);
+            unsigned int k;
             if (stations < 0)
                 stations = read_peer(nodes[i].mac, "stations", "stations", 30, NULL); /* written by r10 and older */
-            {
-                /* The same frames leave one file per BSS. Where those exist they are the total: the digest above
-                 * only ever holds the last frame that arrived, so a child that answers one frame per radio would
-                 * otherwise alternate between the radios instead of showing both. The freshness shown with that sum
-                 * is the oldest entry in it, not the digest's own mtime - a number assembled from two frames is as
-                 * old as its stalest part. */
-                struct peer_bss_load counted;
-                if (controller_peer_bss_load(nodes[i].mac, 30, &counted)) {
-                    stations = (int)counted.stations;
-                    metrics_age = counted.age;
-                }
+            /* The same frames leave one file per BSS. Where those exist they are the total: the digest above
+             * only ever holds the last frame that arrived, so a child that answers one frame per radio would
+             * otherwise alternate between the radios instead of showing both. The freshness shown with that sum
+             * is the oldest entry in it, not the digest's own mtime - a number assembled from two frames is as
+             * old as its stalest part. */
+            if (controller_peer_bss_load(nodes[i].mac, 30, &counted)) {
+                stations = (int)counted.stations;
+                metrics_age = counted.age;
             }
             used += (size_t)snprintf(json + used, sizeof(json) - used,
                                      "%s,\"zte\":%s,\"online\":%s,\"light\":%d,\"light_age\":%ld,\"stations\":%d,"
-                                     "\"bss\":%d,\"hops\":%d,\"metrics_age\":%ld}",
+                                     "\"bss\":%d,\"hops\":%d,\"metrics_age\":%ld,\"bss_detail\":[",
                                      quoted, nodes[i].zte ? "true" : "false", nodes[i].active ? "true" : "false", light, light_age,
                                      stations, bss, hops, metrics_age);
+            /* One row per BSS that reported, so the page can tell a busy 5G from an idle radio with one guest. The
+             * BSSID is this node's own file name, and the count of a BSS with nobody on it is a zero - which is why
+             * an empty list means "the frames never split", not "no station anywhere". */
+            for (k = 0; k < counted.listed; k++)
+                used += (size_t)snprintf(json + used, sizeof(json) - used, "%s{\"bssid\":\"%s\",\"stations\":%u,\"age\":%ld}",
+                                         k ? "," : "", counted.detail[k].bssid, counted.detail[k].stations,
+                                         counted.detail[k].age);
+            used += (size_t)snprintf(json + used, sizeof(json) - used, "]}");
         }
     }
     used += (size_t)snprintf(json + used, sizeof(json) - used, "],\"actions\":[");

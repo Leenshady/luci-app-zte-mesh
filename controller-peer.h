@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#include "controller-1905.h" /* CONTROLLER_AP_BSS_MAX, the same cap the writer will not exceed */
 
 /* What one received 1905 frame leaves on disk for the topology page.
  *
@@ -34,13 +35,29 @@
  * at most 32 distinct MACs are recorded. Without that a forged flood could fill the tmpfs with digest files. */
 int controller_peer_note(const uint8_t *frame, size_t bytes);
 
+/* One BSS of one node, as its own file names it: the BSSID in the spelling the file name uses, the count of the
+ * last frame that named it, and how many seconds ago that frame is. */
+struct peer_bss_entry {
+    char bssid[18];
+    unsigned int stations;
+    long age;
+};
+
 /* What the per-BSS files of one node add up to. `stations` is the sum over the live entries, `entries` how many
  * BSS reported, `age` the oldest entry still counted - the number's weakest link, which is what the page shows as
- * the freshness of a total assembled from several frames. */
+ * the freshness of a total assembled from several frames. `detail`, in BSSID order, is those entries themselves,
+ * so the page can say which radio is busy and not only how many clients there are in total: `listed` is how many
+ * of the live entries fit there, and a node with more BSSes than CONTROLLER_AP_BSS_MAX still keeps the full sum. */
 struct peer_bss_load {
     unsigned int stations;
     unsigned int entries;
     long age;
+    /* The live entries themselves, in BSSID order, so the same directory reads out the same JSON every second.
+     * `entries` is how many were live and `listed` how many of those are here: a node with more BSSes than
+     * CONTROLLER_AP_BSS_MAX keeps its full total and shows fewer rows, which is the only way the sum below stays
+     * the sum the page prints. */
+    unsigned int listed;
+    struct peer_bss_entry detail[CONTROLLER_AP_BSS_MAX];
 };
 
 /* 1 = at least one `<MAC>.<BSSID>.sta` is there and younger than max_age seconds (0 = no limit), 0 = this node has

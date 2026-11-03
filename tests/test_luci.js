@@ -64,13 +64,14 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	// node table: ZTE routers that are online get the Restart / Light buttons, others a dash
 	{
 		const table = viewDef.renderNodes({ state: { nodes: [
-			{ mac: 'aa:bb:cc:dd:ee:01', name: 'child', model: 'M', software: 'v', zte: true, online: true, light: 1, stations: 3, bss: 2, hops: 1, metrics_age: 5 },
+			{ mac: 'aa:bb:cc:dd:ee:01', name: 'child', model: 'M', software: 'v', zte: true, online: true, light: 1, stations: 8, bss: 2, hops: 1, metrics_age: 5,
+			  bss_detail: [ { bssid: '02:00:00:00:19:e3', stations: 3, age: 5 }, { bssid: '02:00:00:00:19:f3', stations: 5, age: 2 } ] },
 			{ mac: 'aa:bb:cc:dd:ee:02', name: 'std', model: '', software: '', zte: false, online: true },
 			{ mac: 'aa:bb:cc:dd:ee:03', name: 'off', model: '', software: '', zte: true, online: false } ] } }, {});
 		const rows = table.kids;
 		const buttons = r => JSON.stringify(r).split('"t":"button"').length - 1;
 		const text = r => JSON.stringify(r);
-		if (!text(rows[0]).includes('Living room') || text(rows[1]).includes('Living room') || !text(rows[0]).includes('"On"') || !text(rows[0]).includes('"3"')) {
+		if (!text(rows[0]).includes('Living room') || text(rows[1]).includes('Living room') || !text(rows[0]).includes('"On"') || !text(rows[0]).includes('"8"')) {
 			console.log('alias / light / clients cells wrong:', text(rows[0]).slice(0, 400));
 			process.exit(1);
 		}
@@ -79,6 +80,15 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		if (!text(rows[0]).includes('"Direct"') || !text(rows[0]).includes('2 BSS reported by the router') || !text(rows[0]).includes('5 s ago')) {
 			console.log('link / BSS cells wrong:', text(rows[0]).slice(-500));
 			process.exit(1);
+		}
+		/* Where the frames split the count per BSS, the tooltip says which radio holds whom, and the cell itself stays
+		 * the total. */
+		{
+			const want = ['"2 BSS reported by the router\\n02:00:00:00:19:e3: 3 (5 s ago)\\n02:00:00:00:19:f3: 5 (2 s ago)"'];
+			for (const w of want) {
+				if (!text(rows[0]).includes(w)) { console.log('station tooltip wrong:', text(rows[0]).slice(-700)); process.exit(1); }
+			}
+			if (text(rows[1]).includes('BSS reported')) { console.log('a node without metrics got a station tooltip'); process.exit(1); }
 		}
 		if (!text(rows[1]).includes('"-"') || text(rows[1]).includes('"Direct"')) {
 			console.log('a node without metrics should show no link:', text(rows[1]).slice(-400));

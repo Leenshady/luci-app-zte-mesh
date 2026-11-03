@@ -323,7 +323,7 @@ static void age_bss_file(const uint8_t *mac, const uint8_t *bssid, long seconds)
 /* A file put there by something other than a frame: the reader has to be able to say no to it. */
 static int write_stray(const char *name, const char *text)
 {
-    char path[300];
+    char path[512]; /* the directory is 256 and a caller hands in a name of its own */
     FILE *f;
     snprintf(path, sizeof(path), "%s/%s", peers, name);
     f = fopen(path, "w");
@@ -358,6 +358,7 @@ static void stations_are_per_bss(void)
     struct peer_bss_load load;
     uint8_t guest[6] = {2, 0, 0, 0, 0x19, 0xf3};
     char mac_a[18], mac_b[18];
+    unsigned int k;
     size_t at;
 
     clear_peers();
@@ -373,6 +374,11 @@ static void stations_are_per_bss(void)
     CHECK(controller_peer_note(frame, put_eom(frame, at)) == 3);
     CHECK(controller_peer_bss_load(mac_a, 30, &load));
     CHECK(load.stations == 8 && load.entries == 2);
+    /* The rows the page will show: both entries, the smaller BSSID first, each with its own number. */
+    CHECK(load.listed == 2);
+    CHECK(!strcmp(load.detail[0].bssid, "02:00:00:00:19:e3") && load.detail[0].stations == 3);
+    CHECK(!strcmp(load.detail[1].bssid, "02:00:00:00:19:f3") && load.detail[1].stations == 5);
+    CHECK(load.detail[0].age == 0 && load.age == 0);
     EXPECT(child_a, "metrics", "stations=8\nhops=1\n");
 
     /* The radio that answers alone afterwards is the case a digest cannot hold: that frame's own total is one
@@ -424,6 +430,26 @@ static void stations_are_per_bss(void)
     CHECK(write_stray("02:00:00:00:19:e3.02:00:00:00:19:f3.sta", "2\n"));
     CHECK(controller_peer_bss_load(mac_a, 30, &load));
     CHECK(load.stations == 2 && load.entries == 1 && load.age <= 1);
+
+    /* More live BSSes than the detail list holds. Written from the largest BSSID down, which is the order the
+     * directory will hand back: every one of them stays in the total the page prints, the rows are the sixteen
+     * smallest, and they come out in BSSID order anyway. */
+    clear_peers();
+    for (k = 0; k < 20; k++) {
+        char name[64], text[8];
+        sprintf(name, "%s.%02x:%02x:%02x:%02x:%02x:%02x.sta", mac_a, 2, 0, 0, 0, 0, 20 - (int)k);
+        sprintf(text, "%d\n", 20 - (int)k);
+        CHECK(write_stray(name, text));
+    }
+    CHECK(controller_peer_bss_load(mac_a, 30, &load));
+    CHECK(load.entries == 20 && load.listed == CONTROLLER_AP_BSS_MAX);
+    CHECK(load.stations == 210); /* 1+2+...+20, not the sum of the sixteen rows */
+    for (k = 0; k < load.listed; k++) {
+        char want[18];
+        sprintf(want, "02:00:00:00:00:%02x", (int)k + 1);
+        CHECK(!strcmp(load.detail[k].bssid, want) && load.detail[k].stations == k + 1);
+        CHECK(load.detail[k].age >= 0 && load.detail[k].age < 30);
+    }
 
     /* The entry names are per-BSS, and the cases after this one count distinct MACs in this same directory -
      * so this case is what opened it, and this is what closes it. */

@@ -257,6 +257,31 @@ static int is_bss_entry_name(const char *name, const char *mac)
     return !memcmp(name + bssid + 17, BSS_STATIONS_SUFFIX, sizeof(BSS_STATIONS_SUFFIX) - 1);
 }
 
+/* One live entry into the detail list, kept in BSSID order: readdir() gives the directory's own order, which
+ * changes when a file is rewritten, and a page that shows the same rows in a different order every second looks
+ * like the network is. A list that is already full drops the largest BSSID - the sum above still counted it. */
+static void put_detail(struct peer_bss_load *load, const char *name, unsigned int stations, long age)
+{
+    struct peer_bss_entry *d = load->detail;
+    const char *bssid = name + 18; /* "<mac 17>.<bssid 17>.sta" */
+    unsigned int k = load->listed;
+    if (k >= CONTROLLER_AP_BSS_MAX) {
+        if (strcmp(d[CONTROLLER_AP_BSS_MAX - 1].bssid, bssid) <= 0)
+            return;
+        k = CONTROLLER_AP_BSS_MAX - 1;
+    }
+    while (k > 0 && strcmp(d[k - 1].bssid, bssid) > 0) {
+        d[k] = d[k - 1];
+        k--;
+    }
+    memcpy(d[k].bssid, bssid, 17);
+    d[k].bssid[17] = 0;
+    d[k].stations = stations;
+    d[k].age = age;
+    if (load->listed < CONTROLLER_AP_BSS_MAX)
+        load->listed++;
+}
+
 int controller_peer_bss_load(const char *mac, time_t max_age, struct peer_bss_load *load)
 {
     DIR *dir;
@@ -283,6 +308,7 @@ int controller_peer_bss_load(const char *mac, time_t max_age, struct peer_bss_lo
         load->entries++;
         if (load->entries == 1 || now - when > load->age)
             load->age = now - when;
+        put_detail(load, entry->d_name, (unsigned int)stations, now - when);
     }
     (void)closedir(dir);
     return load->entries ? 1 : 0;
