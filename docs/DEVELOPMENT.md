@@ -63,7 +63,7 @@ SR1010、Z506、实验室虚拟机）已退场，复盘历史证据按 [journal]
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 130 条、rpcd 24 条、装机验收 149 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  启动视图、init 130 条、rpcd 24 条、装机验收 173 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
   装机验收脚本在设备上会**等 SSID 落地**（`SSID_WAIT` 默认 60 秒、每 `SSID_POLL`=3 秒看一次），等不到才判 FAIL 并列出
   `ssid_pending=`；测试用 `SSID_WAIT=0` 把等待关掉，另有一条用例喂"第三次才出现"的 uci 桩来守这段。同一类"问得太早"
@@ -73,7 +73,10 @@ SR1010、Z506、实验室虚拟机）已退场，复盘历史证据按 [journal]
   `test_schema.py`/`test_policies.py`/`test_startup.py` 三组外全绿——那三组要 `out/analysis/cspd`，而 `cspd` 只从
   哈希钉住的原厂镜像提取（`evidence/` 不入库）。这三组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，
   `container-make.sh` 的 noexec 注意项在这里不适用。
-- LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；mac 上没有 node，在开发机上跑）。
+- LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；PATH 里没有 `node`，实验室两台机也没装）。
+  实测可用的解释器是这台机器上另一套工具带的独立二进制，直接给绝对路径就能跑：
+  `"/c/Users/ZZB001/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe" tests/test_luci.js`（v24.21.0）。
+  这个测试只读仓库里的 `zte-mesh.js` 与 `tests/test_init.sh`，不需要 LuCI 运行时，所以不必上开发机。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
 - 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`、`python tests/test_runtime.py`（29 条，守的是"tarball 成员与仓库文件逐字节一致"）、`python tests/test_i18n.py`。
 - 容器把 `/tmp` 挂成 noexec：测试不能执行自己写到 `/tmp` 的脚本（`tests/test_rpcd.sh` 用 shell 函数和 `sh -c`），
