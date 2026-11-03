@@ -166,6 +166,7 @@ printf 'zte-mesh-0.1.0-r15 noarch {/x} (GPL-2.0-only) [installed]\nzte-mesh-laun
 printf 'epoch=1793000000\nresult=ok\nchanged=1\nbands=2g 5g\nmessage=\n' > "$RUN/wlan-sync.status"
 plan_rows FRESHR10 FRESHR10-5G
 printf 'Mon Nov  2 10:00:00 UTC 2026 zte-mesh: plan applied\n' > "$FIX/log"
+printf 'Mon Nov  2 10:00:00 UTC 2026 ns-run[411]: ZTE_MESH_SERVICE cfg mode=1 set_role_enable=0 en_master_only=0 cur_hop=2 max_hop=2 epoch=1793000000\n' >> "$FIX/log"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line RESULT PASS
@@ -182,6 +183,9 @@ check_line plan_ssid_1 'FRESHR10-5G@zte_backhaul_sta_5g'
 check_line version_zte-mesh 0.1.0-r15
 check_line version_luci-i18n-zte-mesh-zh-cn absent
 check_line log_error_lines 0
+# the child's own hop count: the startup fixture writes -2 and nothing else in our code overwrites it on this role,
+# so a 2 here can only be the vendor daemon's own update (B16).
+check_line cur_hop 2
 
 # profile_sections is a whole line, so compare it as text rather than through the value-splitting helper
 if grep -q '^profile_sections=zte_backhaul_sta_5g$' "$out"; then pass=$((pass + 1)); else
@@ -632,6 +636,73 @@ check_rc $? 0
 check_line applier_writes wrapped
 if grep -q '^FAIL applier_writes' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: a truncated window is not a count"; else pass=$((pass + 1)); fi
 rm -f "$FIX/wrapped"
+
+# --- case 18: the child's hop count is still the `not attached` the fixture wrote (B16) --------------------------------
+# -2 is what our own startup path writes for a child; the daemon is supposed to replace it. A machine that has been
+# up and still reads -2 has an agent that never learned its hop count -- that is the fault this line exists to catch.
+CASE=cur-hop-not-attached
+printf 'Mon Nov  3 09:00:00 UTC 2026 ns-run[77]: ZTE_MESH_SERVICE cfg mode=1 set_role_enable=0 en_master_only=0 cur_hop=-2 max_hop=2 epoch=1793678000\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line RESULT FAIL
+if grep -q 'FAIL cur_hop expected=updated got=-2' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: a child that never updated CurHop must be named"; fi
+
+# --- case 19: no cfg line in the ring yet is not a verdict ------------------------------------------------------------
+CASE=cur-hop-no-line
+printf 'Mon Nov  3 09:00:00 UTC 2026 zte-mesh: plan applied nothing new\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line cur_hop no-cfg-line
+if grep -q '^FAIL cur_hop' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: nothing observed is not a failure"; else pass=$((pass + 1)); fi
+
+# -98 is the supervisor's own `could not read the column`, which is not a hop count either
+CASE=cur-hop-unreadable
+printf 'Mon Nov  3 09:00:00 UTC 2026 ns-run[77]: ZTE_MESH_SERVICE cfg mode=1 set_role_enable=0 en_master_only=0 cur_hop=-98 max_hop=-98 epoch=1793678000\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line cur_hop -98
+if grep -q '^FAIL cur_hop' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: an unreadable column is the service's problem, not this batch's"; else pass=$((pass + 1)); fi
+
+# a controller writes this column itself (multiap-cfg.c), so its 2 says nothing about the agent: evidence only
+CASE=cur-hop-controller-evidence
+status_json true true true master false > "$FIX/status"
+{
+	printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+	instance controller true
+	instance attach true
+	instance search true
+	printf '\t\t}\n\t}\n}\n'
+} > "$FIX/svc"
+printf 'master\n' > "$FIX/role"
+rm -f "$RUN/wlan-sync.status"
+plan_rows SHOULD-NOT-BE-APPLIED
+printf 'Mon Nov  3 09:00:00 UTC 2026 ns-run[88]: ZTE_MESH_SERVICE cfg mode=2 set_role_enable=0 en_master_only=1 cur_hop=-2 max_hop=2 epoch=1793678000\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line cur_hop -2
+if grep -q '^FAIL cur_hop' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: this role is not the agent path"; else pass=$((pass + 1)); fi
+
+# and a restart is not the window for this number: the daemon writes the column seconds to minutes after a fresh
+# start, and the new supervisor's own baseline snapshot can land after we look -- the C10 lesson, one column over.
+CASE=cur-hop-after-restart
+status_json true true true slave false > "$FIX/status"
+{
+	printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+	instance controller true
+	instance attach true
+	instance wlan-sync true
+	printf '\t\t}\n\t}\n}\n'
+} > "$FIX/svc"
+printf 'slave\n' > "$FIX/role"
+printf "wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid='FRESHR10'\nwireless.default_radio1=wifi-iface\nwireless.default_radio1.ssid='FRESHR10-5G'\n" > "$FIX/wireless"
+plan_rows FRESHR10 FRESHR10-5G
+printf 'epoch=1\nresult=ok\nchanged=0\nbands=\nmessage=\n' > "$RUN/wlan-sync.status"
+printf 'Mon Nov  3 09:00:00 UTC 2026 ns-run[77]: ZTE_MESH_SERVICE cfg mode=1 set_role_enable=0 en_master_only=0 cur_hop=-2 max_hop=2 epoch=1793678000\n' > "$FIX/log"
+RESTART_NOW=1 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line cur_hop -2
+if grep -q '^FAIL cur_hop' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: the run that just restarted the supervisor cannot grade its hop count"; else pass=$((pass + 1)); fi
 
 printf 'verify-install test: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

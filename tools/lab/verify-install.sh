@@ -17,7 +17,9 @@
 #   3 profile     -- what the Wi-Fi applier did last time it ran, or (on a controller that touches no radio) that it
 #                    correctly did nothing at all
 # and when the run actually restarted the service, a fourth: how many times the applier wrote during that restart
-# (a converged child must answer zero -- see `smoke_restart_quiet`).
+# (a converged child must answer zero -- see `smoke_restart_quiet`). A fifth reads the hop count the daemon itself
+# put into the database (`smoke_cur_hop`): the child's startup fixture writes -2 and never overwrites it, so on a
+# child any other number is the vendor daemon's own update.
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
 # installed (`packed_copy`), the peer files it has produced (`peer_files`) and whether the state document carries the
@@ -330,6 +332,36 @@ smoke_log() {
 	say log_error_lines "${err:-0}"
 }
 
+# --- is the hop count real on this machine? (B16) --------------------------------------------------------------------
+# The slave startup path deliberately writes CurHop=-2, which is the registry's `not attached`, and nothing else in
+# our code writes that column for a child -- so any other number in the supervisor's own cfg line can only have come
+# from the daemon (slave_init, or the controller's hop TLV). On a controller the 2 is ours (it is what the master
+# path writes), so there the same line is evidence about the database, not a verdict about the agent.
+cur_hop_read() {
+	$LOGREAD 2>/dev/null | grep 'ZTE_MESH_SERVICE cfg' | tail -1 | sed -n 's/.*cur_hop=\([-0-9][0-9]*\).*/\1/p'
+}
+
+smoke_cur_hop() {
+	line=$(cur_hop_read)
+	[ -n "$line" ] || { say cur_hop no-cfg-line; return 0; }
+	judge=yes
+	# Three shapes where the number is evidence and not a verdict: a controller writes this column itself, so only a
+	# child's value says anything about the agent; -98 is the supervisor's own `could not read the column`, which is
+	# not a hop count; and a restart replaces the supervisor, which writes its baseline snapshot seconds to minutes
+	# after a fresh start -- grading the window that run just opened is the same mistake the SSID smoke had to fix.
+	[ "$S_ROLE" != slave ] && judge=no
+	[ "$did_restart" = yes ] && judge=no
+	case "$line" in -98) judge=no ;; esac
+	if [ "$judge" != yes ]; then say cur_hop "$line"; return 0; fi
+	if [ "$line" = -2 ]; then
+		fail=$((fail + 1))
+		printf 'FAIL cur_hop expected=updated got=-2\n'
+	else
+		pass=$((pass + 1))
+		say cur_hop "$line"
+	fi
+}
+
 # --- did this restart write anything? (B8b, PLAN H-14) ----------------------------------------------------------------
 # A child's restart is supposed to find the air already carrying what the plan asks for, and then write nothing.
 # Reading `/etc/config/wireless` cannot show the difference: the old seed renamed the network and the controller's M2
@@ -454,6 +486,7 @@ if smoke_service && smoke_instances && smoke_profile; then :; fi
 if [ "$S_ROLE" = master ] && [ "$S_LOCAL" != true ]; then :; else smoke_ssid; fi
 smoke_restart_quiet
 smoke_log
+smoke_cur_hop
 packed_copy
 peer_files
 state_nodes
