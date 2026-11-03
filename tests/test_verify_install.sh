@@ -23,9 +23,12 @@ APK=$BIN/apk
 UCI=$BIN/uci
 LOGREAD=$BIN/logread
 INIT_D=$T/init.d
+ROOTFS=$T/rootfs
 RESTART_WAIT=0
 ZTE_MESH_RUNDIR=$RUN
-export UBUS APK UCI LOGREAD INIT_D RESTART_WAIT ZTE_MESH_RUNDIR
+ZTE_MESH_ROOTFS=$ROOTFS
+mkdir -p "$ROOTFS/root/lib" "$ROOTFS/root/bin"
+export UBUS APK UCI LOGREAD INIT_D RESTART_WAIT ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS
 
 pass=0
 fail=0
@@ -345,6 +348,85 @@ check_rc $? 1
 check_line RESULT FAIL
 if grep -q 'FAIL plan_ssid_0 expected=FRESHR10 got=absent' "$out"; then pass=$((pass + 1)); else
 	fail=$((fail + 1)); echo "FAIL case $CASE: an SSID the applier claims but the config does not carry must fail"; fi
+
+# --- case 10: the installed copy is the one this batch wrote ---------------------------------------------------------
+# The device copy cannot be hashed (apk strips the sections), so the script greps the two strings that only this
+# batch's writer carries. A library without the per-BSS name still runs: the service sums an empty directory every
+# second and falls back to the digest, so the page keeps the behaviour of the previous batch instead of breaking.
+# That quiet fall-back is what these cases exist for.
+packed_libs() {
+	# packed_libs [stale] -- the two members the read-back greps; `stale` is the library from before write_bss()
+	if [ "${1:-}" = stale ]; then
+		printf 'light=%d metrics software ok\n' 1 > "$ROOTFS/root/lib/libzte_controller_trace.so"
+	else
+		printf 'light=%d metrics software .%%02x:%%02x:%%02x:%%02x:%%02x:%%02x.sta\n' 1 \
+			> "$ROOTFS/root/lib/libzte_controller_trace.so"
+	fi
+	printf 'bss_detail\n' > "$ROOTFS/root/bin/db-engine-probe"
+}
+healthy_child() {
+	status_json true true true slave false > "$FIX/status"
+	{
+		printf '{\n\t"zte-mesh": {\n\t\t"instances": {\n'
+		instance controller true
+		instance attach true
+		instance wlan-sync true
+		printf '\t\t}\n\t}\n}\n'
+	} > "$FIX/svc"
+	printf 'slave\n' > "$FIX/role"
+	printf 'wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid=FRESHR10\n' > "$FIX/wireless"
+	plan_rows FRESHR10
+	printf 'epoch=1\nresult=ok\nchanged=1\nbands=2g\nmessage=\n' > "$RUN/wlan-sync.status"
+}
+
+CASE=packed-readback
+healthy_child
+packed_libs
+mkdir -p "$RUN/peers"
+printf 'light=0\n' > "$RUN/peers/02:00:00:00:19:e3.light"
+printf 'hops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
+printf '{"nodes":[{"mac":"02:00:00:00:19:e3","stations":-1,"bss_detail":[]}]}\n' > "$RUN/state.json"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line RESULT PASS
+check_line trace_per_bss_name yes
+check_line probe_bss_detail yes
+check_line peers_sta 0
+check_line peers_software 0
+# the lab link's only metrics digest is hops=1: no station count arrived at all, so an empty per-BSS count is not
+# evidence against the decoder and must not be graded as one
+check_line peer_reports_stations no
+check_line state_bss_detail present
+
+# the same machine with the files a real child produces: two BSS rows and a version string
+CASE=packed-readback-full
+printf '3\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e4.sta"
+printf '1\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e5.sta"
+printf 'V1.0.0.2B2.8000\n' > "$RUN/peers/02:00:00:00:19:e3.software"
+printf 'stations=4\nhops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line peers_sta 2
+check_line peers_software 1
+check_line peer_reports_stations yes
+
+CASE=packed-stale
+packed_libs stale
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line RESULT FAIL
+if grep -q 'FAIL trace_per_bss_name expected=yes got=no' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: a library that never writes the per-BSS file must fail the run"; fi
+
+# --- case 11: no rootfs on this machine is not a stale rootfs --------------------------------------------------------
+# The script also runs on machines where the runtime tarball was never unpacked; turning that environment fact into
+# a batch verdict would fail every such run.
+CASE=packed-absent
+rm -f "$ROOTFS/root/lib/libzte_controller_trace.so" "$ROOTFS/root/bin/db-engine-probe"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line trace_per_bss_name unreadable
+check_line probe_bss_detail unreadable
 
 printf 'verify-install test: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

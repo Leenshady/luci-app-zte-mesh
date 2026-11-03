@@ -16,6 +16,11 @@
 #   2 instances   -- exactly the procd instances that role implies are running (no missing applier, no stray one)
 #   3 profile     -- what the Wi-Fi applier did last time it ran, or (on a controller that touches no radio) that it
 #                    correctly did nothing at all
+#
+# After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
+# installed (`packed_copy`), the peer files it has produced (`peer_files`) and whether the state document carries the
+# per-BSS key (`state_nodes`). Those are evidence lines, and only the two markers are counted as assertions -- an
+# empty peer directory on a link whose peer reports no station count is not a fault of ours.
 set -u
 
 APK_DIR=${1:-}
@@ -26,6 +31,10 @@ LOGREAD=${LOGREAD:-logread}
 INIT_D=${INIT_D:-/etc/init.d}
 RESTART_WAIT=${RESTART_WAIT:-12}
 RUNDIR=${ZTE_MESH_RUNDIR:-/run/zte-mesh}
+# the sandbox rootfs the runtime tarball unpacks to (openwrt/zte-mesh/Makefile copies `root/` under here)
+ROOTFS=${ZTE_MESH_ROOTFS:-/usr/lib/zte-mesh}
+PEERS=$RUNDIR/peers
+STATE=$RUNDIR/state.json
 PLAN=$RUNDIR/wlan-plan
 SYNC_STATUS=$RUNDIR/wlan-sync.status
 PKG_STEMS='zte-mesh zte-mesh-launcher luci-app-zte-mesh luci-i18n-zte-mesh-zh-cn'
@@ -265,6 +274,64 @@ smoke_log() {
 	say log_error_lines "${err:-0}"
 }
 
+# --- reading the installed copy back -------------------------------------------------------------------------------
+marker_present() {
+	# marker_present FILE NEEDLE -- a string, not a hash: `apk` strips the ELF sections, so the device copy cannot
+	# be compared byte-for-byte with the archive (the precedent is ZTE_TRACE_POLL and log_budget= from the r16 round).
+	# What it does prove is that this batch's writer is on the machine: a service that sums per-BSS files against a
+	# library that never writes them falls back to the digest every second and the page keeps the old behaviour.
+	if [ ! -r "$1" ]; then printf unreadable; elif grep -aqF "$2" "$1"; then printf yes; else printf no; fi
+}
+
+packed_copy() {
+	trace=$(marker_present "$ROOTFS/root/lib/libzte_controller_trace.so" '.%02x:%02x:%02x:%02x:%02x:%02x.sta')
+	probe=$(marker_present "$ROOTFS/root/bin/db-engine-probe" 'bss_detail')
+	if [ "$trace" = unreadable ] || [ "$probe" = unreadable ]; then
+		# no rootfs to read: a machine where the runtime tarball was never unpacked is not a stale one
+		say trace_per_bss_name "$trace"
+		say probe_bss_detail "$probe"
+		return 0
+	fi
+	check trace_per_bss_name yes "$trace"
+	check probe_bss_detail yes "$probe"
+}
+
+# Evidence, not judgement: a `<MAC>.<BSSID>.sta` only appears when a frame arrives that carries its station count
+# split per BSS, so `peers_sta=0` beside `peer_reports_stations=no` means the peer never reported a number at all
+# (measured on the lab link, where the only metrics digest is `hops=1`) and says nothing about the decoder. Read
+# PLAN.md H-13 before treating an empty count as a failure.
+peer_files() {
+	sta=0
+	soft=0
+	report=no
+	if [ -d "$PEERS" ]; then
+		for f in $PEERS/*.sta; do
+			[ -e "$f" ] && sta=$((sta + 1))
+		done
+		for f in $PEERS/*.software; do
+			[ -e "$f" ] && soft=$((soft + 1))
+		done
+		for f in $PEERS/*.metrics; do
+			[ -e "$f" ] && grep -q '^stations=' "$f" && report=yes
+		done
+	fi
+	say peers_sta "$sta"
+	say peers_software "$soft"
+	say peer_reports_stations "$report"
+}
+
+state_nodes() {
+	# only a master with node rows has to print the per-BSS key; a child's state has no nodes by design
+	[ -r "$STATE" ] || { say state_bss_detail no-state; return 0; }
+	got=absent
+	grep -q '"bss_detail"' "$STATE" && got=present
+	if grep -q '"nodes":\[{' "$STATE"; then
+		check state_bss_detail present "$got"
+	else
+		say state_bss_detail "$got"
+	fi
+}
+
 install_apks
 restart_services
 versions
@@ -272,6 +339,9 @@ if smoke_service && smoke_instances && smoke_profile; then :; fi
 # only where an applier is supposed to run: a controller that leaves its own radios alone has no plan to honour
 if [ "$S_ROLE" = master ] && [ "$S_LOCAL" != true ]; then :; else smoke_ssid; fi
 smoke_log
+packed_copy
+peer_files
+state_nodes
 
 say pass "$pass"
 say fail "$fail"
