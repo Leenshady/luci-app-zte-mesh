@@ -30,8 +30,10 @@ SSID_WAIT=0
 SSID_POLL=1
 ZTE_MESH_RUNDIR=$RUN
 ZTE_MESH_ROOTFS=$ROOTFS
-mkdir -p "$ROOTFS/root/lib" "$ROOTFS/root/bin"
-export UBUS APK UCI LOGREAD INIT_D RESTART_WAIT SSID_WAIT SSID_POLL ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS
+LIBEXEC=$T/libexec
+ZTE_MESH_LIBEXEC=$LIBEXEC
+mkdir -p "$ROOTFS/root/lib" "$ROOTFS/root/bin" "$LIBEXEC"
+export UBUS APK UCI LOGREAD INIT_D RESTART_WAIT SSID_WAIT SSID_POLL ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS ZTE_MESH_LIBEXEC
 
 pass=0
 fail=0
@@ -95,6 +97,9 @@ mkdir -p "$INIT_D"
 for name in rpcd zte-mesh; do
 	cat > "$INIT_D/$name" <<EOF
 #!/bin/sh
+# the read-back greps this file for the batch's own marker: a child that borrows its seed from the air defines
+# live_ap_iface, and the r17 script on the lab machines has zero hits for it -- so the string here is the thing
+# a packaged shell change leaves behind when nothing in the rootfs tarball moves.
 if [ "\$1" = restart ]; then
 	echo '$name' >> '$FIX/restarted'
 	# the applier's write, once per line this fixture says the restart made. Only zte-mesh: rpcd does not touch
@@ -114,6 +119,13 @@ exit 0
 EOF
 	chmod +x "$INIT_D/$name"
 done
+
+# the applier the package installs next to the init script; the read-back wants the flag comparison this batch added
+cat > "$LIBEXEC/wlan-sync" <<'EOF'
+#!/bin/sh
+set_flag() { :; }
+EOF
+chmod +x "$LIBEXEC/wlan-sync"
 
 # plan_rows SSID... -- /run/zte-mesh/wlan-plan is a key=value table, one row per BSS the applier was told to carry.
 # The SSID smoke compares those rows against the wireless config, so the fixtures have to look like the real file.
@@ -416,6 +428,8 @@ check_rc $? 0
 check_line RESULT PASS
 check_line trace_per_bss_name yes
 check_line probe_bss_detail yes
+check_line init_seed_from_air yes
+check_line sync_flag_by_meaning yes
 check_line peers_sta 0
 check_line peers_software 0
 # the lab link's only metrics digest is hops=1: no station count arrived at all, so an empty per-BSS count is not
@@ -451,6 +465,39 @@ sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line trace_per_bss_name unreadable
 check_line probe_bss_detail unreadable
+
+# --- the batch that only moves shell files: the package itself is the witness ------------------------------------------
+# r18 changes `zte-mesh.init` and `wlan-sync` and nothing in the rootfs, so `packed_copy` stays `yes` on a machine
+# still running the old scripts. A batch whose fix is invisible to the read-back is a batch that can be reported as
+# installed while it is not installed.
+CASE=scripts-stale
+packed_libs
+sed -i 's/live_ap_iface/borrowed_seed/' "$INIT_D/zte-mesh"
+printf '#!/bin/sh\n' > "$LIBEXEC/wlan-sync"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line RESULT FAIL
+for label in init_seed_from_air sync_flag_by_meaning; do
+	if grep -q "^FAIL $label expected=yes got=no" "$out"; then pass=$((pass + 1)); else
+		fail=$((fail + 1)); echo "FAIL case $CASE: an $label that is not in the package must fail the run"; fi
+done
+# the other two markers answer yes: the old machine is not stale in that direction, and the failure must be
+# attributable to the one thing that is missing
+check_line trace_per_bss_name yes
+check_line probe_bss_detail yes
+sed -i 's/borrowed_seed/live_ap_iface/' "$INIT_D/zte-mesh"
+
+# and a machine where the applier file simply is not there is not a stale one either
+CASE=scripts-absent
+packed_libs
+printf '#!/bin/sh\nset_flag() { :; }\n' > "$LIBEXEC/wlan-sync"
+rm -f "$LIBEXEC/wlan-sync"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line init_seed_from_air yes
+check_line sync_flag_by_meaning unreadable
+if grep -q '^FAIL ' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: an absent applier file is an environment fact"; else pass=$((pass + 1)); fi
+printf '#!/bin/sh\nset_flag() { :; }\n' > "$LIBEXEC/wlan-sync"
 
 # --- case 12: the profile lands a few seconds after the restart -------------------------------------------------------
 # Measured on ax3600 (2026-11-03): after a restart the plan has no rows at t=0, its rows are there at t=2s while

@@ -184,7 +184,7 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 | `sh tests/test_wlan_sync.sh` | plan → `/etc/config/wireless` 的全部映射（假 uci），含回程两端 | 182 项（批 2 加 5 条、批 4 加回程客户端 39 条、批 10 加"子节点种子等于空中"13 条；Windows 上约 8 分钟，Linux 上快得多——**这批的 53 次调用在 Git Bash 上跑不完，去 ubuntu 或 owrt**） |
 | `sh tests/test_init.sh` | init 的配置校验分支与本机 plan | 130 项（批 3 加 7 条、批 4 加回程告警 3 条 + `backhaul` 取值 2 条 + applier 四个输入的签名 11 条 + 共用判据 3 条源码针、批 10 加空中种子 8 条）；同一份在 owrt 的 busybox ash 上也是 130 项 |
 | `sh tests/test_rpcd.sh` | rpcd `status`/`apply` 的输出字段 | 24 项（批 3 加六个 role/`apply_local` 组合；Windows 上要先解决上面那条 `python3` 占位程序） |
-| `sh tests/test_verify_install.sh` | 装机验收脚本的判定逻辑（桩 `ubus`/`uci`/`apk`/`logread` 与两个 init 脚本） | 124 项（C8 走查收到 85，批 11 加"这一次重启写了几次无线"23 项，批 12 加子节点的跳数 16 项）；owrt 的 busybox ash 上同样 124 项 |
+| `sh tests/test_verify_install.sh` | 装机验收脚本的判定逻辑（桩 `ubus`/`uci`/`apk`/`logread` 与两个 init 脚本） | 136 项（C8 走查收到 85，批 11 加"这一次重启写了几次无线"23 项，批 12 加子节点的跳数 16 项，批末加"这一批的 shell 文件在不在机器上"12 项）；owrt 的 busybox ash 上同样 136 项 |
 | `node tests/test_luci.js` | LuCI 表单与节点表：字段、角色可见性、槽位校验、链路列、设备动作 | `38 main / 10 slot / 4 ACL / 2 client / child 7`（批 2 加节点表断言，批 3 加动作列表与状态框，批 4 加回程开关的两端可见性与两个射频点名——纯主控 `apply_local=0` 时 `backhaul`、`extra_slots`、`wifi_2g`、`wifi_5g` 都不渲染；"每个选项都要有表单项"这一遍现在渲染**会落地的**主控，因为纯主控按设计就少几个字段） |
 | `tests/controller-1905-codec.c`（`make test-host`） | 1905 解码：头、TLV 走查、厂商子 TLV、`0x83`/`0x94`、`0x94` 逐路的 BSSID/终端数、`0xd4` 里的软件版本 | 212 断言 + 10 万次有界变异（批 7 的 192 加批 8 的 `bss_list_tests()`；需要一台能编 C 的机器） |
 | `tests/controller-peer-codec.c`（`make test-host`） | 一帧落到哪几个文件：分 MAC、多值多文件、灯跟 AL MAC、不落盘的碎帧、MAC 洪水预算、每路 BSS 一个 `.sta` 与读回的求和/过期/坏名字/逐路明细（满 16 路只留最小的 16 行、总数照旧全加） | 162 项（批 7 的 71 加批 8 的 `stations_are_per_bss()` 与批 9 的明细断言） |
@@ -247,7 +247,8 @@ C8 走查（[journal](journal/2026-11-03.md)）读出来的一条用户可见行
 | `192.168.1.1`（ax3600，aarch64，有无线） | 四个包（`--allow-untrusted`） | 同上；`slave` 角色下 `iw dev` 跟着主控改 SSID |
 
 装完先跑 `sh tools/lab/verify-install.sh /tmp/zte-apk`（C10：一条命令装四个包 + 读回版本 + 三条冒烟 +
-装机读回——`.so`/probe 里的本批标记算断言，`peers/` 的逐路文件与 `state.json` 的 `bss_detail` 只算证据 +
+装机读回——`.so`/probe 与包内两个 shell 文件（`init_seed_from_air`、`sync_flag_by_meaning`）里的本批标记算断言，
+`peers/` 的逐路文件与 `state.json` 的 `bss_detail` 只算证据 +
 `RESULT=PASS|FAIL`），再跑本批新增的用例（页面开关、`uci` 选项）。判定逻辑由 `sh tests/test_verify_install.sh`
 在主机上守，不接机器也能跑；要跑的是 busybox ash，条件允许时在 owrt 上跑一遍更稳。
 

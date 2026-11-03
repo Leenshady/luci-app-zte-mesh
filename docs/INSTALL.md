@@ -92,6 +92,9 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
   `ssid_pending=0 1`。
   末尾还会**读回装进机器的那份**：apk 打包会剥掉 ELF 节，设备上的 `.so` 和仓库里的成员不是同一串字节，所以只能按
   字符串认——`trace_per_bss_name=yes`、`probe_bss_detail=yes` 说明这一批的写入方确实在机器上；
+  `init_seed_from_air=yes`、`sync_flag_by_meaning=yes` 认的是包里的两个 shell 文件（`/etc/init.d/zte-mesh` 里的
+  `live_ap_iface`、`/usr/libexec/zte-mesh/wlan-sync` 里的 `set_flag`）——**一批只改脚本时 rootfs 里一个字都没变，
+  只读那两个库就会把"没装上"读成"装上了"**；机器上根本没有那份文件时打印 `unreadable`、不判（环境事实不是批次判决）。
   `peers_sta` / `peers_software` / `peer_reports_stations` / `state_bss_detail` 是它读到的数据，不当判据
   （`peers_sta=0` 配 `peer_reports_stations=no` 只说明这台 peer 从没报过终端数）。
 - 这一次重启里，无线落地器**真写过几回配置**是第四条冒烟：`applier_writes=<次数>`，数的是日志里

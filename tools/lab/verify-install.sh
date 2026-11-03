@@ -22,9 +22,11 @@
 # child any other number is the vendor daemon's own update.
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
-# installed (`packed_copy`), the peer files it has produced (`peer_files`) and whether the state document carries the
-# per-BSS key (`state_nodes`). Those are evidence lines, and only the two markers are counted as assertions -- an
-# empty peer directory on a link whose peer reports no station count is not a fault of ours.
+# installed (`packed_copy`), the two that say the batch's shell files are (`package_scripts` -- a batch that changes
+# only the init script and the applier leaves nothing in the rootfs), the peer files it has produced (`peer_files`) and
+# whether the state document carries the per-BSS key (`state_nodes`). Those are evidence lines, and only the four
+# markers are counted as assertions -- an empty peer directory on a link whose peer reports no station count is not a
+# fault of ours.
 set -u
 
 APK_DIR=${1:-}
@@ -46,6 +48,7 @@ RUNDIR=${ZTE_MESH_RUNDIR:-/run/zte-mesh}
 # the private root the runtime tree is shipped in (openwrt/zte-mesh/Makefile copies `root/` into the package itself,
 # so `apk del` removes it again -- what survives is only the qemu-arm-static a machine needed and someone put here)
 ROOTFS=${ZTE_MESH_ROOTFS:-/usr/lib/zte-mesh}
+LIBEXEC=${ZTE_MESH_LIBEXEC:-/usr/libexec/zte-mesh}
 PEERS=$RUNDIR/peers
 STATE=$RUNDIR/state.json
 PLAN=$RUNDIR/wlan-plan
@@ -442,6 +445,22 @@ packed_copy() {
 	check probe_bss_detail yes "$probe"
 }
 
+package_scripts() {
+	# A batch that changes only the package's own shell files leaves nothing in the rootfs tree: the r18 child borrows
+	# its seed from the air (`live_ap_iface` in the init script) and its applier compares flags by meaning (`set_flag`
+	# in wlan-sync). Measured on both lab machines one batch earlier: r17's installed copies answer zero hits for
+	# either string, so this read-back grades the batch rather than the machine.
+	init=$(marker_present "$INIT_D/zte-mesh" 'live_ap_iface')
+	sync=$(marker_present "$LIBEXEC/wlan-sync" 'set_flag')
+	if [ "$init" = unreadable ] || [ "$sync" = unreadable ]; then
+		say init_seed_from_air "$init"
+		say sync_flag_by_meaning "$sync"
+		return 0
+	fi
+	check init_seed_from_air yes "$init"
+	check sync_flag_by_meaning yes "$sync"
+}
+
 # Evidence, not judgement: a `<MAC>.<BSSID>.sta` only appears when a frame arrives that carries its station count
 # split per BSS, so `peers_sta=0` beside `peer_reports_stations=no` means the peer never reported a number at all
 # (measured on the lab link, where the only metrics digest is `hops=1`) and says nothing about the decoder. Read
@@ -488,6 +507,7 @@ smoke_restart_quiet
 smoke_log
 smoke_cur_hop
 packed_copy
+package_scripts
 peer_files
 state_nodes
 
