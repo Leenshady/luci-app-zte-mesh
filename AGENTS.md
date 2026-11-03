@@ -3,7 +3,7 @@
 给 OpenWrt / ImmortalWrt 做的中兴组网插件：把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、CM 函数替身和服务配置文件指挥它，**不重写 mesh 协议**。中兴侧保留原厂固件，不刷机。
 
 - 功能总账只有一份：[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)。排期只有一份：[docs/PLAN.md](docs/PLAN.md)。别处出现的"已完成/未做"都不算数。
-- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档全景见 [README.md](README.md) 的文档索引（逐条列出 22 份，其中二十份是本项目的结论——`INSTALL` 是操作步骤、机型对照表是外部事实；`docs/research/` 与 `docs/milestones/` 是证据存档，不随结论更新）。
+- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档分三层，写在 [README.md](README.md) 的「文档」一节：要跟着改动更新的四份（`FEATURE_STATUS`/`PLAN`/`INSTALL`/`DEVELOPMENT`）、改代码前读的原理四份（`ARCHITECTURE`/`SERVICE`/`LAB`/`REAL_CHILD`）、其余一律是**只读资料**（`docs/research/`、`docs/milestones/`、`FINDINGS`、`CONTROLLER_CAPABILITIES`、机型对照、`docs/journal/`）——归档时都加了冻结说明，结论变了不回去改它们。
 
 ## 动手前先读
 
@@ -24,7 +24,7 @@ sh tools/build/container-make.sh test-host           # 只跑主机测试；单�
 sh tools/build/runtime.sh svctest                    # 实验室 tmpfs 运行包
 sh tools/build/runtime.sh install                    # 重新生成随仓库提交的 openwrt/zte-mesh/zte-mesh-runtime.tar.gz
 python3 dev-service-smoke.py --no-attach --seconds 24 # 路由器上完全私有地跑一次服务（不接 LAN）
-python tests/test_i18n.py                            # 改了界面文案必须跑（12 项，含 lmo 逐条可查）
+python tests/test_i18n.py                            # 改了界面文案必须跑
 ```
 
 `tests/` 里 C 编解码、Python、shell、LuCI JS 各管一段，改哪层跑哪层的测试；CI（`.github/workflows/build-apk.yml`、`build-lab-tools.yml`）**全手动触发**——push 不会跑构建。
@@ -61,13 +61,13 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 
 ## 收尾
 
-改完一个结论，五处同步，一处不落：
+改完一个结论，三处同步，一处不落：
 
-1. 受影响的具体文档
-2. `E2631_DB_SNAPSHOT` / `E2631_ROOTFS` / `FEATURE_STATUS` 里受影响的表或功能项
-3. `README.md` 文档索引，并核对"这 N 份"的数字
-4. `docs/journal/YYYY-MM-DD.md`——开发日志写在这里，**随 commit 走**
-5. `git commit`（不推送）
+1. 受影响的**活文档**：`FEATURE_STATUS`（状态与判据）、`PLAN`（排期/H-xx），涉及操作的还有 `INSTALL`/`DEVELOPMENT`
+2. `docs/journal/YYYY-MM-DD.md`——开发日志写在这里，**随 commit 走**
+3. `git commit`（不推送）
+
+只读资料不在这三处里：取证存档（`research/`、`milestones/`、`E2631_*`）记录的是"当时在那台机器上看到什么"，结论变了不回去改它们——要写新结论就写进上面第 1 项。查原厂字段仍然照 `SCHEMA.md`/`POLICIES.md`，冻结指的是不再同步，不是不许读。
 
 提交前跑坏链与行尾检查；新文件用 LF（`.gitattributes` 已全局 `text=auto eol=lf`）。
 

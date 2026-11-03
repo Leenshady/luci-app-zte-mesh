@@ -21,7 +21,10 @@
 
 ## 2. 构建
 
-在 mac 上（`orbctl start` 先把 Docker 拉起来）：
+**现役构建机是实验台的 `ubuntu`（192.168.1.191），不用 Docker**：同步 → 编译 → 测试的日常流程在 [LAB](LAB.md) 第 3 节，
+`tools/lab/build.sh` 做的就是把下面这些目标在没有容器的机器上跑一遍。下面这张表是**容器路径**（mac 上的离线镜像
+`sr1010-mesh-shim-builder`，`orbctl start` 先把 Docker 拉起来）——`build.sh` 与 `container-make.sh` 这两个入口还在仓库里，
+复盘历史产物或需要原厂镜像时才走它。
 
 | 命令 | 做什么 |
 |---|---|
@@ -43,7 +46,7 @@
 
 ## 3. 跑控制器
 
-三种方式，都在 mac 上执行：
+三种方式（现役那台 `ubuntu` 上跑服务用 `sudo sh tools/lab/run-service.sh`，见 [LAB](LAB.md) 第 3 节；下面这几条是容器/离线那条路径的入口）：
 
 1. **实验室（不碰子节点）**：`python3 dev-service-smoke.py --no-attach --seconds 24`——路由器私有命名空间里跑服务，
    验证配置、热更新、守护进程重启，不把线接进 `br-lan`。`dev-config-check.py DIR` 批量喂配置看接受/拒绝，
@@ -116,7 +119,7 @@
 
 ## 7. 改了控制器代码之后的检查
 
-1. 开发机提交并推送 → mac 上 `container-make.sh` 编改动的产物（零警告）→ `test-host` 通过 → `runtime.sh svctest`。
+1. 本机提交 → 构建机编改动的产物（零警告，`ubuntu` 上 `sh tools/lab/build.sh all database`）→ `test-host` 通过 → `runtime.sh svctest`。
 2. 实验室：`dev-service-smoke.py --no-attach`；涉及配置解析的跑 `dev-config-check.py`；涉及调度的跑 `dev-sched-check.py`。
 3. 真子节点（需要时）：`childread.sh` 基线 → `mreplay.py` → 看 `state.json` 节点 `model:"ZXHN Z506"`、`zte:true`、
    `online:true` → `childread.sh` 读回。
@@ -148,7 +151,8 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
   `zte-mesh` = `arch: all`（脚本、LuCI、rpcd、配置 + 运行时 tarball），`zte-mesh-launcher` = `aarch64_cortex-a53`
   （用 `$(TARGET_CC)` 现编 `ns-run` 与 `mesh-search`）。数据包必须显式写空 `Build/Compile`，否则 OpenWrt 会在只有 tarball 的
   构建目录里跑 `$(MAKE)` 报 `No targets specified and no makefile found`。
-- 大小：`zte-mesh` 4.1 MB（装上占 jffs2 约 4.9 MB，解压约 8 MB，大头是原厂库），LuCI 与中文包合计约 11 KB。
+- 大小：`zte-mesh` 压缩约 3.9 MB（装机实测 3 872 842 字节，`apk info -s` 报装上占 8 007 KiB），大头是原厂库；LuCI 与中文包合计约 11 KB。
+  要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**（[INSTALL](INSTALL.md) 第 1 节）。
 - 包没签名：`apk add --allow-untrusted`；卸载 `apk del <四个包名>`。运行包含原厂二进制，随这个公开仓库一起发布
   （2026-10-19 决定）；`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享软件源。
 - **包里没有 ARM32 模拟器**（2026-10-31 定）：x86_64 设备和没开 `CONFIG_COMPAT` 的 arm64 设备必须自己把 `qemu-arm-static`

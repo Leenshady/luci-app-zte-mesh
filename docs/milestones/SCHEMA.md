@@ -1,9 +1,11 @@
 # B.2.1：MultiAPCfg 单表、原厂读写与 CM marshaling
 
+> **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+
 > **状态更新（2026-10-12）：** 本文记录 B.2.1 里程碑（`MultiAPCfg` 单表）。2026-10-12 的补充见文末"补充"一节：`MultiAPCfg` 里 `VersionMode`、`CurHop`、`SetRoleEnable` 等字段的实际含义、`P1905ComCfg` 的真实字段、`AclCfg` 表。
 
 本文保留最初单表阶段的验收；当前命令已扩展至八表/391 字段，
-最新结果见 [WLAN_PROFILES.md](WLAN_PROFILES.md)。
+最新结果见 [EARLY_ACCEPTANCE](EARLY_ACCEPTANCE.md) B.2.3 节。
 **这不是完整 Controller schema 或节点管理验收。**
 默认 `multiapd` 加载探针仍在数据库初始化前退出 78。这里只运行受限的
 `db-engine-probe`，不启动 `multiapd`、`cspd`、OSS 业务 task 或本地 WLAN。
@@ -107,7 +109,7 @@ ZTE_DB_ENGINE PASS shared_counter=6 native_engine=1 multiap_cfg_ready=1 controll
 完整报告：`out/device-db-report.json`。其中
 `multiap_cfg_schema_ready=true`、`configuration_read_write_passed=true`，但
 整体 `schema_ready=false`、`controller_ready=false`，避免把单表进度误报为
-Controller 完成。原隔离保证与资源/进程组清理见 [DATABASE.md](DATABASE.md)。
+Controller 完成。原隔离保证与资源/进程组清理见 [EARLY_ACCEPTANCE](EARLY_ACCEPTANCE.md) B.1 / B.2 节。
 
 ## 复现与剩余工作
 

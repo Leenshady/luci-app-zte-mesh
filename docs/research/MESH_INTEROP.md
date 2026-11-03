@@ -1,5 +1,7 @@
 # 中兴 mesh 组网：外部资料、固件证据与互操作边界（2026-10-31）
 
+> **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+
 > 这一篇回答三个问题：中兴的"自组网"到底是什么协议、网上和 GitHub 有什么可用的、我们做功能时
 > 哪些事不能做。结论直接进 [FEATURE_STATUS](../FEATURE_STATUS.md) 的口径，实现细节仍在
 > [FINDINGS](../FINDINGS.md) 与 [REAL_CHILD](../REAL_CHILD.md)。

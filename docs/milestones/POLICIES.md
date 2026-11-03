@@ -1,9 +1,11 @@
 # B.2.2：Master / Domain 策略表与跨进程写入
 
+> **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+
 > **状态更新（2026-10-12）：** 本文记录 B.2.2 里程碑（Master/Domain 策略表）。之后服务配置 `roam.*`、`band_steer.*` 会写入 `MULTIAPDOMAIN1`/`MultiAPMaster`；**Z506 固件没有解析漫游阈值 TLV 的代码，漫游阈值不会在这台子路由上生效**（见 [FINDINGS.md](../FINDINGS.md) 第 11 节、[REAL_CHILD.md](../REAL_CHILD.md) 4.5 节）。
 
 本文保留 B.2.2 三表验收；当前命令扩展到八表/391 字段、counter=45，
-最新结果见 [WLAN_PROFILES.md](WLAN_PROFILES.md)。
+最新结果见 [EARLY_ACCEPTANCE](EARLY_ACCEPTANCE.md) B.2.3 节。
 **本阶段验证三表共 211 字段，仍不是可用 Controller。**
 本阶段继续使用同基线原厂 libdb、CF/CM API；只运行隔离的 DB 实验程序。
 没有启动 cspd/multiapd、安装服务、配置真实无线或接入 LAN。
@@ -107,6 +109,6 @@ default 边界、禁止原厂非空字符串、错误表及生成器不覆盖。
 17+16 个测试、5 个 preload 场景、9 个沙箱场景，共 67 个回归场景通过。
 
 后续 WLAN/DevInfo 布局与纯 CF/DB 逻辑查询已恢复，见
-[WLAN_PROFILES.md](WLAN_PROFILES.md)。仍需受限原生配置桥、真实身份和安全
+[EARLY_ACCEPTANCE](EARLY_ACCEPTANCE.md) B.2.3 节。仍需受限原生配置桥、真实身份和安全
 模式映射、CM/driver facade、变更通知和持久化。策略表恢复不能替代这些
 内容；OSS 完整启动、br0 接口适配与原厂子节点互通仍未验收。

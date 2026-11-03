@@ -1,5 +1,7 @@
 # 原厂 Mesh 功能映射：界面控件 → 数据库 → 线上报文 → 日志
 
+> **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+
 > **路径说明（2026-10-18 迁入 sr1010-mesh 仓库）：** 本文写于迁移之前，文中路径按当时的布局：mac 上的 `zx279133/port/mesh-shim/` 即现在的仓库根目录，`out/mesh-shim/` 即 `out/`；`session/…`、pcap、`db-baseline-s000.txt`、`vendor-log-debug.txt` 在 `evidence/`（只在 mac 上，不入库）；`tools/<脚本>` 即 `tools/capture/<脚本>`；`/tmp/buildNN.sh` 由 `tools/build/container-make.sh` 取代；`/tmp/shim-bak-*` 备份已删除（由 git 历史取代）；当时手工编的 `ns-run-al` 即现在 Makefile 的 `ns-run-svctest` 目标（运行包内容逐字节相同），当时说的旧 `ns-run-svctest` 文件已不存在。
 
 方法：在原厂 SR1010 的 Web 界面逐项改设置，`sendcmd 1 DB p` 每 7 秒整库快照差分，eth4 抓 1905 报文（Z506 子节点接在 eth4），
@@ -299,3 +301,13 @@
 隧道设置报文（重启/指示灯）的线上格式：`VendorSpecific`（CMDU 4）单播给子节点 AL MAC，厂商 TLV `0b`：`00 19 c6`（OUI）`02`（版本）`<计数|分片>` `07`（消息类型）+ 内层 TLV `<类型 0x20 重启 | 0x21 指示灯> 00 07 <AL MAC 6 字节> <值>`。重启的值要 1，指示灯 0/1。
 示例（真机抓包）：`0019c6 02 00 07 | 21 0007 d4b7090d7730 00`（关灯）、`… 02 01 07 | 21 0007 d4b7090d7730 01`（开灯）、`… 02 02 07 | 20 0007 d4b7090d7730 01`（重启）。
 另有一条 `CfIeee1905SendRebootMsgForBaffalo`（事件 0x90a8，Buffalo OEM 的厂商 TLV），与中兴子节点无关。
+
+## 18. 未解与不确定（2026-10-16/17；原 `GAP_ANALYSIS.md` 第 4、5 节）
+
+- `hdr=010101` 各字段：`0b`=槽位、`0c`=`Enable`、`0d`=`ESSIDHideEnable`（实验确认）、`11[4]`=`ACLPolicy`（模式吻合）、`46[4]`=`ForceWiFi5`（模式吻合）、`0f`/`1e`=`VapIsolationEnable`/`GuestSsid`（**没区分出来**）。
+- `hdr=010102`（ACL 查询）的 `1b[4]=0x40`、`1c[4]=2` 含义未确认，可能与回程槽 `MapAccessAttr=64` 有关。
+- 日志里 `web set (objname:…)` 的对象名与 Lua 源码的字段归属相反，疑为日志标注错位——以库差分为准。
+- Z506 对 M2 里认证类型 0（纯 WPA3）的处理：2026-10-17 在停用槽位上试过，Z506 忽略该项、保持原值、不掉线（见 REPLAY_RESULTS 第 11.5 节）；**主 SSID 上没试**。
+- `TimePolicy` 的语义、`Map Renew delay 10 s` 的含义。
+- 范围决定（2026-10-17）：当时定为**只做 AC（master-only）**，Slave 角色、桥接模式判断、ACD 自己的 1905 选举都不算缺口。这一条后来被推翻——子节点角色是现在的主线（逐项状态见 [../FEATURE_STATUS.md](../FEATURE_STATUS.md) 的 B 系列），留在这里只为说明当时为什么没做。
+- 当年 P0 收尾时**没做的相邻项**：`SetRoamCatonCfg` 的 `0xa96a`、事件 `0x10208`（BTM）；`CmMultiAPSetMultiAPCfg` 的 `0xa93c` 只在 `Mode`/`VersionMode` 变化时才重启守护进程，当时固定 `Mode=2`，所以 `version_mode` 仍需重启服务。

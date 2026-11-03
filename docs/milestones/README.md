@@ -1,17 +1,13 @@
-# 早期里程碑（历史记录）
+# 早期里程碑（历史记录，已冻结）
 
-这些是 2026-10-10 到 10-12 各里程碑当时的验收记录，按时间顺序保留原文；每篇开头有一段状态更新。文中的
-`controller_ready=false`、“未接入真实子节点”“M2 尚未完成”等都是当时的状态，现在的状态见仓库 [README](../../README.md)。
+> **已冻结（2026-11-03）**：这个目录是 2026-10-10 到 10-12 各里程碑的取证存档，记录"那天在哪台机器上跑什么、
+> 看到什么"。结论变了不回来改这里——逐项状态看 [FEATURE_STATUS](../FEATURE_STATUS.md)，排期看
+> [PLAN](../PLAN.md)；只有当有人要复查某个当年的判据时才会打开它。
 
-| 里程碑 | 文档 | 内容 |
-|---|---|---|
-| B.1 / B.2 | [DATABASE.md](DATABASE.md) | 原厂数据库引擎在私有命名空间里跑通 |
-| B.2.1 | [SCHEMA.md](SCHEMA.md) | `MultiAPCfg` 50 字段还原、原厂读写与 CM 转换 |
-| B.2.2 | [POLICIES.md](POLICIES.md) | Master/Domain 策略表 |
-| B.2.3 | [WLAN_PROFILES.md](WLAN_PROFILES.md) | WLAN/DevInfo 表布局 |
-| B.2.4 | [CONFIG_BRIDGE.md](CONFIG_BRIDGE.md) | ARM64 → ARM32 配置桥（服务后来没用这条管道，复用了它的校验） |
-| B.3 | [STARTUP.md](STARTUP.md) | 真实 `multiapd` 在沙箱里初始化 |
-| B.3.1 | [CM_PROFILES.md](CM_PROFILES.md) | CM 替身（AP/PSK 读取） |
-| B.3.2 / B.3.3 | [WIRE_PROTOCOL.md](WIRE_PROTOCOL.md) | 1905 拓扑查询/应答、AP-Autoconfig 在私有链路上的线上校验 |
+| 文档 | 内容 |
+|---|---|
+| [EARLY_ACCEPTANCE.md](EARLY_ACCEPTANCE.md) | B.1 – B.3.3 的验收记录合一份：数据库引擎、WLAN/DevInfo 布局、配置桥、沙箱里初始化真实 `multiapd`、CM 替身读取、1905 拓扑与 AP-Autoconfig 的线上校验 |
+| [SCHEMA.md](SCHEMA.md) | `MultiAPCfg` 50 字段的还原（偏移、原厂读写、CM 转换）——**查原厂字段时仍然先读这份** |
+| [POLICIES.md](POLICIES.md) | Master/Domain 策略表的还原——同上 |
 
 之后的服务模式（B.4 起）见 [../SERVICE.md](../SERVICE.md)，真子节点联调见 [../REAL_CHILD.md](../REAL_CHILD.md)。

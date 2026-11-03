@@ -1,5 +1,7 @@
 # 原厂控制器能向子路由下发什么配置（全景，含 Z506 的实际支持）
 
+> **存档：** 这份是查证资料，不再随功能改动更新。功能状态以 [FEATURE_STATUS](FEATURE_STATUS.md) 为准，排期与真机待办以 [PLAN](PLAN.md) 为准。
+
 来源：SR1010 的 `multiapd` 与 `libcmapi`/`libmultiapcmapi`/`libieee1905cmapi` 静态分析，对照测试子路由 Z506
 （V1.0.0.2B2.8000）自己的 `multiapd`，再加真机抓包。逆向细节见 [FINDINGS.md](FINDINGS.md)，配置语法与验证见
 [REAL_CHILD.md](REAL_CHILD.md)。可信度：**[真机]** 抓包或子路由读回验证过；**[代码]** 读到发送/接收路径但没在真机跑；
@@ -98,27 +100,30 @@ AP 能力、信道偏好、客户端能力、AP 指标、关联终端链路指�
 | 维护 | `CmMultiAPWlanRenew(Notify)`、`CmMapRestartWithDBReset`、`CmMultiApTopoDelOfflineDev` | 通道 A、重启 |
 | WLAN 级（libcmapi） | `CmWLANSetDualBandSync(Only)`、`CmWLANSetBandSteer`、`CmWLANSetMlo(En)`、`CmSetRoaming` | 本机 WLAN 配置（子路由 Web 上那些开关） |
 
-## G. 对本项目的含义：Z506 上控制器真正能管的
+## G. Z506 上控制器真正能管的
 
-| 能管 | 说明 | 本项目 |
-|---|---|---|
-| 主 SSID、密码、开关；多 BSS（访客等）的名称、密码、开关 | M2 | 已实现，**[真机]** |
-| 每无线电的 BeaconInterval（20 到 1000 ms） | vendor FreqBand | 已实现（`radioN.beacon_interval`），可热更新，**[真机]** |
-| MaxHop | vendor FreqBand | 固定下发 2（与子路由原值一致），无配置项 |
-| 控制器的 `CurHop` | Higher Layer Response 的厂商 TLV（子类型 `0x43`） | 启动时写 2；**[真机]** 子路由读到 2（原先 -2，见 FINDINGS 第 7 节） |
-| 自组网 V2（控制器自己的 `P1905ComCfg.Enable`） | 本机准入检查，不下发 | `mesh.v2=0\|1`，**默认 0**；**[真机]** 两种取值都正常；改动 = 重启守护进程（子节点掉出拓扑 8 到 58 秒再入网）；`PolicyConfigReq` 的 `60[2]` 首字节跟着变（`0101`/`0001`），子节点没采用 |
-| 控制器自己的角色（主路由 / 自适应） | `MultiAPCfg.Mode`/`SetRoleEnable`，不下发 | `mesh.role=master\|auto`：auto 热更新 = 守护进程重启两次；**[真机]**；Slave 侧不支持 |
-| 子路由的角色（自适应→Slave） | 子路由自己的选举，控制器只需响应 | **[真机]** 选举能被接受；触发由子路由 `cspd` 负责（FINDINGS 第 3 节） |
-| Fragment 门限 | **没有任何下发通道** | — |
-| 每 BSS 的 ACL 策略（0 关闭、1 拦截、2 仅放行）与名单 | vendor SSID/ACL | 已实现（`acl.N.mac/name/radio/bss`、`radioN.acl_policy`），**[真机]** 表与驱动读回、一加被踢并拒绝重连；`allow` 与 5G 读回未验证 |
-| 终端上报阈值（Metric Reporting Policy） | `0x8003` | 已按子路由原值 -110，**[真机]** 读回 |
-| 引导策略（Steering Policy） | `0x8003` | 未提供配置项 |
-| 信道、发射功率 | `0x8006` | 已实现（`radioN.channel`、`tx_power`），**[真机]** 两频段验证并还原 |
-| 引导/封锁/踢终端 | `0x8014` 等 | 未提供 |
-| 重启子节点、指示灯开关 | 隧道 VendorSpecific（内层 TLV `0x20`/`0x21`） | 已实现（服务节点动作、rpcd、LuCI 按钮），**[真机]** |
-| 访客限时、Wi-Fi 定时关闭 | 控制器本机定时改槽位开关 + Renew | 已实现（`access_minutes`、`timer.*`），**[真机]** 访客范围；`scope=all` 仅实验室 |
-| Wi-Fi 5 兼容（`ForceWiFi5`） | 槽位应答 `0x46` | 已实现（`force_wifi5`），线上值正确；Z506 不认 |
-| 访客限速 | **没有下发通道**（子节点本机功能） | — |
+**这些项在本项目里做到哪一步、真机验证到什么程度，见 [FEATURE_STATUS](FEATURE_STATUS.md) 的 A 节（子节点侧见 B 节）**；
+下面只保留"控制器有没有下发通道、走哪条通道"这一层。
+
+| 能管 | 说明 |
+|---|---|
+| 主 SSID、密码、开关；多 BSS（访客等）的名称、密码、开关 | M2 |
+| 每无线电的 BeaconInterval（20 到 1000 ms） | vendor FreqBand，可热更新 |
+| MaxHop | vendor FreqBand |
+| 控制器的 `CurHop` | Higher Layer Response 的厂商 TLV（子类型 `0x43`） |
+| 自组网 V2（控制器自己的 `P1905ComCfg.Enable`） | 本机准入检查，不下发 |
+| 控制器自己的角色（主路由 / 自适应） | `MultiAPCfg.Mode`、`SetRoleEnable`，不下发；Slave 侧不支持 |
+| 子路由的角色（自适应→Slave） | 子路由自己的选举，控制器只需响应；触发由子路由 `cspd` 负责（[FINDINGS](FINDINGS.md) 第 3 节） |
+| Fragment 门限 | **没有任何下发通道** |
+| 每 BSS 的 ACL 策略（0 关闭、1 拦截、2 仅放行）与名单 | vendor SSID/ACL |
+| 终端上报阈值（Metric Reporting Policy） | `0x8003` |
+| 引导策略（Steering Policy） | `0x8003` |
+| 信道、发射功率 | `0x8006` |
+| 引导/封锁/踢终端 | `0x8014` 等 |
+| 重启子节点、指示灯开关 | 隧道 VendorSpecific（内层 TLV `0x20`/`0x21`） |
+| 访客限时、Wi-Fi 定时关闭 | 控制器本机定时改槽位开关 + Renew |
+| Wi-Fi 5 兼容（`ForceWiFi5`） | 槽位应答 `0x46` |
+| 访客限速 | **没有下发通道**（子节点本机功能） |
 
 **Z506 管不了的**（固件没有对应代码，不是我们没做）：漫游阈值（vendor 策略 TLV）、802.11r/BTM 踢人、VLAN 与流量分离、
 STA 绑定、信道扫描/CAC、VBSS、MLO，以及**带宽**。要用这些得换较新固件的子路由。

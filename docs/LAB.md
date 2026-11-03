@@ -1,44 +1,30 @@
-# 实验室虚拟机（x86_64 Ubuntu）
+# 实验室机器（x86_64 Ubuntu 编译机 + 两台设备）
 
-在一台普通 x86_64 Ubuntu 上编译并运行这套代码，不需要 mac、不需要路由器、不需要原厂固件镜像。
-架构与运行原理见 [ARCHITECTURE.md](ARCHITECTURE.md)，真机流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。本文只讲这台机器。
+在一台普通 x86_64 Ubuntu 上编译并运行这套代码，不需要 mac、不需要路由器、不需要原厂固件镜像。架构与运行原理见 [ARCHITECTURE.md](ARCHITECTURE.md)，真机流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+本文只拥有两件事：**第 2.1 节的实验机台账**和**第 4.2 节的 ARM32 模拟器判定表**——别处引用它们，不在别处重复；各套测试的条数基线在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，真机待办在 [PLAN](PLAN.md) 第 5 节。
 
 ## 1. 能做什么、不能做什么
 
-| 能做 | 说明 |
-|---|---|
-| 交叉编译全部产物 | `arm-linux-gnueabi-gcc` 编 ARM32（soft-float），`aarch64-linux-gnu-gcc` 编路由器侧静态工具 |
-| 跑 ARM32 程序 | 内核对 ARM ELF 走 `binfmt_misc` → `qemu-arm-static`（`F` 标志让它跨 chroot 也有效） |
-| 跑服务 | `ns-run` 的私有 IPC/网络/挂载命名空间在普通 VM 里正常工作，能完成启动序列 |
-| 跑主机测试 | 13 个测试步骤里 9 个通过，其余 4 个只缺 `out/analysis/cspd`（见第 6 节） |
+**能做**：交叉编译全部产物（`arm-linux-gnueabi-gcc` 编 ARM32 soft-float，`aarch64-linux-gnu-gcc` 编路由器侧静态工具）、跑 ARM32 程序（内核对 ARM ELF 走 `binfmt_misc` → `qemu-arm-static`，`F` 标志让它跨 chroot 也有效）、跑服务（`ns-run` 的私有 IPC/网络/挂载命名空间在普通 VM 里正常工作，能完成整个启动序列）、跑主机测试（只有 4 个步骤缺 `out/analysis/cspd`，见第 6 节；各套测试的条数基线见 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节）。
 
-| 不能做 | 原因 |
-|---|---|
-| 生成可发布的运行包 | `make-runtime.py` 会调 `prepare.verify_existing()`，用 `rootfs_sha256` 卡住，合成出来的 `out/` 一定被拒（有意的门槛） |
-| `test_schema` / `test_policies` / `test_profiles` / `test_startup` | 要 `out/analysis/cspd`，只有原厂 JFFS2 里有 |
-| 真机/真子路由联调 | 没有网桥、没有 1905 对端，也没有 `192.168.5.x` |
+**不能做**：生成可发布的运行包（`make-runtime.py` 会调 `prepare.verify_existing()`，用 `rootfs_sha256` 卡住，合成出来的 `out/` 一定被拒——有意的门槛）、跑 `test_schema` / `test_policies` / `test_profiles` / `test_startup`（要 `out/analysis/cspd`，只有原厂 JFFS2 里有）、真机/真子路由联调（没有网桥、没有 1905 对端，也没有 `192.168.5.x`）。
 
 ## 2. 一次性准备
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  build-essential make git rsync curl ca-certificates file \
+  build-essential make git rsync curl ca-certificates file python3 \
   gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi libc6-dev-armel-cross \
-  gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
-  qemu-user-static binfmt-support python3
-
+  gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user-static binfmt-support
 sudo modprobe veth        # ns-run 要求 /sys/module/veth 存在，否则报 private-service-network
+cat /proc/sys/fs/binfmt_misc/qemu-arm   # 应有 flags: PF（qemu-user-static 注册 binfmt_misc，ns-run 靠它执行 ARM32，不能省）
+# 不需要 Docker：container-make.sh 在这台机器上用不了，一律用 tools/lab/build.sh 代替
 ```
-
-`qemu-user-static` 会注册 `binfmt_misc`，`ns-run` 靠它执行 ARM32 程序，不能省。检查：`cat /proc/sys/fs/binfmt_misc/qemu-arm`
-应有 `flags: PF`。不需要 Docker（`container-make.sh` 在这台机器上用不了，用 `tools/lab/build.sh` 代替）。
 
 ## 2.1 另外两台：真机 AX3600 与 x86_64 的 immortalwrt
 
-2026-11-01 起实验台不再只有一台 Ubuntu，三台机器都在 `192.168.1.0/24`，二层互通
-（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。`tools/lab/rssh.py` 是这三台的统一
-SSH 通道（密码登录，本机没有 sshpass）：
+实验台三台机器都在 `192.168.1.0/24`，二层互通（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。这张表是**实验机台账的唯一权威**，[FEATURE_STATUS](FEATURE_STATUS.md)、[DEVELOPMENT](DEVELOPMENT.md)、[INSTALL](INSTALL.md) 都指回这里，不再各写一份机器名单。登实验机一律走 `tools/lab/rssh.py`（密码登录，本机没有 sshpass；**口令只在本机 `.local/lab-env.md`**，已 gitignore，不入库，也不复述进任何文档、日志或命令回显）。
 
 ```sh
 export MSYS_NO_PATHCONV=1          # Git Bash 会把 /tmp/x 改写成 Windows 路径
@@ -50,27 +36,20 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 
 | 机器 | 地址 | 角色 | 关键事实 |
 |---|---|---|---|
-| `ax3600` | 192.168.1.1 | 真机，刷 ImmortalWrt 25.12.2 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）。实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static` |
-| `owrt` | 192.168.1.20 | 实验主控（master） | x86_64，同一个内核版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**。缺的两个二进制用 `tools/lab/build-launcher.sh` 补（**必须 `-static`**，见 §7 里 musl 那条）；`root/qemu-arm-static` 仍是手工放的 |
-| `ubuntu` | 192.168.1.191 | 编译机 | 就是本文主角。`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
-
-AX3600 走 qemu 是能长期跑的：`multiapd` 在这条路上连续跑了 22 小时、`daemon_restarts=0`。
-要拿掉这一层只剩一条路——刷一个开了 `CONFIG_COMPAT=y` 的内核，见 `build-firmware.yml`
-（qualcommax/ipq807x 目标，CI 自己编内核，因为 ImageBuilder 改不了内核选项）。
+| `ax3600` | 192.168.1.1 | 真机，刷 ImmortalWrt 25.12.2 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）；实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static`。**无线只剩一块射频在候选里**（`radio0.disabled=1` 关掉了 2.4G），所以"一个频段有两块射频、`wlan-sync` 放弃该频段"那条路径在这台上测不出来——"没报错"不等于"已验证" |
+| `owrt` | 192.168.1.20 | 实验主控（master） | x86_64，同一个内核版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**。缺的两个二进制用 `tools/lab/build-launcher.sh` 补（**必须 `-static`**，见第 7 节 musl 那条）；`root/qemu-arm-static` 仍是手工放的 |
+| `ubuntu` | 192.168.1.191 | 编译机 | 本文主角：x86_64 Ubuntu 22.04，`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
 
 ## 3. 日常流程
 
 ```sh
-# 从 Windows/mac 工作区同步（本地有改动就同步一次）
-LAB_HOST=10.23.90.131 LAB_USER=zzb LAB_PASS=… python3 tools/lab/push.py
-
-# 首次或删过 out/ 之后：从运行包重建 out/runtime + manifest.json
+# 从 Windows/mac 工作区同步（LAB_HOST 用第 2.1 台账里 ubuntu 的地址；三个环境变量都是必填）
+LAB_HOST=192.168.1.191 LAB_USER=zzb LAB_PASS=… python3 tools/lab/push.py
+# 首次或删过 out/ 之后：从运行包重建 out/runtime + manifest.json（见第 5 节）
 python3 tools/lab/bootstrap-out.py
-
 # 编译（ROUTERCC=cc 让 ns-run/exec-check 能在本机跑；要打包时才用 aarch64）
 sh tools/lab/build.sh all database
 sh tools/lab/build.sh ROUTERCC=cc out/ns-run out/ns-run-svctest
-
 # 测试 / 跑服务（需要 root：unshare + bind mount）
 sh tools/lab/build.sh test-host
 sudo sh tools/lab/run-service.sh --seconds 20
@@ -91,36 +70,16 @@ ROUTERCC=aarch64-linux-gnu-gcc sh tools/lab/build.sh ns-run                   # 
 python3 openwrt/repack-runtime.py \
   --replace root/bin/db-engine-probe=out/db-engine-probe ns-run=out/ns-run \
             controller-net.c=controller-net.c enroller.c=tools/lab/enroller.c
-python3 tests/test_runtime.py                                                 # 29 条守卫，含"成员与仓库文件逐字节相同"
+python3 tests/test_runtime.py                                                 # 守卫里含"成员与仓库文件逐字节相同"（条数基线见 DEVELOPMENT 第 4 节）
 ```
 
-三个坑：
+四个坑：**① `--replace` 是 argparse 的 `store` 语义**，多个替换项必须跟在同一个 `--replace` 后面——写成 `--replace a=b --replace c=d` 只有最后一个生效，包悄悄只换了一个成员。**② 重打的基线**必须是仓库里已提交的那份 tarball：从别处（比如刚把打好的包传回工作区）再往回传，会把基线换成"已经被换过的"那份，成员就退回旧版本了——`test_runtime.py` 的"byte-for-byte"守卫能抓到这件事。**③ 在 Windows 上别用"解出来再 `diff -r`"比包**：归档里 `root/var/tmp`、`root/var/run`、`root/var/log` 是指向 `/tmp` 的符号链接，Git Bash 的 `tar` 建不出链接（没有权限）时会**把链接指向的东西整个拷进解出来的树**——落下的是本机临时目录的一整份**副本**（不是别名，往里写文件本机不会多东西，但删它要递归几 GB 还可能撞 `Device or resource busy`），看着就像"随包带了源码副本"。要比就逐成员比字节（`tarfile` 读两遍归档，比名称/类型/模式/大小/内容哈希，也就是上面第 4 步用的方法），要列成员就用 `tar tvzf`，它会照出 `lrwxrwxrwx`。**④ 换成员还跳过了 `make-runtime.py` 打包前跑的 GNU 符号版本审计**（`vendor_elf.audit()`）：重打完对着成品再跑一遍，不用解包——把归档里 `root/**` 的 ELF 成员读进内存交给它，`missing_strong_symbols` 与 `missing_versions` 都应为 0；`audit()` 按 **basename** 找提供者（`libc.so.6`），照归档成员名（`root/lib/libc.so.6`）建索引的话每个版本需求都会"找不到提供者"，报出几十个假缺符号。
 
-1. `--replace` 是 argparse 的 `store` 语义，**多个替换项必须跟在同一个 `--replace` 后面**。写成
-   `--replace a=b --replace c=d` 只有最后一个生效，包悄悄只换了一个成员。
-2. 重打的**基线**必须是仓库里已提交的那份 tarball。从别处（比如刚把打好的包传回工作区）再往回
-   传，会把基线换成"已经被换过的"那份，成员就退回旧版本了 —— `test_runtime.py` 的
-   "byte-for-byte" 守卫能抓到这件事。
-3. **在 Windows 上别用"解出来再 `diff -r`"比包**：归档里 `root/var/tmp`、`root/var/run`、`root/var/log`
-   是指向 `/tmp` 的符号链接，Git Bash 的 `tar` 建不出链接（没有权限），退一步**把链接指向的东西整个拷进
-   解出来的树**：实测在仓库里落下 6.8 GB，内容是当时本机临时目录 `C:\Users\...\Temp` 的一整份副本，
-   连 `tmp.XXXX/` 这种旧目录也照搬，看着就像"随包带了源码副本"（那些 `tmp.*` 是本机 10 月留下的旧物，
-   不在包里）。它是**副本不是别名**——往里写文件，本机临时目录不会多东西，所以删它不伤本机；但删要跟着
-   递归几 GB，还可能撞到某目录 `Device or resource busy`。逐成员比字节（`tarfile` 读两遍归档，比
-   名称/类型/模式/大小/内容哈希）不受影响，也是上面第 4 步用的方法；要列成员就用 `tar tvzf`，它会照出
-   `lrwxrwxrwx`。
-
-包里的 probe 只要一条性质：不能引用比原厂 glibc 2.26 更新的符号。CI 在 `debian:bookworm`
-里编，本机在 Ubuntu 22.04 里编也成立，编完这样自查：
+包里的 probe 只要一条性质：不能引用比原厂 glibc 2.26 更新的符号。CI 在 `debian:bookworm` 里编，本机在 Ubuntu 22.04 里编也成立，编完这样自查：
 
 ```sh
 arm-linux-gnueabi-nm -u out/db-engine-probe | grep -E '__time64|__clock_gettime64|__ioctl_time64|__isoc23_' || echo none
 ```
-
-**换成员还跳过了一样东西**：`make-runtime.py` 打包前跑的 GNU 符号版本审计（`vendor_elf.audit()`）。
-重打完对着成品再跑一遍，不用解包：把归档里 `root/**` 的 ELF 成员读进内存交给它，`missing_strong_symbols`
-与 `missing_versions` 都应为 0。这里有个坑：`audit()` 按 **basename** 找提供者（`libc.so.6`），照归档成员名
-（`root/lib/libc.so.6`）建索引的话每个版本需求都会"找不到提供者"，报出几十个假缺符号。
 
 ### 3.1 agent 模式（M1/M2）
 
@@ -128,25 +87,11 @@ arm-linux-gnueabi-nm -u out/db-engine-probe | grep -E '__time64|__clock_gettime6
 sudo sh tools/lab/run-service.sh --agent --seconds 120
 ```
 
-`--agent` 换成 `db-engine-probe --agent-startup`：daemon 以 `Mode=1 / SetRoleEnable=0 / EnMasterOnly=0` 启动，探针这一侧
-扮演合成主控，走完 Discovery → Topology Query → Search → Search Response → M1 → M2。关注前缀：`ZTE_AGENT_WIRE`（帧收发）、
-`ZTE_AGENT_WLAN`/`ZTE_AGENT_PSK`（库读回）、`ZTE_TRACE_VALUE`（M2 有没有落地 `cfgChg`、落到哪个 BSS、M2 多长、同步完成没有——
-四条一次性的证据行）、`ZTE_TRACE_POLL`（daemon 每隔几秒重复的状态行，见下面的采样）。
+`--agent` 换成 `db-engine-probe --agent-startup`：daemon 以 `Mode=1 / SetRoleEnable=0 / EnMasterOnly=0` 启动，探针这一侧扮演合成主控，走完 Discovery → Topology Query → Search → Search Response → M1 → M2。关注前缀：`ZTE_AGENT_WIRE`（帧收发）、`ZTE_AGENT_WLAN`/`ZTE_AGENT_PSK`（库读回）、`ZTE_TRACE_VALUE`（M2 有没有落地 `cfgChg`、落到哪个 BSS、M2 多长、同步完成没有——四条一次性的证据行）、`ZTE_TRACE_POLL`（daemon 每隔几秒重复的状态行，受下面的采样预算管）。
 
-`--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()`
-把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。
-重启后 M1 要十几秒才来（通常两次 topology retry），**不要**因此判断成"它记得自己已配置"。
+`--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()` 把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。重启后 M1 要十几秒才来（通常两次 topology retry），**不要**因此判断成"它记得自己已配置"。沙箱只给 daemon 一个环境变量（多传一个会让原厂 ld.so 断言），运行时开关一律用 `/run/zte-mesh` 下的 flag 文件（bind mount）：`trace-all` 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行），`mm-off` 关掉 `libzte_agent_mm.so` 的配置管理器替身、让两个 WLAN setter 报告原厂返回值（诊断用）。
 
-沙箱只给 daemon 一个环境变量（多传一个会让原厂 ld.so 断言），运行时开关一律用 `/run/zte-mesh` 下的 flag 文件（bind mount）：
-
-| 文件 | 作用 |
-|---|---|
-| `/run/zte-mesh/trace-all` | 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行） |
-| `/run/zte-mesh/mm-off` | 关掉 `libzte_agent_mm.so` 的配置管理器替身，让两个 WLAN setter 报告原厂返回值（诊断用） |
-
-**日志的落点只有一个：logd 那圈环**（两台实验机 `system.@system[0].log_size='128'`，`logread` 当下 1179 行）。服务不写会长大的
-文件——沙箱根只读、`/tmp` 与 `/var/tmp` 是 8 MiB tmpfs、`/run/zte-mesh` 下全是小文件原子替换——所以 `controller-log.c` 管的是
-**打进环的比例**，不是轮转。分类与预算：
+**日志的落点只有一个：logd 那圈环**（两台实验机 `system.@system[0].log_size='128'`，单位 KiB）。服务不写会长大的文件——沙箱根只读、`/tmp` 与 `/var/tmp` 是 8 MiB tmpfs、`/run/zte-mesh` 下全是小文件原子替换——所以 `controller-log.c` 管的是**打进环的比例**，不是轮转。分类与预算：
 
 | 类别 | 预算 | 打光/采样时说哪一句 |
 |---|---|---|
@@ -157,21 +102,9 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 | `ZTE_TRACE_POLL` 重复状态行 | **每 60 秒 4 行** | `log_budget=poll sampled=1 limit=4 window=60s dropped_total=N`，每个超额窗口一句 |
 | `ZTE_TRACE_ALL` 火管 | 2 万行 | 不说 |
 
-两件事别记反：**展开的是值**，所以带密钥 / SSID / BSS 的格式在 `controller_log_shape()` 里先被否决，永不展开；
-**每进程的预算重启就重来**（崩溃循环每次只付一小段），**poll 那一路按 `CLOCK_MONOTONIC` 的分钟采样**，进程重启也变不成无界。
-装机后要看的判据是"推送过去七分钟，`logread` 里还剩不剩用户自己的行"——改之前实测一次推送打进来 1012 行（超过整圈容量），
-四小时后回看仍占 94.5%。
+两件事别记反：**展开的是值**，所以带密钥 / SSID / BSS 的格式在 `controller_log_shape()` 里先被否决，永不展开；**每进程的预算重启就重来**（崩溃循环每次只付一小段），**poll 那一路按 `CLOCK_MONOTONIC` 的分钟采样**，进程重启也变不成无界。装机后要看的判据是"推送过去七分钟，`logread` 里还剩不剩用户自己的行"。`dropped_total=` 是**这个进程开始以来累计丢掉**的 poll 行数：某一分钟丢了多少，看**相邻两句的差**；最后一句之后还在涨，所以它是下界不是总量。**读设备日志先按 pid 切代**——logd 的环不随升级或重启清空，旧一代与新一代的行会同时在环里，混在一起读会得出"采样没生效"的反结论。
 
-`dropped_total=` 是**这个进程开始以来累计丢掉**的 poll 行数：某一分钟丢了多少，看**相邻两句的差**。最后一句之后还在涨，
-所以它是下界，不是总量。**读设备日志先按 pid 切代**——logd 的环不随升级或重启清空，2026-11-03 装机后环里同时留着旧进程
-（r15）的 122 行 `ZTE_TRACE_VALUE text=acdc current state…` 和新进程（r16）的 8 行 `ZTE_TRACE_POLL`，混在一起读会得出"采样没生效"的反结论。
-
-`libzte_agent_mm.so` 已在 `spawn_daemon()` 的 `LD_PRELOAD` 里：它只接管 `CmWLANSetAPConfig` / `CmWLANSetPsk`，并且
-**先把刚写的行读回来比对**，库里已是调用方要的值才把 -3 报成 0（`ZTE_AGENT_MM ... row_applied=1`）。
-
-两处读库的坑：`WLANPSK` 必须按实例 id 用 `dbAPIGetView("WLANPSK","DEV.WIFI.AP1.PSK1",…)` 读（密钥在行内偏移 260），
-用 `dbGetValComm()` 按行号读永远是空值；`CmWLANSetAPConfig` 写库发生在 `cm_wlan_send_cmapi_set_msg` **之前**，
-所以没有 cspd 时库已经变了、返回值仍是 -3，两者要分开看。
+`libzte_agent_mm.so` 已在 `spawn_daemon()` 的 `LD_PRELOAD` 里：它只接管 `CmWLANSetAPConfig` / `CmWLANSetPsk`，并且**先把刚写的行读回来比对**，库里已是调用方要的值才把 -3 报成 0（`ZTE_AGENT_MM ... row_applied=1`）。两处读库的坑：`WLANPSK` 必须按实例 id 用 `dbAPIGetView("WLANPSK","DEV.WIFI.AP1.PSK1",…)` 读（密钥在行内偏移 260），用 `dbGetValComm()` 按行号读永远是空值；`CmWLANSetAPConfig` 写库发生在 `cm_wlan_send_cmapi_set_msg` **之前**，所以没有 cspd 时库已经变了、返回值仍是 -3，两者要分开看。
 
 ## 4. 与真机构建的四处差异，都是环境导致的，不是代码退化
 
@@ -179,49 +112,28 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 |---|---|---|
 | `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0` | Ubuntu 的 gcc 默认定义它，把 `controller-profile.c:64` 忽略 `write()` 返回值变成 `-Werror` 错误（Debian 不会）；也避免 `memcpy` 走 `__memcpy_chk` | `tools/lab/build.sh` |
 | `ROUTERCC=cc` | `ns-run`、`exec-check`、`config-bridge-probe` 是 AArch64 静态程序，x86 上跑不了。**打包前必须用 aarch64 重编** | 命令行参数 |
-| `ZTE_MESH_EMULATED_LAB=1` | 见下两条 | `ns-run.c`、`shim.c` |
-| `shim.c` 的 `shmat` 重试 | qemu 的 `shmat()` 对**固定地址**一律返 `EINVAL`（`NULL` 可以、`fixed|SHM_REMAP` 可以、`fixed` 不行）。原厂数据库把段挂在 `0x60000000` 并直接解引用返回值 → 段错误。预载库在 `EINVAL` 时补一次 `SHM_REMAP` | `shim.c` |
-
-两条代码改动都只在 `ZTE_MESH_EMULATED_LAB` 存在时生效，真机路径不受影响：`ns-run.c` 放开 `RLIMIT_AS`（qemu 要预留整个
-32 位客户机地址空间 + 翻译缓冲，128 MB 上限必然失败）并把它传给 guest；`shim.c` 在 `shmat` 失败且 `errno == EINVAL` 时带
-`SHM_REMAP` 重试一次。两者都不改变权限模型（`ns-run` 本来就要 root 才走到这里）。
+| `ZTE_MESH_EMULATED_LAB=1` 下的两处仿真 | 只在这个变量存在时生效，真机路径不受影响，也不改变权限模型（`ns-run` 本来就要 root 才走到这里）。`shim.c`：qemu 的 `shmat()` 对**固定地址**一律返 `EINVAL`（`NULL` 可以、`fixed`+`SHM_REMAP` 可以、`fixed` 不行），而原厂数据库把段挂在 `0x60000000` 并直接解引用返回值 → 段错误，预载库在 `EINVAL` 时补一次 `SHM_REMAP`。`ns-run.c`：放开 `RLIMIT_AS` 并把它传给 guest（qemu 要预留整个 32 位客户机地址空间 + 翻译缓冲，128 MB 上限必然失败） | `ns-run.c`、`shim.c` |
 
 ### 4.1 装在设备上时这两个开关由 init 决定
 
-不需要手工 export：`start_service()` 先看 `uname -m`，arm64 上再判断内核能否原生跑 ARM32；只有确实跑不了、
-且私有根里存在 `qemu-arm-static` 时才把这两个变量传给 `ns-run`。`zte_mesh.main.emulator` 可指定路径，
-`=none` 强制走原生（刷过 `CONFIG_COMPAT=y` 固件之后就是这个状态）。
+不需要手工 export：`start_service()` 先看 `uname -m`，arm64 上再判断内核能否原生跑 ARM32；只有确实跑不了、且私有根里存在 `qemu-arm-static` 时才把这两个变量传给 `ns-run`。`zte_mesh.main.emulator` 可指定路径，`=none` 强制走原生（刷过 `CONFIG_COMPAT=y` 固件之后就是这个状态）。
 
-同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节（页面"控制器地址末字节"，两位十六进制），默认取 LAN 网桥
-MAC 的末字节（`02:00:00:00:19:XX`）；写错格式会记一行日志并回落到派生值。
-两台设备**必须**不同，否则 1905 栈会把对端当自己（[AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
+同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节（页面"控制器地址末字节"，两位十六进制），默认取 LAN 网桥 MAC 的末字节（`02:00:00:00:19:XX`）；写错格式会记一行日志并回落到派生值。两台设备**必须**不同，否则 1905 栈会把对端当自己（[AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
 
 看"线上到底有没有帧"用 `tools/lab/spark.c`：
 
 ```sh
-zig cc -target x86_64-linux-musl -static -Os -s -o spark-x86_64 tools/lab/spark.c
+zig cc -target x86_64-linux-musl -static -Os -s -o spark-x86_64 tools/lab/spark.c   # 设备上：spark <iface> listen|discovery [秒]
 zig cc -target aarch64-linux-musl -static -Os -s -o spark-aarch64 tools/lab/spark.c
-# 设备上：spark <iface> listen|discovery [秒]
 ```
 
-注意网桥端口的 ingress 帧不会再投给绑定在该端口上的套接字：抓"从线上进来的"用 `tcpdump -i <物理口>`，
-抓"daemon 发了什么"用 `br-lan`。
-
-要看**逐字段**而不是"有没有帧"，用 `tshark` 的 `ieee1905` dissector；沙箱里抓帧的完整步骤（含
-`lab-peer` 在宿主命名空间且默认 DOWN、守护进程要有人发 `0x0007` 才会动这两个坑）见
-[research/WIRESHARK_1905.md](research/WIRESHARK_1905.md) 第 2 节。
+注意网桥端口的 ingress 帧不会再投给绑定在该端口上的套接字：抓"从线上进来的"用 `tcpdump -i <物理口>`，抓"daemon 发了什么"用 `br-lan`。要看**逐字段**而不是"有没有帧"，用 `tshark` 的 `ieee1905` dissector；沙箱里抓帧的完整步骤（含 `lab-peer` 在宿主命名空间且默认 DOWN、守护进程要有人发 `0x0007` 才会动这两个坑）见 [research/WIRESHARK_1905.md](research/WIRESHARK_1905.md) 第 2 节。
 
 ### 4.2 ARM32 模拟器（`qemu-arm-static`）**不入包**
 
-`zte-mesh` 和 `zte-mesh-launcher` 都不装它、也不自动下载安装。包里只有原厂 ARM32 运行环境和用 `$(TARGET_CC)` 编出来的
-宿主架构工具；服务能不能起来，取决于设备内核能不能直接跑 ARM32。**这是有意的取舍，不是漏装。**
+`zte-mesh` 和 `zte-mesh-launcher` 都不装它、也不自动下载安装。包里只有原厂 ARM32 运行环境和用 `$(TARGET_CC)` 编出来的宿主架构工具；服务能不能起来，取决于设备内核能不能直接跑 ARM32。**这是有意的取舍，不是漏装。**
 
-| 不进包的理由 | 说明 |
-|---|---|
-| OpenWrt 不编它 | feed 里没有 `qemu-user`。打进包就得塞一个预编译第三方静态二进制——二进制再分发，许可与安全维护要另处理 |
-| 必须与**宿主**架构匹配 | aarch64 设备要 arm64 版，x86_64 设备要 amd64 版。一份 apk 覆盖不了两种设备，而 `zte-mesh` 是 `arch: all` |
-| 体积不划算 | 静态 qemu-arm 约 11 MB，比整个运行环境包还大；目标设备根本用不到 |
-| 只有一处真的需要 | 只有 chroot 里的 `db-engine-probe`（原厂 ARM32）。`ns-run`/`mesh-search` 由 launcher 现编，本来就是宿主架构 |
+不进包的四条理由：**OpenWrt 不编它**（feed 里没有 `qemu-user`，打进包就得塞一个预编译第三方静态二进制，二进制再分发的许可与安全维护要另处理）；**必须与宿主架构匹配**（aarch64 设备要 arm64 版、x86_64 设备要 amd64 版，一份 apk 覆盖不了两种设备，而 `zte-mesh` 是 `arch: all`）；**体积不划算**（静态 qemu-arm 约 11 MB，比整个运行环境包还大，目标设备根本用不到）；**只有一处真的需要**（只有 chroot 里的 `db-engine-probe` 是原厂 ARM32，`ns-run`/`mesh-search` 由 launcher 现编、本来就是宿主架构）。
 
 init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
@@ -232,63 +144,31 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 | 任意 | `zte_mesh.main.emulator=<路径>` | 跳过探测，用指定路径（相对私有根） |
 | 任意 | `emulator=none` | 强制原生。只用于诊断，不是解决办法 |
 
-**"没有答案"不等于"不支持"**：多数固件（ax3600 上的 ImmortalWrt 6.12.103 就是）不导出 `/proc/config.gz`，早期版本因此
-一律走上模拟器，而包里没有模拟器，服务就每 5 秒退一次。所以探测改成问内核，而不是猜。
-
-私有根默认 `/usr/lib/zte-mesh/root`（`ZTE_MESH_ROOT` 可改）。模拟器是在 chroot **之后**被 exec 的，必须放在私有根内部；
-init 依次找 `/usr/lib/zte-mesh/root/{,usr/bin/,bin/}qemu-arm-static` 三处。找不到会打一条完整说明（含宿主架构与三条出路），
-随后 `execv errno=8`（`ENOEXEC`）。**看到 `errno=8` 先按这一节处理，不要当成代码 bug。**
+**"没有答案"不等于"不支持"**：多数固件（ax3600 上的 ImmortalWrt 6.12.103 就是）不导出 `/proc/config.gz`，早期版本因此一律走上模拟器，而包里没有模拟器，服务就每 5 秒退一次——所以探测改成问内核，而不是猜。私有根默认 `/usr/lib/zte-mesh/root`（`ZTE_MESH_ROOT` 可改）；模拟器是在 chroot **之后**被 exec 的，必须放在私有根内部，init 依次找 `/usr/lib/zte-mesh/root/{,usr/bin/,bin/}qemu-arm-static` 三处。找不到会打一条完整说明（含宿主架构与三条出路），随后 `execv errno=8`（`ENOEXEC`）——**看到 `errno=8` 先按这一节处理，不要当成代码 bug**。第 2 节装的 `qemu-user-static` + `binfmt-support` 只方便**在沙箱外**直接跑 ARM 程序；服务是 chroot 后 exec，即便 binfmt 带 `F` 标志能跨 chroot 生效，解释器文件仍须在根内可见。
 
 三条出路，按推荐顺序：
 
-1. **刷带 `CONFIG_COMPAT=y` 的固件**——真机唯一干净的解法：arm64 内核开了 COMPAT 就能原生跑 ARM32，不需要模拟器，
-   `ZTE_MESH_EMULATED_LAB` 也不会被设置（少了两条仿真专用路径）。配置在 `.github/workflows/build-firmware.yml`。
-2. **手工放一个模拟器**——实验室和临时验证用，取**与设备同架构**的一份：
+1. **刷带 `CONFIG_COMPAT=y` 的固件**——真机唯一干净的解法：arm64 内核开了 COMPAT 就能原生跑 ARM32，不需要模拟器，`ZTE_MESH_EMULATED_LAB` 也不会被设置（少了两条仿真专用路径）。配置在 `.github/workflows/build-firmware.yml`（qualcommax/ipq807x 目标，CI 自己编内核，因为 ImageBuilder 改不了内核选项）；qemu 这一层本身可以长期跑，所以它是"要不要拿掉"的可选项而不是故障。
+2. **手工放一个模拟器**——实验室和临时验证用，取**与设备同架构**的一份（lab 主机上 `tools/lab/emulate.sh` 做的是同一件事；这份文件不在任何仓库里，也不随包分发）。放好后确认下面两条：
 
    ```sh
    apt-get download qemu-user-static && dpkg-deb -x qemu-user-static_*.deb /tmp/q
    scp /tmp/q/usr/bin/qemu-arm-static root@<设备>:/usr/lib/zte-mesh/root/qemu-arm-static
    ssh root@<设备> chmod 755 /usr/lib/zte-mesh/root/qemu-arm-static
+   ls -l /usr/lib/zte-mesh/root/qemu-arm-static      # 存在且可执行
+   service zte-mesh restart; sleep 5
+   logread | grep -e qemu -e execv                   # 不该再出现 "no qemu-arm-static was found"
    ```
 
-   lab 主机上 `tools/lab/emulate.sh` 做的是一样的事。这份文件不在任何仓库里，也不随包分发。
 3. **`emulator=none`**——确认"这块板子到底能不能原生跑"，不是解决办法。
-
-放好后确认：
-
-```sh
-ls -l /usr/lib/zte-mesh/root/qemu-arm-static      # 存在且可执行
-service zte-mesh restart; sleep 5
-logread | grep -e qemu -e execv                   # 不该再出现 "no qemu-arm-static was found"
-```
-
-第 2 节装的 `qemu-user-static` + `binfmt-support` 只方便**在沙箱外**直接跑 ARM 程序；服务是 chroot 后 exec，即便 binfmt
-带 `F` 标志能跨 chroot 生效，解释器文件仍须在根内可见。
 
 ## 5. 从运行包重建 `out/`
 
-`prepare.py` 是 `out/` 的权威来源，但它要求原厂 `rootfs.jffs2`（带钉死的哈希）。没有镜像时用 `tools/lab/bootstrap-out.py`：
-解开 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` 并逐个核对 `SHA256SUMS` → 核对 `multiapd` 与 `prepare.MULTIAPD_SHA256`
-一致（`a0ba6bee…`）→ 用 `vendor_elf` 走一遍 `DT_NEEDED` 闭包（27 个库）+ 符号审计 → 按 `prepare.py` 的权限规则写出
-`out/runtime` 与带 `"source": "runtime-bundle"` 的合成 `manifest.json`。
+`prepare.py` 是 `out/` 的权威来源，但它要求原厂 `rootfs.jffs2`（带钉死的哈希）。没有镜像时用 `tools/lab/bootstrap-out.py`：解开 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` 并逐个核对 `SHA256SUMS` → 核对 `multiapd` 与 `prepare.MULTIAPD_SHA256` 一致（`a0ba6bee…`）→ 用 `vendor_elf` 走一遍 `DT_NEEDED` 闭包（27 个库）+ 符号审计 → 按 `prepare.py` 的权限规则写出 `out/runtime` 与带 `"source": "runtime-bundle"` 的合成 `manifest.json`。合成清单的 `rootfs_sha256` 为空，`prepare.verify_existing()` 会拒绝它，打包流程不可能误用；想让 `make-runtime.py` 通过的唯一办法是拿到原厂镜像跑真正的 `prepare.py`。**注意顺序**：`bootstrap-out.py` 会重建 `out/runtime`，把已编好的 `libzte_*.so` 一起清掉，之后再跑一次 `sh tools/lab/build.sh all database`（`mkroot.sh` 缺 shim 会直接报错）。
 
-合成清单的 `rootfs_sha256` 为空，`prepare.verify_existing()` 会拒绝它，打包流程不可能误用；想让 `make-runtime.py` 通过的
-唯一办法是拿到原厂镜像跑真正的 `prepare.py`。**注意顺序**：`bootstrap-out.py` 会重建 `out/runtime`，把已编好的
-`libzte_*.so` 一起清掉，之后再跑一次 `sh tools/lab/build.sh all database`（`mkroot.sh` 缺 shim 会直接报错）。
+## 6. 这台机器上的测试状态与还欠什么
 
-## 6. 当前测试状态
-
-| 步骤 | 结果 |
-|---|---|
-| `controller-wsc-codec`、`controller-packet-codec`、`cm-profile-codec`、`bridge-codec` | 通过 |
-| `test_evidence.py`、`test_device_workspace.py` | 通过 |
-| `test_init.sh`、`test_rpcd.sh`（CRLF 要转 LF，`push.py` 已处理） | 通过 |
-| `test_preload.py`、`test_sandbox.py` | 通过（沙箱真的 unshare 并 chroot 进 ARM32 root） |
-| `cm-profile-evidence.py --verify cm-profile-layout.inc` | 通过：44 处 payload、2496 字节，与 `libcmapi.so`/`multiapd` 实际布局一致 |
-| `test_schema`、`test_policies`、`test_profiles`、`test_startup` | 失败，全是同一个 `FileNotFoundError: out/analysis/cspd` |
-
-补上这四个的唯一办法是把原厂镜像放到 VM 上，然后 `python3 prepare.py --rootfs <镜像> --analysis-cspd`；
-没有镜像时它们只影响 `cspd` 证据，不影响别的。
+**通过**：`controller-wsc-codec`、`controller-packet-codec`、`cm-profile-codec`、`bridge-codec`、`test_evidence.py`、`test_device_workspace.py`、`test_preload.py`、`test_sandbox.py`（沙箱真的 unshare 并 chroot 进 ARM32 root）、`test_init.sh`、`test_rpcd.sh`（shell 测试要先转 LF，`push.py` 已处理），以及 `cm-profile-evidence.py --verify cm-profile-layout.inc`（44 处 payload、2496 字节，与 `libcmapi.so`/`multiapd` 的实际布局一致）。**失败**：`test_schema`、`test_policies`、`test_profiles`、`test_startup`——全是同一个 `FileNotFoundError: out/analysis/cspd`，唯一补法是把原厂镜像放到 VM 上再 `python3 prepare.py --rootfs <镜像> --analysis-cspd`；没有镜像时它们只影响 `cspd` 证据，不影响别的。还欠一条：`WlanCfgDbWrite` 在 `db-engine-probe` 的库上是否成功，**未验**（[AGENT_PROBE](research/AGENT_PROBE.md) 第 6 节的运行时那一半；工具是 `shim.c` 记录全部 `CmWLAN*` 调用、`emulate.sh --strace` 跟踪系统调用）。**各套测试的条数基线只写在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节**，这里不维护数字；上面标"未验"的，不要在别的文档里写成已验，排期看 [PLAN](PLAN.md) 第 5 节。
 
 ## 7. 踩过的坑
 
@@ -304,19 +184,11 @@ logread | grep -e qemu -e execv                   # 不该再出现 "no qemu-arm
 | `wrong ELF class: ELFCLASS32`（LD_PRELOAD） | 只在沙箱外用 binfmt 跑时出现（宿主 ld.so 看到 ARM 库），无害 |
 | `cannot be preloaded` 之后出现 `ZTE_MESH_SHIM loaded` | shim 在 `root/lib` 里但 `out/runtime/lib` 已被 bootstrap 清掉。重跑 `build.sh all` |
 | `chroot: failed to run command '/bin/sh'` | 手写沙箱时用了宿主 `/bin/sh`；lab root 里只有原厂二进制，用 `chroot ROOT ./bin/...` |
-| `ash: -c requires an argument`（远端什么都没执行） | **`rssh.py` 没有 `--sh` 这个选项**：主机名之后以 `--` 开头的参数会被当成命令的一部分发给远端，于是远端收到 `--sh ls -l /tmp`。历史上还有一次是 `argparse.REMAINDER` 把 `--all` 这类控制参数一起吞进命令，症状同一条；现在改成手动切分选项与命令。要把管道和 `&&` 当一条远端命令送，就**整个用一个引号参数**（`rssh.py owrt 'a | head'`）。反过来说：本地每个参数是被 `" ".join` 拼回去的，所以**引号会丢**——`rssh.py owrt grep "a b" f` 到了远端是 `grep a b f`（三个参数），带空格的匹配串要在本地那一层就写成远端语法的引号，而不是靠 shell 的引号。 |
+| `ash: -c requires an argument`（远端什么都没执行） | **`rssh.py` 没有 `--sh` 这个选项**：主机名之后以 `--` 开头的参数会被当成命令的一部分发给远端，于是远端收到 `--sh ls -l /tmp`（选项与命令现在手动切分）。要把管道和 `&&` 当一条远端命令送，就**整个用一个引号参数**（`rssh.py owrt 'a \| head'`）。反过来说：本地每个参数是被 `" ".join` 拼回去的，所以**引号会丢**——`rssh.py owrt grep "a b" f` 到了远端是 `grep a b f`（三个参数），带空格的匹配串要在本地那一层就写成远端语法的引号，而不是靠 shell 的引号 |
 | `echo HI` 返回 **127** | dropbear 带 pty 的 exec 会把命令当成登录 shell 的输入。`rssh.py` 默认不开 pty，需要时用 `--pty` |
 | `open_sftp()` 抛 `EOF during negotiation` | AX3600 的固件没有 `openssh-sftp-server`。`rssh.py` 自动退回 `cat` 管道（二进制安全） |
 | 本机 `scp`/参数里的 `/tmp/x` 变成 `C:/Users/.../Temp/x` | **Git Bash 的路径转换**。调用前 `export MSYS_NO_PATHCONV=1`（`MSYS2_ARG_CONV_EXCL='*'` 亦可） |
-| `ash: syntax error: unexpected word (expecting ")")` 执行 ARM32 程序时 | 内核没有 `CONFIG_COMPAT`，execve 返回 ENOEXEC，shell 把二进制当脚本读。AX3600 原厂固件就是这样；两条出路见 [BLOB_SHIM](research/BLOB_SHIM.md) 的 qemu 分支和 `build-firmware.yml` |
-| `mount: mounting none on /proc/sys/fs/binfmt_misc failed: No such file or directory` | 同一个原因的另一面：内核也没编 `BINFMT_MISC`，透明执行这条路直接没有 |
+| `ash: syntax error: unexpected word (expecting ")")` 执行 ARM32 程序时；或 `mount: mounting none on /proc/sys/fs/binfmt_misc failed: No such file or directory` | 内核没有 `CONFIG_COMPAT`，execve 返回 ENOEXEC，shell 把二进制当脚本读（AX3600 原厂固件就是这样）；同一条的另一面是内核也没编 `BINFMT_MISC`，透明执行这条路直接没有。两条出路见 [BLOB_SHIM](research/BLOB_SHIM.md) 的 qemu 分支和 `build-firmware.yml`，判定表见第 4.2 节 |
 | `error: ignoring return value of 'write' ... -Werror=unused-result` | `(void)write(...)` 从 GCC 9 起不算"用了返回值"。用 `emit()` 辅助函数真赋值再丢弃，别写 `(void)write` |
 | 装上的 `ns-run` 执行报 `not found`，`ls` 明明在 | 编译机 glibc、目标机 musl，动态链接的 ELF 找不到 `/lib64/ld-linux-x86-64.so.2`，`execve` 返回 ENOENT，shell 就报 `not found`。**加 `-static`**，别被 "not found" 骗成路径或权限问题 |
 | 覆盖正在运行的 `ns-run` 得到 `Text file busy` | 先 `/etc/init.d/zte-mesh stop` 再换文件，换完再 start |
-
-
-## 8. 下一步
-
-- 有原厂镜像时补 `out/analysis/cspd`，四个测试步骤即可全绿。
-- 验证 `WlanCfgDbWrite` 在 `db-engine-probe` 的库上是否成功（[AGENT_PROBE](research/AGENT_PROBE.md) 第 6 节的运行时那一半）：
-  `shim.c` 记录全部 `CmWLAN*` 调用，沙箱内可长时间跑服务，`emulate.sh --strace` 可跟踪任意系统调用。

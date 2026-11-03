@@ -1,9 +1,17 @@
 # 回放对比结果：shim 控制器 vs 原厂控制器（真子节点 Z506）
 
+> **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+
 > **路径说明（2026-10-18 迁入 sr1010-mesh 仓库）：** 本文写于迁移之前，文中路径按当时的布局：mac 上的 `zx279133/port/mesh-shim/` 即现在的仓库根目录，`out/mesh-shim/` 即 `out/`；`session/…`、pcap、`db-baseline-s000.txt`、`vendor-log-debug.txt` 在 `evidence/`（只在 mac 上，不入库）；`tools/<脚本>` 即 `tools/capture/<脚本>`；`/tmp/buildNN.sh` 由 `tools/build/container-make.sh` 取代；`/tmp/shim-bak-*` 备份已删除（由 git 历史取代）；当时手工编的 `ns-run-al` 即现在 Makefile 的 `ns-run-svctest` 目标（运行包内容逐字节相同），当时说的旧 `ns-run-svctest` 文件已不存在。
 
-日期 2026-10-16 晚。方法与工具见 `REPLAY_PLAN.md`。基准：`vendor-master-coldjoin-eth4.pcap` 的 12:33:37.5 起（原厂最初基线配置）。
+日期 2026-10-16 晚。基准：`vendor-master-coldjoin-eth4.pcap` 的 12:33:37.5 起（原厂最初基线配置：MLO 开、双频合一开、V2 开、阈值 -60/-70，子节点由物理拔插触发）。
 shim 在主线 f66c96d8（首次冷启动成功）上，由 `tools/mreplay.py` 在 mac 上驱动，子节点在 `lan1`。
+
+**对比方法与噪声底线**（比较器 `tools/mcompare.py A.pcap B.pcap --a-win T0 T1 --b-win T0 T1 [--drop-periodic]`）：归一化丢弃 MID、时间戳、WSC 加密字节、
+设备身份和指标的内容（只比长度），保留方向、CMDU 类型、TLV 类型与长度、M2 各分片长度、策略与厂商子 TLV 的值（`4a 4c 5a 4d 60 4f`、`0100/0101` 各查询回复）、
+`0200fe` 的模块名与值。**噪声底线已标定**：原厂不同事件的单频段 Renew 轮次之间，归一化后 17 条消息逐条完全一致（差异为 0），所以下文报出的差异不是抓包噪声。
+冷启动阶段不能直接标定底线——原厂整套冷启动入网只有这一份样本（第二份拿不到：原厂上 `ip link set eth4 down/up` **不能**让子节点重新入网，只有物理拔插有效），
+而 `TopoResponse` 的长度随终端上下线变化（337/374/409/461），所以按"内容类型"比，不按长度比。基准里 `PolicyConfigReq` 出现三次（62/92/92 字节各一）。
 
 ## 1. 运行记录
 
@@ -161,7 +169,7 @@ shim 在主线 f66c96d8（首次冷启动成功）上，由 `tools/mreplay.py` �
 - 这条由 `master_dev_online`（设备上线）发：用一个只置 Roam Caton 标志（参数结构偏移 0x13c）的参数调 `PolicyConfigRequestSend`，厂商体 = `4d`（兼容版本，恒有）+ `4f`（Roam Caton 16 字节）+ `60`（P1905ComCfg 同步）。
 - `4f` 的内容来自 `MapGetRoamCatonCfgDB` 读表 **`MultiAPRoamCatonCfg`**。基线值：`OfflineRetrieveEn=0, TxDataAfterBaEn=0, TxBaDelayMs=10, ZeroDropCfgEn=0, BtmCacheEn=0, TxConDelayMs=100, TxDropCnt=0`，正好是原厂的 16 字节 `00000000 000a 00000000 0064 00000000`。
 - **shim 没有注册这张表**：服务日志里 `db_get view=MultiAPRoamCatonCfg status=-2`、`get RoamCatonCfg error`。`WLANSetting` 也一样（`status=-2`）。这两个读失败正是第一条消息体残缺和 M2 的 `0xe0` 只有 1 字节的原因。
-- `cspd` 里两张表都有符号：`dbDefMultiAPRoamCatonCfg`（0x1f4198）+`dbCreateMultiAPRoamCatonCfgTbl`（0x1f4260）；`WLANSetting` 是 `.data` 里的静态域数组 `tWlanSettingTblDm`（0x2ba298，0x3fc 字节＝15 个 68 字节条目＝14 字段加结束项）+`dbCreateWlanSettingTbl`（0x1edc2c）。`startup-schema.py` 目前只覆盖 6 张表，加这两张是 GAP_ANALYSIS P1 第 4 项的实质内容。
+- `cspd` 里两张表都有符号：`dbDefMultiAPRoamCatonCfg`（0x1f4198）+`dbCreateMultiAPRoamCatonCfgTbl`（0x1f4260）；`WLANSetting` 是 `.data` 里的静态域数组 `tWlanSettingTblDm`（0x2ba298，0x3fc 字节＝15 个 68 字节条目＝14 字段加结束项）+`dbCreateWlanSettingTbl`（0x1edc2c）。`startup-schema.py` 目前只覆盖 6 张表，加这两张是当时 P1 第 4 项（WLANSetting 未注册）的实质内容。
 - 基线里 `WLANSetting`：`DualBandSync=1, SSIDSync=1, SpecialMode=0, ESSIDSuffix=-5G, MLOEnable=1, MLOSSID=1`（共 14 字段，字段名见 `db-baseline-s000.txt`）。
 
 ### 7.4 本节后的状态
