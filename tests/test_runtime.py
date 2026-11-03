@@ -94,10 +94,23 @@ def main():
     # the cheapest proof the copy is not that one: both are absent from it and present in a build
     # made from these sources (config-reject from controller-service.c, wlan-plan from agent-sync.c).
     probe = blobs.get("root/bin/db-engine-probe", b"")
-    for marker in (b"config-reject", b"wlan-plan"):
+    for marker in (b"config-reject", b"wlan-plan",
+                   b"bss_detail"):  # the per-BSS rows state.json prints since the 逐路 batch
         check(f"db-engine-probe in the archive carries {marker.decode()}", marker in probe,
               "the packed copy predates the current sources; rebuild prebuilt/db-engine-probe with "
               "build-lab-tools.yml and repack with openwrt/repack-runtime.py --replace")
+
+    # Same hazard on the preload side, and this one is easy to hit: three batches of controller-peer.c /
+    # controller-1905.c changes went out with the archive untouched, because nothing on the host looked at
+    # the packed .so. A stale copy is not merely old numbers - the write path and the read path are in
+    # different binaries, so a service that sums per-BSS files with a trace library that never writes them
+    # falls back to the digest every second and the page silently keeps the behaviour of the previous batch.
+    # The marker is the file name format only the per-BSS write builds.
+    trace = blobs.get("root/lib/libzte_controller_trace.so", b"")
+    marker = b".%02x:%02x:%02x:%02x:%02x:%02x.sta"
+    check("libzte_controller_trace.so in the archive carries the per-BSS file name", marker in trace,
+          "the packed library predates controller-peer.c's write_bss(); rebuild the ARM32 shim and repack "
+          "with openwrt/repack-runtime.py --replace root/lib/libzte_controller_trace.so=...")
 
     # The compiled halves are machine code, so they cannot ride in an arch:all apk: on the
     # x86_64 lab box an aarch64 ns-run would not exec at all. zte-mesh is arch:all (scripts

@@ -36,8 +36,9 @@
 - 运行包内有 `SHA256SUMS` 自校验，`make-runtime.py` 还会审计 ARM32 ABI（强符号、GNU 符号版本）。
 - 改了 C 产物但手上没有原厂镜像时，用**只换成员**的 `python3 openwrt/repack-runtime.py --replace
   root/lib/libzte_controller_trace.so=out/runtime/lib/libzte_controller_trace.so`（步骤与两个坑见 LAB.md 第 3.0 节）：
-  其余成员逐字节不动，只重算 `SHA256SUMS`，`python3 tests/test_runtime.py` 的九条守研究会守住"成员与仓库文件一致"。
-  换完要逐条 diff 解出来的两个包，确认只有该成员和 `SHA256SUMS` 变了。
+  其余成员逐字节不动，只重算 `SHA256SUMS`，`python3 tests/test_runtime.py` 的 29 条守卫会守住"成员与仓库文件一致"。
+  换完要逐条 diff 解出来的两个包，确认只有该成员和 `SHA256SUMS` 变了。少了的那一样是 `make-runtime.py` 的
+  GNU 符号版本审计——重打完对着成品补跑一遍，方法与那个假缺符号的坑在 LAB.md 第 3.0 节。
 - x86_64 主机可用 `Dockerfile.cross`（`make ROUTERCC=aarch64-linux-gnu-gcc`）交叉编译。
 
 ## 3. 跑控制器

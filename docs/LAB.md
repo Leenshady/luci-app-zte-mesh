@@ -91,7 +91,7 @@ ROUTERCC=aarch64-linux-gnu-gcc sh tools/lab/build.sh ns-run                   # 
 python3 openwrt/repack-runtime.py \
   --replace root/bin/db-engine-probe=out/db-engine-probe ns-run=out/ns-run \
             controller-net.c=controller-net.c enroller.c=tools/lab/enroller.c
-python3 tests/test_runtime.py                                                 # 九条守卫，含"成员与仓库文件逐字节相同"
+python3 tests/test_runtime.py                                                 # 29 条守卫，含"成员与仓库文件逐字节相同"
 ```
 
 两个坑：
@@ -108,6 +108,11 @@ python3 tests/test_runtime.py                                                 # 
 ```sh
 arm-linux-gnueabi-nm -u out/db-engine-probe | grep -E '__time64|__clock_gettime64|__ioctl_time64|__isoc23_' || echo none
 ```
+
+**换成员还跳过了一样东西**：`make-runtime.py` 打包前跑的 GNU 符号版本审计（`vendor_elf.audit()`）。
+重打完对着成品再跑一遍，不用解包：把归档里 `root/**` 的 ELF 成员读进内存交给它，`missing_strong_symbols`
+与 `missing_versions` 都应为 0。这里有个坑：`audit()` 按 **basename** 找提供者（`libc.so.6`），照归档成员名
+（`root/lib/libc.so.6`）建索引的话每个版本需求都会"找不到提供者"，报出几十个假缺符号。
 
 ### 3.1 agent 模式（M1/M2）
 
