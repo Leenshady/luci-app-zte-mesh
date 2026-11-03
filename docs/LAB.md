@@ -94,7 +94,7 @@ python3 openwrt/repack-runtime.py \
 python3 tests/test_runtime.py                                                 # 29 条守卫，含"成员与仓库文件逐字节相同"
 ```
 
-两个坑：
+三个坑：
 
 1. `--replace` 是 argparse 的 `store` 语义，**多个替换项必须跟在同一个 `--replace` 后面**。写成
    `--replace a=b --replace c=d` 只有最后一个生效，包悄悄只换了一个成员。
@@ -102,9 +102,11 @@ python3 tests/test_runtime.py                                                 # 
    传，会把基线换成"已经被换过的"那份，成员就退回旧版本了 —— `test_runtime.py` 的
    "byte-for-byte" 守卫能抓到这件事。
 3. **在 Windows 上别用"解出来再 `diff -r`"比包**：归档里 `root/var/tmp`、`root/var/run`、`root/var/log`
-   是指向 `/tmp` 的符号链接，Git Bash 的 `tar` 建不出链接，就写成真目录并把后续路径穿到**本机临时目录**里。
-   结果是解出来的树里冒出 `root/var/log/tmp.XXXX/controller-trace.c` 这种根本不在包里的文件（实测那批
-   `tmp.*` 是本机 10 月留下的旧物），看着像"随包带了源码副本"。逐成员比字节（`tarfile` 读两遍归档，比
+   是指向 `/tmp` 的符号链接，Git Bash 的 `tar` 建不出链接（没有权限），退一步**把链接指向的东西整个拷进
+   解出来的树**：实测在仓库里落下 6.8 GB，内容是当时本机临时目录 `C:\Users\...\Temp` 的一整份副本，
+   连 `tmp.XXXX/` 这种旧目录也照搬，看着就像"随包带了源码副本"（那些 `tmp.*` 是本机 10 月留下的旧物，
+   不在包里）。它是**副本不是别名**——往里写文件，本机临时目录不会多东西，所以删它不伤本机；但删要跟着
+   递归几 GB，还可能撞到某目录 `Device or resource busy`。逐成员比字节（`tarfile` 读两遍归档，比
    名称/类型/模式/大小/内容哈希）不受影响，也是上面第 4 步用的方法；要列成员就用 `tar tvzf`，它会照出
    `lrwxrwxrwx`。
 
