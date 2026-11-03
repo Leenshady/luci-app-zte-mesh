@@ -4,20 +4,19 @@
 
 ## 1. 机器与连接
 
-**实验台的权威台账在 [LAB](LAB.md) 第 2.1 节**（三台：`ax3600` 192.168.1.1、`owrt` 192.168.1.20、
-`ubuntu` 192.168.1.191，统一走 `python tools/lab/rssh.py`）。这里只留两件别处没有的事：构建机怎么用，
-以及**脚本默认值指向的旧环境**——它们还在仓库里，不清掉就会被当成现役。
+**实验台三台的台账（地址、角色、能力差异）只在 [LAB](LAB.md) 第 2.1 节**：`ax3600` 192.168.1.1、`owrt` 192.168.1.20、
+`ubuntu` 192.168.1.191，登机器一律 `python tools/lab/rssh.py`，口令只在本机 `.local/lab-env.md`。旧实验台那张表（2026-10
+之前：mac `192.168.167.93` 上的 `/Volumes/code/sr1010-mesh`、开发机 `git push` + `receive.denyCurrentBranch updateInstead`、
+SR1010、Z506、实验室虚拟机）已退场，复盘历史证据按 [journal](journal/) 查，本文不再维护第二份机器名单。
+这里只留三件别处没有的事：
 
-下表是 2026-10 之前的旧实验台，只在复盘历史证据时有用；新做的实验一律按 LAB 2.1 的三台来。
-
-| 角色 | 怎么连 | 说明 |
-|---|---|---|
-| mac（构建机） | `ssh 192.168.167.93` | 主要工作副本 `/Volumes/code/sr1010-mesh`。编译在离线 Docker 镜像 `sr1010-mesh-shim-builder` 里做；`out/`、`evidence/` 只在这里 |
-| 开发机 | — | 克隆后 `git push`；mac 仓库设了 `receive.denyCurrentBranch updateInstead`，推送直接更新工作区 |
-| SR1010 路由器 | 从 mac：`ssh root@192.168.5.1` | 实验室脚本默认 `--host root@192.168.5.1 --port 22`。没有 python3、没有 `pkill`，只有 BusyBox 和 `tcpdump` |
-| 真子路由 ZXHN Z506 | 从 mac：telnet `192.168.5.216:23`（`tools/child/ztetn.py` 默认值，可用 `--host`/`CHILD=` 改） | 口令只从 `ZTE_TN_PASS` 读（用户名 `ZTE_TN_USER`，默认 root），**不要写进任何文件** |
-| OpenWrt 构建机 | `ssh -p 2022 192.168.223.19`，树 `~/workspace/immortalwrt` | 只用来编包（第 8 节） |
-| 实验室虚拟机 | 台账在 [LAB.md](LAB.md) 第 2.1 节（x86_64 Ubuntu 22.04） | 没 mac、没路由器、没原厂镜像时也能编译、跑主机测试、在沙箱里跑服务（qemu 模拟 ARM32）。交叉工具链与当初的容器同为 **GCC 11.4.0 Ubuntu 11.4.0-1ubuntu1\~22.04.3**：2026-11-02 在这里重编 `libzte_mesh_shim/route/profile/agent_mm.so`、`db-engine-probe`、`zte-meshctl`，与随包提交的 `zte-mesh-runtime.tar.gz` 里对应成员**逐字节相同**，所以换机的产物可信 |
+- **脚本默认值仍指向旧环境**，不清掉就会被当成现役：实验室脚本默认 `--host root@192.168.5.1 --port 22`；子路由 telnet 是
+  `192.168.5.216:23`（`tools/child/ztetn.py` 默认值，`--host`/`CHILD=` 可改），口令只从 `ZTE_TN_PASS` 读
+  （用户名 `ZTE_TN_USER`，默认 root），**不要写进任何文件**。那台旧 SR1010 没有 python3、没有 `pkill`，只有 BusyBox 和 `tcpdump`。
+- **OpenWrt 构建机**：`ssh -p 2022 192.168.223.19`，树在 `~/workspace/immortalwrt`，只用来编包（第 8 节）。
+- **换机的产物可信**：交叉工具链与当初的容器同为 **GCC 11.4.0 Ubuntu 11.4.0-1ubuntu1~22.04.3**。2026-11-02 在 `ubuntu` 上
+  重编 `libzte_mesh_shim/route/profile/agent_mm.so`、`db-engine-probe`、`zte-meshctl`，与随包提交的
+  `zte-mesh-runtime.tar.gz` 里对应成员**逐字节相同**。
 
 ## 2. 构建
 
@@ -39,7 +38,7 @@
 - 运行包内有 `SHA256SUMS` 自校验，`make-runtime.py` 还会审计 ARM32 ABI（强符号、GNU 符号版本）。
 - 改了 C 产物但手上没有原厂镜像时，用**只换成员**的 `python3 openwrt/repack-runtime.py --replace
   root/lib/libzte_controller_trace.so=out/runtime/lib/libzte_controller_trace.so`（步骤与两个坑见 LAB.md 第 3.0 节）：
-  其余成员逐字节不动，只重算 `SHA256SUMS`，`python3 tests/test_runtime.py` 的 29 条守卫会守住"成员与仓库文件一致"。
+  其余成员逐字节不动，只重算 `SHA256SUMS`，`python3 tests/test_runtime.py` 的守卫会守住"成员与仓库文件一致"。
   换完要逐条 diff 解出来的两个包，确认只有该成员和 `SHA256SUMS` 变了。少了的那一样是 `make-runtime.py` 的
   GNU 符号版本审计——重打完对着成品补跑一遍，方法与那个假缺符号的坑在 LAB.md 第 3.0 节。
 - x86_64 主机可用 `Dockerfile.cross`（`make ROUTERCC=aarch64-linux-gnu-gcc`）交叉编译。
@@ -76,7 +75,7 @@
   `container-make.sh` 的 noexec 注意项在这里不适用。
 - LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；mac 上没有 node，在开发机上跑）。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
-- 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`、`python tests/test_runtime.py`、`python tests/test_i18n.py`。
+- 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`、`python tests/test_runtime.py`（29 条，守的是"tarball 成员与仓库文件逐字节一致"）、`python tests/test_i18n.py`。
 - 容器把 `/tmp` 挂成 noexec：测试不能执行自己写到 `/tmp` 的脚本（`tests/test_rpcd.sh` 用 shell 函数和 `sh -c`），
   dash 的 `.` 不接受额外参数（先 `set --`）。
 
