@@ -1,6 +1,6 @@
 #!/bin/sh
-# Host test for tools/lab/verify-install.sh without a router: the four commands it reads through (ubus / apk / uci /
-# logread) are the same names the script takes from its own environment, so the stubs answer from fixtures and the
+# Host test for tools/lab/verify-install.sh without a router: the five commands it reads through (ubus / apk / uci /
+# logread / date) are the same names the script takes from its own environment, so the stubs answer from fixtures and the
 # assertions are about what the script decided. Run with the shell OpenWrt uses: busybox ash tests/test_verify_install.sh
 #
 # What this test guards is the judgement, not the router: which instance set a role implies, which keys of the status
@@ -16,12 +16,13 @@ FIX=$T/fix
 RUN=$T/run
 mkdir -p "$BIN" "$FIX" "$RUN"
 
-# The script takes its four commands and its run directory from the environment precisely so this test can point them
+# The script takes its five commands and its run directory from the environment precisely so this test can point them
 # at the fixtures. Forgetting one of these would make the test read the real machine (or fail on a missing ubus).
 UBUS=$BIN/ubus
 APK=$BIN/apk
 UCI=$BIN/uci
 LOGREAD=$BIN/logread
+DATE=$BIN/date
 INIT_D=$T/init.d
 ROOTFS=$T/rootfs
 RESTART_WAIT=0
@@ -32,8 +33,11 @@ ZTE_MESH_RUNDIR=$RUN
 ZTE_MESH_ROOTFS=$ROOTFS
 LIBEXEC=$T/libexec
 ZTE_MESH_LIBEXEC=$LIBEXEC
+# the clock every fixture is measured against: the hop-count grace window is seconds wide, so a suite that inherited
+# the host's wall clock would judge or not judge depending on what minute someone ran it.
+FIXED_NOW=1793686800
 mkdir -p "$ROOTFS/root/lib" "$ROOTFS/root/bin" "$LIBEXEC"
-export UBUS APK UCI LOGREAD INIT_D RESTART_WAIT SSID_WAIT SSID_POLL ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS ZTE_MESH_LIBEXEC
+export UBUS APK UCI LOGREAD DATE INIT_D RESTART_WAIT SSID_WAIT SSID_POLL ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS ZTE_MESH_LIBEXEC
 
 pass=0
 fail=0
@@ -91,7 +95,11 @@ cat > "$BIN/logread" <<EOF
 #!/bin/sh
 [ -f '$FIX/log' ] && cat '$FIX/log'
 EOF
-chmod +x "$BIN/ubus" "$BIN/uci" "$BIN/apk" "$BIN/logread"
+cat > "$BIN/date" <<EOF
+#!/bin/sh
+echo $FIXED_NOW
+EOF
+chmod +x "$BIN/ubus" "$BIN/uci" "$BIN/apk" "$BIN/logread" "$BIN/date"
 # The two service scripts an install has to activate; each records that it was asked to restart.
 mkdir -p "$INIT_D"
 for name in rpcd zte-mesh; do
@@ -692,6 +700,7 @@ printf 'Mon Nov  3 09:00:00 UTC 2026 ns-run[77]: ZTE_MESH_SERVICE cfg mode=1 set
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 1
 check_line RESULT FAIL
+check_line cur_hop_age 8800
 if grep -q 'FAIL cur_hop expected=updated got=-2' "$out"; then pass=$((pass + 1)); else
 	fail=$((fail + 1)); echo "FAIL case $CASE: a child that never updated CurHop must be named"; fi
 
@@ -750,6 +759,39 @@ RESTART_NOW=1 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line cur_hop -2
 if grep -q '^FAIL cur_hop' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: the run that just restarted the supervisor cannot grade its hop count"; else pass=$((pass + 1)); fi
+
+# --- case 20: a witness that is fifty seconds old is a daemon that has not been told yet --------------------------------
+# This is what the r18 install round on ax3600 actually did: the restart put `cur_hop=-2` in the ring at 13:26:51 and
+# `cur_hop=2` at 13:27:18. The first read-only run landed inside that window and answered RESULT=FAIL about a healthy
+# child -- the same "问得太早" mistake the SSID smoke had to fix, one column over.
+CASE=cur-hop-young
+printf 'Mon Nov  3 13:26:51 UTC 2026 ns-run[10961]: ZTE_MESH_SERVICE cfg mode=1 set_role_enable=0 en_master_only=0 cur_hop=-2 max_hop=2 epoch=%s\n' "$((FIXED_NOW - 50))" > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line RESULT PASS
+check_line cur_hop -2
+check_line cur_hop_age 50
+if grep -q '^FAIL cur_hop' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: a settling child must be reported, not judged"; else pass=$((pass + 1)); fi
+
+# and the window is the thing deciding: with no grace at all the same line is a failure again. Without this the young
+# case would pass for any reason -- a missing epoch field, a comparison that never fires -- and look like a fix.
+CASE=cur-hop-young-no-grace
+CUR_HOP_GRACE=0 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line RESULT FAIL
+if grep -q 'FAIL cur_hop expected=updated got=-2' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: the grace window must be what excuses the young witness"; fi
+
+# a line without the stamp has no age to compute, so nothing excuses it: the judgement stands rather than silently
+# skipping the check on a build that stopped writing `epoch=`.
+CASE=cur-hop-no-epoch
+printf 'Mon Nov  3 13:26:51 UTC 2026 ns-run[10961]: ZTE_MESH_SERVICE cfg mode=1 set_role_enable=0 en_master_only=0 cur_hop=-2 max_hop=2\n' > "$FIX/log"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line RESULT FAIL
+if grep -q '^cur_hop_age' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: no stamp means no age to report"; else pass=$((pass + 1)); fi
+if grep -q 'FAIL cur_hop expected=updated got=-2' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: an unstamped -2 on a child must still be named"; fi
 
 printf 'verify-install test: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

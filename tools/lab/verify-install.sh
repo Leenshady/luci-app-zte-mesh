@@ -19,7 +19,8 @@
 # and when the run actually restarted the service, a fourth: how many times the applier wrote during that restart
 # (a converged child must answer zero -- see `smoke_restart_quiet`). A fifth reads the hop count the daemon itself
 # put into the database (`smoke_cur_hop`): the child's startup fixture writes -2 and never overwrites it, so on a
-# child any other number is the vendor daemon's own update.
+# child any other number is the vendor daemon's own update -- but only once the daemon has had the chance to learn it,
+# so a witness younger than CUR_HOP_GRACE seconds is reported without being judged.
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
 # installed (`packed_copy`), the two that say the batch's shell files are (`package_scripts` -- a batch that changes
@@ -34,12 +35,16 @@ UBUS=${UBUS:-ubus}
 APK=${APK:-apk}
 UCI=${UCI:-uci}
 LOGREAD=${LOGREAD:-logread}
+DATE=${DATE:-date}
 INIT_D=${INIT_D:-/etc/init.d}
 RESTART_WAIT=${RESTART_WAIT:-12}
 # set RESTART_NOW=1 to ask for a restart even though nothing was installed. That is the drive for PLAN's H-14: the
 # question "does a restart of a converged child write anything" cannot be answered by reading a machine that has
 # already settled -- and on a real device this drops every Wi-Fi client for a few seconds.
 RESTART_NOW=${RESTART_NOW:-0}
+# a child's hop count lands about 27 s after the daemon starts (measured above); a witness younger than this is the
+# daemon not having been told yet, so the number is reported and not judged
+CUR_HOP_GRACE=${CUR_HOP_GRACE:-120}
 # how long the Wi-Fi applier gets to land the plan before its result is graded (section 3 of INSTALL runs this
 # right after an install, when the child is still waiting for the controller's profile)
 SSID_WAIT=${SSID_WAIT:-60}
@@ -340,28 +345,43 @@ smoke_log() {
 # our code writes that column for a child -- so any other number in the supervisor's own cfg line can only have come
 # from the daemon (slave_init, or the controller's hop TLV). On a controller the 2 is ours (it is what the master
 # path writes), so there the same line is evidence about the database, not a verdict about the agent.
-cur_hop_read() {
-	$LOGREAD 2>/dev/null | grep 'ZTE_MESH_SERVICE cfg' | tail -1 | sed -n 's/.*cur_hop=\([-0-9][0-9]*\).*/\1/p'
+cur_hop_line() {
+	# the newest witness line, epoch included: the supervisor stamps the moment it read the columns, so the age of the
+	# evidence is readable instead of assumed. Measured on ax3600 during the r18 install round (13:26:51 `cur_hop=-2`,
+	# 13:27:18 `cur_hop=2`): a child sits at the not-attached baseline for about half a minute after the daemon starts,
+	# and a read-only run that lands in that half minute is the "问得太早" mistake again.
+	$LOGREAD 2>/dev/null | grep 'ZTE_MESH_SERVICE cfg' | tail -1
 }
 
+field() { printf '%s' "$1" | sed -n "s/.*$2=\([-0-9][0-9]*\).*/\1/p"; }
+
 smoke_cur_hop() {
-	line=$(cur_hop_read)
+	line=$(cur_hop_line)
 	[ -n "$line" ] || { say cur_hop no-cfg-line; return 0; }
+	hop=$(field "$line" cur_hop)
+	stamp=$(field "$line" epoch)
+	now=$($DATE +%s 2>/dev/null)
+	age=
+	[ -n "$stamp" ] && [ -n "$now" ] && age=$((now - stamp))
+	[ -n "$age" ] && say cur_hop_age "$age"
 	judge=yes
-	# Three shapes where the number is evidence and not a verdict: a controller writes this column itself, so only a
+	# Four shapes where the number is evidence and not a verdict: a controller writes this column itself, so only a
 	# child's value says anything about the agent; -98 is the supervisor's own `could not read the column`, which is
-	# not a hop count; and a restart replaces the supervisor, which writes its baseline snapshot seconds to minutes
-	# after a fresh start -- grading the window that run just opened is the same mistake the SSID smoke had to fix.
+	# not a hop count; a restart replaces the supervisor, which writes its baseline snapshot seconds to minutes after
+	# a fresh start -- grading the window that run just opened is the same mistake the SSID smoke had to fix.
 	[ "$S_ROLE" != slave ] && judge=no
 	[ "$did_restart" = yes ] && judge=no
-	case "$line" in -98) judge=no ;; esac
-	if [ "$judge" != yes ]; then say cur_hop "$line"; return 0; fi
-	if [ "$line" = -2 ]; then
+	case "$hop" in -98) judge=no ;; esac
+	# and the fourth: a witness younger than the settling window is a daemon that has not been told yet, not a child
+	# that never learned. `cur_hop_age` says how young, so a reader can see the same line judged a minute later.
+	[ -n "$age" ] && [ "$age" -lt "$CUR_HOP_GRACE" ] && judge=no
+	if [ "$judge" != yes ]; then say cur_hop "$hop"; return 0; fi
+	if [ "$hop" = -2 ]; then
 		fail=$((fail + 1))
 		printf 'FAIL cur_hop expected=updated got=-2\n'
 	else
 		pass=$((pass + 1))
-		say cur_hop "$line"
+		say cur_hop "$hop"
 	fi
 }
 
