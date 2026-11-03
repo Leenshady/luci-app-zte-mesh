@@ -94,6 +94,14 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
   字符串认——`trace_per_bss_name=yes`、`probe_bss_detail=yes` 说明这一批的写入方确实在机器上；
   `peers_sta` / `peers_software` / `peer_reports_stations` / `state_bss_detail` 是它读到的数据，不当判据
   （`peers_sta=0` 配 `peer_reports_stations=no` 只说明这台 peer 从没报过终端数）。
+- 这一次重启里，无线落地器**真写过几回配置**是第四条冒烟：`applier_writes=<次数>`，数的是日志里
+  `applied; wireless committed` 的行数增量。**为什么不能比文件**：旧种子先把空中改名、主控再把它翻回来，
+  `/etc/config/wireless` 前后一模一样，可家里已经掉了两次线——只有落地器自己那行留了痕。判 `0` 有个前提：
+  重启前空中已经带着档案里每个启用行的名字（`air_matched_plan=yes`）；还在收敛就只报数不判，否则把一次正常
+  的收敛说成故障。另外四种形状不算故障：这一趟没重启 `no-restart`、这个角色本来就没有落地器 `no-applier`
+  （纯主控）、`logread` 读不出来 `no-logread`（读不出来就当成 0 行，而 `0 - 0` 正长得像一次安静重启）、日志环在
+  窗口里翻了圈 `wrapped`（窗口被截断，增量不是个数）。不装包、只想驱动这一次重启来问这句：
+  **`RESTART_NOW=1 sh tools/lab/verify-install.sh`——它会真掉线**，默认关着（判据见第 6 节和 [PLAN](PLAN.md) H-14）。
 
 ## 4. 场景 S1：OpenWrt 当中控，接一台原厂中兴子路由
 
@@ -150,7 +158,9 @@ cat /run/zte-mesh/wlan-sync.status      # 档案落到本机无线的结果（�
    psk-mixed`）。家里有人连着的时候这就是两次掉线。仓库版本要做的是**一次都不翻**：实验台上能证的是配置面
    （新种子与 `/etc/config/wireless` 逐字段相同，拿它喂 `wlan-sync` 报 `changed=0`、`wifi` 一次没被调用、
    配置文件 md5 没变），真的 `/etc/init.d/zte-mesh restart` 要等一个会掉线的窗口（[PLAN](PLAN.md) H-14，
-   属于第 9 节说的"先确认你能接受设备掉线"）。
+   属于第 9 节说的"先确认你能接受设备掉线"）。**这个窗口现在是一条命令**：把脚本传上机器后跑
+   `RESTART_NOW=1 sh /tmp/verify-install.sh`——只重启、不装包，然后看 `air_matched_plan=yes` 并且
+   `applier_writes=0`（这两行是什么意思，第 3 节末尾写了）。
 3. 判据（S2 怎么算过）：**中兴主控**上改 SSID，20 秒内在这台机器上 `iw dev` 看到的名称跟着变，改回来也能回退。
    实验台上能测的是"本插件当主控"这一半：从子节点服务起到主控的名字翻上去实测 21 秒，与"20 秒内"同量级；
    真中兴主控那一半还在等真机窗口。
@@ -202,4 +212,7 @@ apk del luci-app-zte-mesh zte-mesh     # 再把装过的包名补进这条：zte
 - **不改子路由的模式**（`Mode`、自组网 V2、`VersionMode`、MESH 开关）——那是用户在子路由上自己设的。
 - 向真机推配置会**真实且持久**地改变设备设置；改 SSID、关主 SSID、ACL 封禁真实终端、信道/功率之前先确认
   你能接受设备掉线，并留着还原的基线（[REAL_CHILD](REAL_CHILD.md) 末尾有读回命令与基线）。
+- **重启这个服务也算在上面那一类**：装机的 r17 里子节点每重启一次，空中名字翻两次、家里连着的人掉线两次
+  （第 6 节）。仓库版本把种子改成从空中读回，要证的正是"重启一次都不写"，而这一条只能在真重启上读出来
+  （[PLAN](PLAN.md) H-14）——所以重启子节点之前，仍按会掉线来安排。
 - 仓库里不放任何密码和密钥：telnet 口令只从环境变量 `ZTE_TN_PASS` 读，Wi-Fi 密钥只写进 0600 临时文件。
