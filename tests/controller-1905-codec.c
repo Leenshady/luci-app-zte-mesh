@@ -235,6 +235,111 @@ static void metrics_tests(void)
     CHECK(node_metrics_decode(frame, at, &metrics) && metrics.bss == 0);
 }
 
+static void bss_list_tests(void)
+{
+    struct ap_bss_metric list[CONTROLLER_AP_BSS_MAX];
+    uint8_t frame[CONTROLLER_1905_MAX_BYTES];
+    static const uint8_t bssid_a[6] = {2, 0, 0, 0, 0x19, 0xe4};
+    static const uint8_t bssid_b[6] = {2, 0, 0, 0, 0x19, 0xe6};
+    static const uint8_t bssid_c[6] = {2, 0, 0, 0, 0x19, 0xe7};
+    uint8_t body[24];
+    size_t at;
+    unsigned int k;
+
+    /* Two BSSes in one frame: two entries, in the order the frame lists them, with the counts the frame carries.
+     * node_metrics_decode() adds those two TLVs into one number; this is the other half of it. */
+    at = frame_open(frame, 0x800c, 30, 0x80);
+    memset(body, 0, sizeof(body));
+    memcpy(body, bssid_a, 6);
+    body[6] = 40;
+    body[8] = 3;
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    memcpy(body, bssid_b, 6);
+    body[8] = 2;
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    at = put_eom(frame, at);
+    CHECK(ap_metrics_by_bss(frame, at, list, CONTROLLER_AP_BSS_MAX) == 2);
+    CHECK(!memcmp(list[0].bssid, bssid_a, 6) && list[0].stations == 3);
+    CHECK(!memcmp(list[1].bssid, bssid_b, 6) && list[1].stations == 2);
+
+    /* Bytes after the fixed nine are the optional estimated-service parameters: another field, and they do not
+     * shift the count. */
+    at = frame_open(frame, 0x800c, 31, 0x80);
+    memset(body, 0, sizeof(body));
+    memcpy(body, bssid_a, 6);
+    body[6] = 11;
+    body[8] = 7;
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 20);
+    at = put_eom(frame, at);
+    CHECK(ap_metrics_by_bss(frame, at, list, CONTROLLER_AP_BSS_MAX) == 1);
+    CHECK(list[0].stations == 7);
+
+    /* A BSS with nobody on it is an entry with zero in it, not a missing entry - the page has to tell an idle
+     * radio from one that never answered. */
+    at = frame_open(frame, 0x800c, 32, 0x80);
+    memset(body, 0, sizeof(body));
+    memcpy(body, bssid_a, 6);
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    at = put_eom(frame, at);
+    CHECK(ap_metrics_by_bss(frame, at, list, CONTROLLER_AP_BSS_MAX) == 1);
+    CHECK(list[0].stations == 0);
+
+    /* Nothing to list: no AP Metrics TLV at all, and one that stops before the count. */
+    at = frame_open(frame, 3, 33, 0x80);
+    at = put_eom(frame, at);
+    CHECK(ap_metrics_by_bss(frame, at, list, CONTROLLER_AP_BSS_MAX) == 0);
+    at = frame_open(frame, 0x800c, 34, 0x80);
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 8);
+    at = put_eom(frame, at);
+    CHECK(ap_metrics_by_bss(frame, at, list, CONTROLLER_AP_BSS_MAX) == 0);
+
+    /* A frame that ends in the middle of a count keeps the entries before the damage: the walk stops where the
+     * bytes stop. */
+    at = frame_open(frame, 0x800c, 35, 0x80);
+    memcpy(body, bssid_a, 6);
+    body[8] = 3;
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    memcpy(body, bssid_b, 6);
+    at = put_header(frame, at, CONTROLLER_TLV_AP_METRICS, 9);
+    memcpy(frame + at, body, 4);
+    at += 4;
+    CHECK(ap_metrics_by_bss(frame, at, list, CONTROLLER_AP_BSS_MAX) == 1);
+    CHECK(!memcmp(list[0].bssid, bssid_a, 6));
+
+    /* One BSS counted twice is not one number we can pick, so the whole list goes back and the caller uses the
+     * frame's own total instead of a sum that would be too small. */
+    at = frame_open(frame, 0x800c, 36, 0x80);
+    memcpy(body, bssid_a, 6);
+    body[8] = 4;
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    body[8] = 5;
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    at = put_eom(frame, at);
+    CHECK(ap_metrics_by_bss(frame, at, list, CONTROLLER_AP_BSS_MAX) == 0);
+
+    /* A list the caller cannot hold whole is no list either: three BSSes asked of a two-slot array come back as
+     * nothing, while the same frame does list when the array fits. */
+    at = frame_open(frame, 0x800c, 37, 0x80);
+    memcpy(body, bssid_a, 6);
+    body[8] = 1;
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    memcpy(body, bssid_b, 6);
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    memcpy(body, bssid_c, 6);
+    at = put_tlv(frame, at, CONTROLLER_TLV_AP_METRICS, body, 9);
+    at = put_eom(frame, at);
+    CHECK(ap_metrics_by_bss(frame, at, list, 2) == 0);
+    CHECK(ap_metrics_by_bss(frame, at, list, 3) == 3);
+    for (k = 0; k < 3; k++)
+        CHECK(list[k].stations == 1);
+
+    /* A caller that asks for more slots than the decoder ever fills, for none, or for no array at all gets
+     * nothing: the limit is the array it handed over, not a number written here. */
+    CHECK(ap_metrics_by_bss(frame, at, list, 0) == 0);
+    CHECK(ap_metrics_by_bss(frame, at, list, CONTROLLER_AP_BSS_MAX + 1) == 0);
+    CHECK(ap_metrics_by_bss(frame, at, NULL, CONTROLLER_AP_BSS_MAX) == 0);
+}
+
 static void vendor_tests(void)
 {
     struct zte_cursor cursor;
@@ -415,6 +520,7 @@ int main(void)
     header_tests();
     tlv_walk_tests();
     metrics_tests();
+    bss_list_tests();
     vendor_tests();
     inventory_tests();
     captured_tests();

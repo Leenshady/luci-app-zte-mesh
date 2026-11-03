@@ -13,10 +13,13 @@
  */
 #define _GNU_SOURCE
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include "../controller-1905.h"
 #include "../controller-peer.h"
@@ -200,9 +203,9 @@ static void two_children(void)
     unsigned int temps;
 
     at = put_ap_metrics(frame, frame_open(frame, child_a, 0x800c, 7), child_a, 3);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2); /* the digest, plus one file for that BSS */
     at = put_ap_metrics(frame, frame_open(frame, child_b, 0x800c, 8), child_b, 7);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
 
     /* Both are still there: the second child did not overwrite the first, and each keeps its own count. */
     EXPECT(child_a, "metrics", "stations=3\nhops=1\n");
@@ -211,7 +214,7 @@ static void two_children(void)
 
     /* A second report from one child replaces its own value, and only its own. */
     at = put_ap_metrics(frame, frame_open(frame, child_a, 0x800c, 9), child_a, 1);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
     EXPECT(child_a, "metrics", "stations=1\nhops=1\n");
     EXPECT(child_b, "metrics", "stations=7\nhops=1\n");
 
@@ -233,19 +236,19 @@ static void one_frame_several_keys(void)
     at = frame_open(frame, child_a, 0x800c, 14);
     at = put_ap_metrics(frame, at, child_a, 6);
     at = put_ap_bss(frame, at, child_a, 3);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
     EXPECT(child_a, "metrics", "stations=6\nbss=3\nhops=1\n");
 
     at = frame_open(frame, child_a, 0x800c, 15);
     at = put_ap_metrics(frame, at, child_a, 6);
     at = put_ap_metrics(frame, at, child_b, 4);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 3);
     EXPECT(child_a, "metrics", "stations=10\nhops=1\n");
 
     /* A count of zero is still a count: the file has to say so, or the page cannot tell "nobody associated" from
      * "no report yet". */
     at = put_ap_metrics(frame, frame_open(frame, child_a, 0x800c, 16), child_a, 0);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
     EXPECT(child_a, "metrics", "stations=0\nhops=1\n");
 }
 
@@ -257,7 +260,7 @@ static void relayed_frames_are_the_senders(void)
     /* Counts have no AL MAC of their own, so they are filed under the node that put the frame on the wire, and the
      * relay bit becomes hops=2 on that file. The light below is the one field that names its own node. */
     at = put_ap_metrics(frame, frame_from_relay(frame, relay, 0x800c, 17), relay, 4);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
     EXPECT(relay, "metrics", "stations=4\nhops=2\n");
 }
 
@@ -291,9 +294,140 @@ static void light_is_another_file(void)
     at = frame_open(frame, child_b, 0x000e, 13);
     at = put_vendor_light(frame, at, child_b, 1);
     at = put_ap_metrics(frame, at, child_b, 5);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 3);
     EXPECT(child_b, "light", "light=1\n");
     EXPECT(child_b, "metrics", "stations=5\nhops=1\n");
+}
+
+/* The MAC as the service spells it in a file name - what controller_peer_bss_load() is keyed by. */
+static void mac_text_of(const uint8_t *mac, char *out)
+{
+    sprintf(out, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+/* One entry file, aged `seconds` into the past: a BSS that stopped reporting is what a stale file is. */
+static void age_bss_file(const uint8_t *mac, const uint8_t *bssid, long seconds)
+{
+    char path[300];
+    struct timespec when[2];
+    time_t now = time(NULL);
+    when[0].tv_sec = now - seconds;
+    when[0].tv_nsec = 0;
+    when[1] = when[0];
+    snprintf(path, sizeof(path), "%s/%02x:%02x:%02x:%02x:%02x:%02x.%02x:%02x:%02x:%02x:%02x:%02x.sta", peers,
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+             bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+    CHECK(!utimensat(AT_FDCWD, path, when, 0));
+}
+
+/* A file put there by something other than a frame: the reader has to be able to say no to it. */
+static int write_stray(const char *name, const char *text)
+{
+    char path[300];
+    FILE *f;
+    snprintf(path, sizeof(path), "%s/%s", peers, name);
+    f = fopen(path, "w");
+    if (!f)
+        return 0;
+    fputs(text, f);
+    fclose(f);
+    return 1;
+}
+
+/* Empty the directory. The case below reads every file in it, so it wants the state the other cases leave behind -
+ * and it leaves none of its own behind, which is why the cases after it can still count MACs. */
+static void clear_peers(void)
+{
+    DIR *dir = opendir(peers);
+    struct dirent *entry;
+    char path[512];
+    if (!dir)
+        return;
+    while ((entry = readdir(dir))) {
+        if (entry->d_name[0] == '.')
+            continue;
+        snprintf(path, sizeof(path), "%s/%s", peers, entry->d_name);
+        (void)unlink(path);
+    }
+    closedir(dir);
+}
+
+static void stations_are_per_bss(void)
+{
+    uint8_t frame[CONTROLLER_1905_MAX_BYTES];
+    struct peer_bss_load load;
+    uint8_t guest[6] = {2, 0, 0, 0, 0x19, 0xf3};
+    char mac_a[18], mac_b[18];
+    size_t at;
+
+    clear_peers();
+    mac_text_of(child_a, mac_a);
+
+    /* Nothing reported yet is not zero reported: the reader says so by returning 0. */
+    CHECK(!controller_peer_bss_load(mac_a, 30, &load));
+
+    /* One frame, two BSSes: one file each, and the total is what the node reports. */
+    at = frame_open(frame, child_a, 0x800c, 60);
+    at = put_ap_metrics(frame, at, child_a, 3);
+    at = put_ap_metrics(frame, at, guest, 5);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 3);
+    CHECK(controller_peer_bss_load(mac_a, 30, &load));
+    CHECK(load.stations == 8 && load.entries == 2);
+    EXPECT(child_a, "metrics", "stations=8\nhops=1\n");
+
+    /* The radio that answers alone afterwards is the case a digest cannot hold: that frame's own total is one
+     * BSS, while the other keeps its file. The number the page shows is the sum of what is live. */
+    at = put_ap_metrics(frame, frame_open(frame, child_a, 0x800c, 61), child_a, 4);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
+    EXPECT(child_a, "metrics", "stations=4\nhops=1\n");
+    CHECK(controller_peer_bss_load(mac_a, 30, &load));
+    CHECK(load.stations == 9 && load.entries == 2);
+
+    /* A BSS that stops reporting leaves the total when its own file goes stale, and takes its count with it. */
+    age_bss_file(child_a, guest, 120);
+    CHECK(controller_peer_bss_load(mac_a, 30, &load));
+    CHECK(load.stations == 4 && load.entries == 1);
+    CHECK(load.age >= 0 && load.age < 30);
+    age_bss_file(child_a, child_a, 120);
+    CHECK(!controller_peer_bss_load(mac_a, 30, &load));
+    CHECK(controller_peer_bss_load(mac_a, 0, &load)); /* max_age 0 = no limit, as read_peer() treats it */
+    CHECK(load.entries == 2);
+
+    /* An entry belongs to the node that reported it: the same BSSID under another child does not move this one,
+     * which still has only its two aged files. */
+    at = put_ap_metrics(frame, frame_open(frame, child_b, 0x800c, 62), guest, 7);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
+    mac_text_of(child_b, mac_b);
+    CHECK(controller_peer_bss_load(mac_b, 30, &load));
+    CHECK(load.stations == 7 && load.entries == 1);
+    CHECK(!controller_peer_bss_load(mac_a, 30, &load));
+
+    /* A frame that counts the same BSS twice is not splittable, so nothing per-BSS is written and the digest keeps
+     * the whole sum: a list that would be too small must never look like a measurement. */
+    at = frame_open(frame, child_a, 0x800c, 63);
+    at = put_ap_metrics(frame, at, guest, 1);
+    at = put_ap_metrics(frame, at, guest, 2);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    EXPECT(child_a, "metrics", "stations=3\nhops=1\n");
+    CHECK(controller_peer_bss_load(mac_a, 0, &load)); /* with no age limit: the two old entries, and no third */
+    CHECK(load.entries == 2);
+
+    /* What the reader will not take: a name with the wrong tail, the halves the other way round, and a value that
+     * is not a number - the last one is the file that was a live entry, so the node goes back to having none. */
+    CHECK(write_stray("02:00:00:00:19:e3.aa:bb:cc:dd:ee:ff.staX", "99\n"));
+    CHECK(write_stray("aa:bb:cc:dd:ee:ff.02:00:00:00:19:e3.sta", "99\n"));
+    CHECK(write_stray("02:00:00:00:19:e3.02:00:00:00:19:f3.sta", "many\n"));
+    CHECK(!controller_peer_bss_load(mac_a, 30, &load));
+
+    /* And what it will: the same name with a number in it reads as that BSS reporting, which is the shape the
+     * service adds up when it picks a node's station count. */
+    CHECK(write_stray("02:00:00:00:19:e3.02:00:00:00:19:f3.sta", "2\n"));
+    CHECK(controller_peer_bss_load(mac_a, 30, &load));
+    CHECK(load.stations == 2 && load.entries == 1 && load.age <= 1);
+
+    /* The entry names are per-BSS, and the cases after this one count distinct MACs in this same directory -
+     * so this case is what opened it, and this is what closes it. */
+    clear_peers();
 }
 
 static void actions_follow_the_client(void)
@@ -445,7 +579,7 @@ static void flood_budget(void)
     for (i = 0; i < 60 && refused < 0; i++) {
         mac[5] = (uint8_t)i;
         at = put_ap_metrics(frame, frame_open(frame, mac, 0x800c, 100 + i), mac, 1);
-        if (controller_peer_note(frame, put_eom(frame, at)) == 1) {
+        if (controller_peer_note(frame, put_eom(frame, at)) == 2) {
             admitted++;
             continue;
         }
@@ -460,7 +594,7 @@ static void flood_budget(void)
     mac[5] = 0;
     EXPECT(mac, "metrics", "stations=1\nhops=1\n");
     at = put_ap_metrics(frame, frame_open(frame, mac, 0x800c, 200), mac, 9);
-    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 1);
+    CHECK(controller_peer_note(frame, put_eom(frame, at)) == 2);
     EXPECT(mac, "metrics", "stations=9\nhops=1\n");
     mac[5] = (uint8_t)refused;
     CHECK(peer_absent(mac, "metrics"));
@@ -493,6 +627,9 @@ int main(void)
     }
     setenv("ZTE_MESH_PEERS_DIR", peers, 1);
 
+    /* First, on a directory that holds nothing yet: this case reads the directory as a whole, so it wants the
+     * files the other cases leave behind out of it. */
+    stations_are_per_bss();
     two_children();
     one_frame_several_keys();
     relayed_frames_are_the_senders();

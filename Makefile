@@ -37,13 +37,14 @@ database: $(ARTIFACTS)/db-engine-probe $(ARTIFACTS)/zte-meshctl $(ARTIFACTS)/ns-
 
 $(ARTIFACTS)/db-engine-probe: db-engine-probe.c controller-run.c controller-service.c controller-service.h controller-packet.c controller-wsc.c controller-wsc-crypto.c controller-wsc-crypto.h controller-packet.h startup-views.inc multiap-cfg.c multiap-cfg.h multiap_cfg.def \
                            controller-1905.c controller-1905.h controller-steer.c controller-steer.h controller-actions.c controller-actions.h \
+                           controller-peer.c controller-peer.h \
                            agent-sync.c agent-sync.h wlan_cfg.def wlan_psk.def \
                            mesh-policies.c mesh-policies.h multiap_master.def multiap_domain.def vendor-db.h \
                            wlan-profiles.c wlan-profiles.h wlan_base.def wlan_cfg.def wlan_ssid.def \
                            wlan_psk.def dev_info.def mesh-bridge.c mesh-bridge.h Makefile $(ARTIFACTS)/manifest.json
 	$(ARMCC) $(COMMON) -march=armv7-a -mfloat-abi=soft -no-pie -nostdlib \
 	  $(shell $(ARMCC) -print-file-name=crt1.o) $(shell $(ARMCC) -print-file-name=crti.o) \
-	  $(shell $(ARMCC) -print-file-name=crtbegin.o) db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-1905.c controller-steer.c controller-actions.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c \
+	  $(shell $(ARMCC) -print-file-name=crtbegin.o) db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-1905.c controller-steer.c controller-peer.c controller-actions.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c \
 	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) -Wl,--dynamic-linker=/lib/ld-linux.so.3 \
 	  -Wl,--no-as-needed,--start-group $(VENDOR_LIBS) -lgcc -Wl,--end-group \
 	  $(shell $(ARMCC) -print-file-name=crtend.o) $(shell $(ARMCC) -print-file-name=crtn.o) -o $@

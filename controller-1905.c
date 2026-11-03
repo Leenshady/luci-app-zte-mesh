@@ -220,3 +220,32 @@ int node_metrics_decode(const uint8_t *frame, size_t bytes, struct node_metrics 
     }
     return 1;
 }
+
+unsigned int ap_metrics_by_bss(const uint8_t *frame, size_t bytes, struct ap_bss_metric *out, unsigned int max)
+{
+    struct ap_bss_metric seen[CONTROLLER_AP_BSS_MAX];
+    struct tlv_cursor cursor;
+    unsigned int type, count = 0, k;
+    const uint8_t *value;
+    size_t length;
+
+    if (!out || !max || max > CONTROLLER_AP_BSS_MAX)
+        return 0;
+    tlv_open(&cursor, frame, bytes);
+    while (tlv_next(&cursor, &type, &value, &length)) {
+        if (type != CONTROLLER_TLV_AP_METRICS || length < 9)
+            continue;
+        /* The same BSS counted twice in one frame is not two BSSes and not one number we can pick: the frame is
+         * on its own about that BSS, so the whole breakdown goes back to the frame's total. */
+        for (k = 0; k < count; k++)
+            if (!memcmp(seen[k].bssid, value, 6))
+                return 0;
+        if (count == max)
+            return 0;
+        memcpy(seen[count].bssid, value, 6);
+        seen[count].stations = be16(value + 7);
+        count++;
+    }
+    memcpy(out, seen, count * sizeof(*seen));
+    return count;
+}

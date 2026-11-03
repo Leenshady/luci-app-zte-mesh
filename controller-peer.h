@@ -2,6 +2,7 @@
 #define ZTE_CONTROLLER_PEER_H
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
 /* What one received 1905 frame leaves on disk for the topology page.
  *
@@ -16,18 +17,38 @@
  * MAC rather than under the agent that sent them, because that is the key the action table uses.
  *
  * The latest values go to `<peers dir>/<MAC>.<kind>`, written atomically, and the service reads them for state.json.
+ * A station count is the one value written twice over: the digest `<MAC>.metrics` holds the total of the last frame
+ * that carried one, and each BSS of that frame also gets its own `<MAC>.<BSSID>.sta`, which is the only form that
+ * survives a child answering per radio - the service prefers the sum of those files.
  * The directory is /run/zte-mesh/peers unless ZTE_MESH_PEERS_DIR says otherwise - that is the one thing here a host
  * test can point at a temporary directory, which is what makes "two children at once" checkable without two radios.
  *
  * Decoding lives in controller-1905.c and controller-steer.c; this file only decides what to write and writes it.
  */
 
-/* 1 or 2 = the number of files this frame produced, 0 = the frame says nothing the page shows (a fragment, another
- * vendor's frame, the daemon's status chatter, or a MAC beyond the flood budget below). A complete, unfragmented
- * 1905 CMDU is the only thing looked at.
+/* The number of files this frame produced - counting the per-BSS station files too, so a frame that reports three
+ * BSSes is four. 0 = the frame says nothing the page shows (a fragment, another vendor's frame, the daemon's status
+ * chatter, or a MAC beyond the flood budget below). A complete, unfragmented 1905 CMDU is the only thing looked at.
  *
  * The budget is per process, i.e. per daemon lifetime: anybody on the LAN can send a 1905 frame with any AL MAC, so
  * at most 32 distinct MACs are recorded. Without that a forged flood could fill the tmpfs with digest files. */
 int controller_peer_note(const uint8_t *frame, size_t bytes);
+
+/* What the per-BSS files of one node add up to. `stations` is the sum over the live entries, `entries` how many
+ * BSS reported, `age` the oldest entry still counted - the number's weakest link, which is what the page shows as
+ * the freshness of a total assembled from several frames. */
+struct peer_bss_load {
+    unsigned int stations;
+    unsigned int entries;
+    long age;
+};
+
+/* 1 = at least one `<MAC>.<BSSID>.sta` is there and younger than max_age seconds (0 = no limit), 0 = this node has
+ * no per-BSS entries at all, which is not the same as its stations being zero.
+ *
+ * A frame that lists its BSSes lets the reader count them one by one and keep each one's own age: the digest's
+ * single "stations=" line only ever holds the last frame that arrived, so a child that answers one frame per radio
+ * would alternate between its radios' counts instead of showing both. */
+int controller_peer_bss_load(const char *mac, time_t max_age, struct peer_bss_load *load);
 
 #endif

@@ -180,7 +180,10 @@ plan 里）。四项共用 `sync_runs` 这一个判据：不跑 applier 的角�
   结果进 `state.json` 的 `actions`（最新在前，最多 8 条；`status` 0 已发出、-2 格式错、-3 无此节点、-4 守护进程没就绪）。
   rpcd `luci.zte-mesh reboot_node {mac}` / `light_node {mac,on}` 写请求并最多等 8 秒（-5 = 服务没运行）。
 - `state.json` 的节点多了 `light`（-1 未知）、`light_age`、`stations`（-1 未知）；`sched` 有 `rules`、`off_all`、`off_guest`、
-  `access`（各访客倒计时）。`light`/`stations` 来自 trace 库对子节点帧的摘要（`/run/zte-mesh/peers/`，启动时清空）。
+  `access`（各访客倒计时）。`light` 来自 trace 库对子节点帧的摘要（`/run/zte-mesh/peers/`，启动时清空）。`stations`
+  优先取**逐路 BSS 的和**：`0x94` 每一路落一个 `peers/<MAC>.<BSSID>.sta`，服务把 30 秒内还活着的那几路加起来（读不到
+  才退回 `<MAC>.metrics` 摘要里的总数——摘要只有最后一帧的数，子节点按射频分别上报时会在两路之间来回换）。页面上仍是
+  一个数，看不出哪一路，每 AP 的明细还没上页。
 - **封禁与踢终端**（`controller-actions.c`）：`ban` 是"持续规则"——首次即发 `0x8016`，之后每 120 秒重发一次
   （子节点重启后不会忘记），到 `ban_minutes` 或规则被删时补发一条"放行"；`kick` 是"点一下"——`0x8014` 每 5 秒一次、
   最多 3 次，收到 `0x8015`/`0x8017` 回报即结案，超时标 `failed`。`state.json` 的 `clients[]` 每项
@@ -199,7 +202,8 @@ plan 里）。四项共用 `sync_runs` 这一个判据：不跑 applier 的角�
 
 - 用**已安装的包**接真实子节点（真子节点测试一直用 tmpfs 运行包，程序相同）；LuCI 页面在浏览器里的效果。
 - 关主 SSID 的路径（`radioN.enabled=0`、主 SSID 的 `hidden` 热更新、定时 `scope=all`）——会断开用户的 Wi-Fi。
-- 拓扑页：回程 RSSI、树状图、每个 AP 下的终端列表、软件版本字段；终端数没有独立核对。
+- 拓扑页：回程 RSSI、树状图、每个 AP 下的终端列表。软件版本（2026-11-03 批 7 主机侧做完，页面本来就有那一列，真机待验
+  H-12）与逐路终端数（批 8 主机侧做完，页面上仍只显示一个总数，逐路的数只存在 `peers/` 里，真机待验 H-13）。终端数没有独立核对（H-05）。
 - 访客限速（1905 里没有字段）、长时间稳定性、多个子节点、子节点开着 V2 而控制器关的组合。
 - 原厂为什么不发 `BeaconMetricsQuery`。
 - 封禁 / 踢终端只在主机上验过（字节、状态机、配置链）；子节点是否照做、`0x8014` 用广播 BSSID 是否被接受，都要真机（H-03）。

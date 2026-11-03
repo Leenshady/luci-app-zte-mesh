@@ -70,6 +70,24 @@ struct node_metrics {
  * value -1 for hops and 0 with their bit clear for the counts, so a caller can tell "no data" from "zero". */
 int node_metrics_decode(const uint8_t *frame, size_t bytes, struct node_metrics *metrics);
 
+/* One BSS of an AP Metrics report: which BSS the node counted on, and how many stations it counted there. */
+struct ap_bss_metric {
+    uint8_t bssid[6];
+    unsigned int stations;
+};
+
+/* A child runs one BSS per (radio, slot): two radios with a guest each is four entries, and the limit below is
+ * where the list stops being worth more than the frame's own total. */
+#define CONTROLLER_AP_BSS_MAX 16
+
+/* The AP Metrics TLVs of one frame, one entry per BSSID, in the order the frame lists them.
+ *
+ * This is the only place that keeps the per-BSS breakdown: node_metrics_decode() sums the same TLVs into one number,
+ * which is what a single-cell page needs but loses which radio is busy. A frame the list cannot hold whole - a
+ * BSSID that repeats, more distinct BSSes than `max` - returns 0 rather than a partial list, because a sum over a
+ * partial list is a too-small number that looks measured. */
+unsigned int ap_metrics_by_bss(const uint8_t *frame, size_t bytes, struct ap_bss_metric *out, unsigned int max);
+
 /* The longest version the inventory can carry. The factory receiver copies each of its strings into a 64-byte
  * member and refuses a length byte above 64, so nothing longer is ever a version. */
 #define CONTROLLER_INVENTORY_TEXT 64

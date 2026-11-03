@@ -22,6 +22,7 @@
 
 #include "controller-service.h"
 #include "controller-actions.h"
+#include "controller-peer.h"
 #include "controller-packet.h"
 #include "agent-sync.h"
 #include "wlan-profiles.h"
@@ -948,6 +949,14 @@ static int write_state(const struct service_state *state)
             int hops = read_peer(nodes[i].mac, "metrics", "hops", 300, NULL);
             if (stations < 0)
                 stations = read_peer(nodes[i].mac, "stations", "stations", 30, NULL); /* written by r10 and older */
+            {
+                /* The same frames leave one file per BSS. Where those exist they are the total: the digest above
+                 * only ever holds the last frame that arrived, so a child that answers one frame per radio would
+                 * otherwise alternate between the radios instead of showing both. */
+                struct peer_bss_load counted;
+                if (controller_peer_bss_load(nodes[i].mac, 30, &counted))
+                    stations = (int)counted.stations;
+            }
             used += (size_t)snprintf(json + used, sizeof(json) - used,
                                      "%s,\"zte\":%s,\"online\":%s,\"light\":%d,\"light_age\":%ld,\"stations\":%d,"
                                      "\"bss\":%d,\"hops\":%d,\"metrics_age\":%ld}",
