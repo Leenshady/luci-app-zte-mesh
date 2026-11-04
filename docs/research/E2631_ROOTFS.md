@@ -325,7 +325,7 @@ deauth/disassoc，而不是 11v 的 BTM Request。详见快照 §1.1。
 
 `Device.` 这一种值得单记：`WLANSSID` 同一行里 `Name` 写 `DEV.WIFI.SSID1`、`LowerLayers` 写
 `Device.WiFi.Radio.1`——**别名与全名并存**。所以顺 `LowerLayers` 去库里找父对象时，
-**很可能找不到同名行**（DB 行名多半是 `DEV.` 风格或别的形状）。
+**很可能找不到同名行**（DB 行名多半是 `DEV.` 风格或别的情况）。
 
 因为 web 页写库走的是 `OBJ_*_ID` → 表 → **行名** → 列（§7），**做 web 层自动化时行名必须带前缀**，
 只给 `P1905CFG1` 很可能匹配不上。
@@ -409,7 +409,7 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 | `OBJ_WLAN_STA_STATUS_PROFILE_ID` | `Mlo, MLOStatus, BACKHAUL` | `vue_meshstatus_json.lua`（拓扑状态 JSON） |
 | `OBJ_MESH_DEV_ID` | `t1905DevNum, Non1905DevNum, AccessType` | `QueryMeshDevtable`（httpd） |
 
-写库调用的形状：`applyOrNewOrDelInst` / `transToPostTab` / `getSpecificInstXML`，实例 ID 形如
+写库调用的情况：`applyOrNewOrDelInst` / `transToPostTab` / `getSpecificInstXML`，实例 ID 形如
 `MULTIAPDOMAIN1`。**这些就是 D3–D6 的入口命名**，比从 `0xa932`/`0xa94e` 反推省事得多。
 
 ## 8. 一个没解开的密文文件
@@ -423,11 +423,11 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 ```
 
 即**与 `config.bin` 同一族信封、type 3**（不是 type 1 的 boot、也不是 type 4 的 config）：
-60 字节头 + 单块 `{dec,enc,next}` + 数据。用 [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §10 那五个机型种子（`E263xKey0238002E` 等）
+60 字节头 + 单块 `{dec,enc,next}` + 数据。用 [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §10 那五个机型初始配置（`E263xKey0238002E` 等）
 按 AES-256-CBC/ECB 各试一遍，**全部解不出 XML**——这符合 `CONFIG_CSPCORE_DB_ENCRY_COMKEY`
 的存在：出厂默认值用的是**编译期公共密钥**，和"每机型一把"的 USB 备份密钥不是一套。
 
-**这件事的价值是负结果**：不要指望拿 config.bin 的种子去开 DB 默认库。想要 schema 就走 §6
+**这件事的价值是负结果**：不要指望拿 config.bin 的初始配置去开 DB 默认库。想要 schema 就走 §6
 （已经拿到了），或者上机 `sendcmd 1 DB p`。
 
 ## 9. 对 mesh 项目的影响（可以直接执行的部分）
@@ -437,7 +437,7 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 
 | 待办 | 之前 | 现在 |
 |---|---|---|
-| `EnVbss` / `ToVbssMode` 在哪个视图 | 未知，要上机翻 | **`MultiAPMaster`**，与 `EnBtmKickoff`/`EnRoamKick` 同表（实测，`0`/`1`） |
+| `EnVbss` / `ToVbssMode` 在哪个视图 | 未知，要上机查证 | **`MultiAPMaster`**，与 `EnBtmKickoff`/`EnRoamKick` 同表（实测，`0`/`1`） |
 | D3 信道扫描 / CAC | 只有 `SendCAC` 反汇编推断 | `MultiAPMaster.InChannelScanRptFlag=0` + **`MultiAPCfg.EnReportCenterChannel=1`** + **`P1905Cfg` 六接口全 `EnableP1905=1`**（都实测）。**发送侧全通**，D3 的缺口在接收侧。注意 `P1905Cfg` 只证"允许跑"，不证"在跑"（见下面"1905 接口使能"行） |
 | D4 VBSS | 猜测 | `MultiAPMaster.EnVbss=0` / `ToVbssMode=1`（实测，出厂关） |
 | D5 VLAN / 流量分离 | 靠 `0xa94e` 反推 | 编译期 `CONFIG_CSP_WLAN_VLAN` + `EBTABLES_{VLAN,FFE_T}` + `OBJ_PORTVLAN_ID` + 下发入口都在；**配置层实测为零**，三处落点全关：`EthVlan`(#79) **0 行**、`Brport`(#20) 16 口的 `PVID`/`IngressFiltering`/`AcceptableFrameTypes`/`PriorityTagging`/`WanPortVlan*` **八列全默认**、**`WLANCfg` 每行 7 个 per-VAP VLAN 列全 0**（`Vlan`/`VlanPriority`/`UpTagEnable`/`DownTagStripEnable`/`McastVlan`/`McastVlanPriority`/`McastDownTagStripEnable`）。**入口已定位到两侧：VAP 打/剥 tag 在 `WLANCfg`，端口默认 VLAN 在 `Brport`**；厂商启用时到底写哪侧，仍未解 |

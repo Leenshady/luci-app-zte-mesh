@@ -82,7 +82,7 @@
 ### 4.1 内核读路径里没有解密代码（E2631 2024-09 vmlinux 实证，2026-11-01）
 
 编程器固件的 rootfs 是 AES-ECB 密文，于是最自然的假设是"内核在 NAND 读路径上解密，密钥就编在里面"。
-把这颗内核（6,627,680 B，`zx_denali_nand.c` 有 BUG 点可定位）拆开逐条核过，**假设不成立**：
+把这个内核（6,627,680 B，`zx_denali_nand.c` 有 BUG 点可定位）拆开逐条核过，**假设不成立**：
 
 | 查什么 | 结果 |
 |---|---|
@@ -92,7 +92,7 @@
 | AES 原语在不在 | 在：`crypto_aes_set_key` @ `0xC015A194`、`crypto_aes_expand_key` @ `0xC0159D1C`、T 表 @ `0xC045D690` / `0xC0464668`。但 `crypto_aes_set_key` 是 `cra_cipher.cia_setkey` 回调，靠函数指针调用，**没有直接调用者**；`"aes"` 字符串（`0xC052AF40`、`0xC063A278`）也**零引用** |
 | `CBC decrypt OK!` 在哪 | `0x00619E`，和 `HASH timeout`/`RSA timeout`/`AES timeout`/`verify OK!` 连在一起 —— 属于 **Bootloader 分区（`0x0`–`0x100000`）的一级加载器**，不是内核 |
 
-所以密钥派生只有三个可能的挂点，**都不在这颗 Linux 里**：
+所以密钥派生只有三个可能的挂点，**都不在这个 Linux 里**：
 
 1. **BOOTROM / cspboot**（`0x0`–`0x100000`，LZ 之后是 ARM32，这次没反汇编）；
 2. **NAND 控制器硬件透明解密** —— 编程器关 ECC 裸读拿到的是物理密文，设备通过控制器读同一页拿到明文。
@@ -625,7 +625,7 @@ wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
 `wlan_get_wlan_multiap_mode` 只读一个 u32 位（§5.2 反汇编结论），而这个位**有对应的写入口**——
 也就是说 mesh 模式在驱动侧是可读可写的，`/proc/wlan_cfg/map/btm_kick` 那条待验证项
 （[VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) §8）由此得到符号级支持：
-`wlan_multiap_btm_kick_write` 确实存在。节点名与属性名仍需在设备上 `ls` 确认。
+`wlan_multiap_btm_kick_write` 确实存在。节指定与属性名仍需在设备上 `ls` 确认。
 
 **局限的更新**：上述三个修正都建立在「两份符号表指的是同一份源码的不同版本」这个前提上。
 固件差一年多（我们 2024-09、他们较新），`local_in_handle` 在我们那版是否**同址同存**未验证——

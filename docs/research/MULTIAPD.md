@@ -289,7 +289,7 @@ sub=0x0100 的 opcode 序列：[0, 1, 2, 0, 1, 2, ...]
    `_acdcSendApAutoConfigVendor` 里那条「长度为 0 → state 4」永远不触发。
 3. **卡在 state 3 不影响可用性**。`_acdcConfFinish`（`0x71cd4`）负责 `dbAPISave` 和
    `AcdNotifyNetworkStatus`，它只在 state 4 被调用；但 SSID / 密钥这些配置在 M2 里就已经
-   经 `CmWLANSetAPConfig` 落到 DB 并生效了 —— 实测改主控 SSID 20 秒内子节点空中名就跟着变。
+   经 `CmWLANSetAPConfig` 落到 DB 并生效了 —— 实测改主控 SSID 20 秒内子节点本机广播名就跟着变。
 
 重试也有上限：Vendor 的 `event=9` 分支比较 `ctx[band]+0xa0` 与 5，**超过就回 state 1 重新
 Search**（`0x72764`，日志 `Vendor state:vendor query timeout,send AP-autoconfiguration search
@@ -319,7 +319,7 @@ logread | grep "acdc current"                      # state/event 逐条
 
 命名规律：`acdc` = **Controller 侧**（发 M1、收 M2），`acds` = **Agent 侧**（收 M1、发 M2）。
 `_acdsWSCM2TlvInsert` 只有 152 字节，说明 M2 的主体组装在别的函数里，它只负责塞 WSC TLV——
-**想改 M2 的形状，从 `0x6e4a4` 往上找调用者**。
+**想改 M2 的情况，从 `0x6e4a4` 往上找调用者**。
 
 角色是二元的，字符串写死了编码：
 

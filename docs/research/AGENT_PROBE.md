@@ -83,7 +83,7 @@
 `controller_agent_startup()` 用 `controller-packet.c` 的合成主控陪 daemon 走完
 Topology Discovery → Query → AP-autoconfig Search → Search Response → M1 → M2。
 
-### 8.1 让 M2 被接受需要的四处帧形状
+### 8.1 让 M2 被接受需要的四处帧情况
 
 | 位置 | 原来（错） | 现在（对） | 依据 |
 |---|---|---|---|
@@ -645,7 +645,7 @@ agent 等 Search/Response，控制器等 cspd，`0x0007` 在控制器出现之�
 ### 13.3 补上控制器缺的那一步：`tools/lab/enroller.c`
 
 一个静态二进制，监听子节点的 `0x0007`，用 `0x0008` 回它；`--al-mac` 可以冒充控制器的 AL MAC，让 M1
-单播回沙箱控制器，由它跑真正的 M2。帧形状与 `controller-packet.c:controller_autoconfig_response()`
+单播回沙箱控制器，由它跑真正的 M2。帧情况与 `controller-packet.c:controller_autoconfig_response()`
 逐字节一致（35 B：`0x0f` searched role=registrar、`0x10` frequency band、`0x80` service=controller）。
 
 线上时序（`tools/lab/enroller.c` + `libzte_controller_trace.so` 双端）：
@@ -706,12 +706,12 @@ plan**。对一个被 M2 现场配置的子路由来说这正好是反的：plan
 
 `radio_section_of 5g` 原来取"第一个 band 为 5g 的 wifi-device"。实验室这台 ax3600 有**两个**：
 `radio0`（PCIe 5G 卡，ath10k，`disabled=1`）与 `radio1`（SoC 的 5G，ath11k）。于是控制器下发的 5G 行
-写进了那张空卡的 `default_radio0`，真正在空中的 `default_radio1` 一直是 `ImmortalWrt`——看起来就像
+写进了那张空卡的 `default_radio0`，实际在广播的 `default_radio1` 一直是 `ImmortalWrt`——看起来就像
 "5G 行没被应用"。
 
 现在按顺序判定：`zte_mesh.main.wifi_2g` / `wifi_5g` 明确指定 > 该 band 只有一个设备 > 该 band 只有一个
 设备没被关掉（老镜像常把备用 radio 关着）。两个都活着且没有显式指定时**不猜**：该 band 一个字段都不写，
-日志里点名 `zte_mesh.main.wifi_5g`。写错设备比不写更难查——空卡被写上控制器的 SSID，而空中什么都没有。
+日志里指定 `zte_mesh.main.wifi_5g`。写错设备比不写更难查——空卡被写上控制器的 SSID，而本机广播什么都没有。
 
 ### 13.7 现在的事实
 
@@ -725,7 +725,7 @@ plan**。对一个被 M2 现场配置的子路由来说这正好是反的：plan
 
 ### 13.8 第五个改动（B 方案）：plan 说这个 band 要开，就把关着的 radio 设备打开
 
-配置已经对了、空中什么都没有，是因为 radio 设备本身 `disabled=1`——而 `wlan-sync` 过去只写 `wifi-iface`，
+配置已经对了、本机广播什么都没有，是因为 radio 设备本身 `disabled=1`——而 `wlan-sync` 过去只写 `wifi-iface`，
 从不碰 radio 的开关。这在这台机上不是偶发：出厂镜像和实验室的 ax3600，三个 `wifi-device` **全是关的**。
 
 现在 `apply_plan` 在某个 band 的主 BSS `enabled=1` 时调 `enable_radio`；backhaul 行也一样，回程 BSS 同样需要

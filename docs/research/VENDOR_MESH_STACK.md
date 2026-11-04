@@ -50,7 +50,7 @@ meshstack.tgz  sha256 f6508f456af1655ff5aae15629c360f259b225838dae3f53a933d3c6cd
 | `libmultiapcmapi.so` / `libmultiapcfapi.so` | 58,965 / 17,900 | Multi-AP 的 CM / CF |
 | `libieee1905cmapi.so` / `libieee1905cfapi.so` | 47,800 / 25,657 | 1905.1 的 CM / CF |
 
-另外两个映射暴露了通道形状：`/SYSV0000ffff`、`/SYSV0000abab` 两个 **System V 共享内存段**，加 `/dev/mem`。
+另外两个映射暴露了通道情况：`/SYSV0000ffff`、`/SYSV0000abab` 两个 **System V 共享内存段**，加 `/dev/mem`。
 配合上一份固件里 vmlinux 的符号（`wlan_cspkernel_ops`、`get_wlan_cspkernel_param`），
 可以确定：**cspd 与 Wi-Fi 驱动之间走私有共享内存**——这一半仍然成立。
 

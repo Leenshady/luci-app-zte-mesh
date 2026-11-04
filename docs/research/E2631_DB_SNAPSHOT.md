@@ -215,7 +215,7 @@ Management Request）那条路默认是关的。做 D7 时这决定了我们该�
 | `SynRoamStaNumLmt` | 0 | `listenAgeTime` | 86400 |
 | `DelayToFastTime` | 2 | `DelayBSInterval` | 0 |
 
-### 3.3 状态机的形状（从列名读出来的，**推断**）
+### 3.3 状态机的情况（从列名读出来的，**推断**）
 
 `InitLmt / PreRoamLmt / RoamingLmt / OfflineLmt / ForbidLmt` 与
 `StatusInitTimer / StatusOnlineTimer / StatusSlowTimer / StatusFastTimer / StatusPreRoamTimer / StatusForbidTimer`
@@ -598,7 +598,7 @@ sendcmd 1 DB p WlanRoamingCfg   # RowCount=1，6 列
 | `RssiThresh` | -50 | 触发门限 |
 | `RssiStart` | -30 | 起始门限 |
 
-这六个字段是一组**客户端弱信号重关联**参数，形状是「信号持续低于 `RssiThresh` 达 `TimeStart` 秒
+这六个字段是一组**客户端弱信号重关联**参数，情况是「信号持续低于 `RssiThresh` 达 `TimeStart` 秒
 → 触发重新扫描/关联，每 `Interval` 秒检查一次」。**里面没有任何 11k/11v/11r 的开关位。**
 
 ⇒ 上一轮设想的"11r 可能是配置层没开"**不成立**。D7 的"固件不支持 FT"现在有**两条独立证据**：
@@ -922,7 +922,7 @@ band 归属**仍未定**（Radio.1 是 2.4G 还是 5G），要从 `WLANBase`/`WL
 两点影响：
 
 - **引用会跨两套标识**：`DEV.` 是 ZTE 自己缩的别名，`Device.` 是标准全名。做 web 层或 DB 写入时，
-  顺着 `LowerLayers` 去找 `Device.WiFi.Radio.1` 这一行，**在 DB 里很可能找不到**（行名多半是别的形状）。
+  顺着 `LowerLayers` 去找 `Device.WiFi.Radio.1` 这一行，**在 DB 里很可能找不到**（行名多半是别的情况）。
 - `Radio.1`/`Radio.2` 在配置库里对应哪张表、哪一行，**本轮没有 dump**——`WLANBase`(#258) 是最可能的落点。
   这也正好是 band 归属的解所在。
 
@@ -1148,7 +1148,7 @@ Z506 实际跑 1905/ACD 的是 `wlan0` + `wlan5g0`（**两个频段各取第一�
 
 ### 11.8 三条只登记、不当证据的
 
-| 发现 | 情况 | 为什么不判 |
+| 发现 | 情况 | 为什么不作判定 |
 |---|---|---|
 | `BandWidth` = 0 / 4，`Standard` = 7 / 14 | 2.4G 与 5G 各一组值 | 没枚举表。若 `BandWidth` 是 20/40/80/160 的序号，4 已越界，说明不是这个排法 |
 | `MapAccessAttr` = 32 / 64 | 只有两个值；**64 的两行正好是隐藏的两行**（AP4/AP8） | 只有两个样本、且与"隐藏"完全共线，分不清它编码的是隐藏、回程、还是 mesh 接入属性 |
@@ -1169,7 +1169,7 @@ sendcmd 1 DB p AclCfg            # RowCount=0
 
 ### 12.1 `WLANPSK`：8 行 × 4 列 —— 密钥拿不到，但层级拿到
 
-| 列 | 值（8 行一致的形状） | 读法 |
+| 列 | 值（8 行一致的情况） | 读法 |
 |---|---|---|
 | `ViewName` | `DEV.WIFI.AP1.PSK1` … `AP8.PSK1` | 每个 AP 一个 PSK 实例 |
 | `WLANViewName` | `DEV.WIFI.APn` | 指回父 AP，层级显式 |

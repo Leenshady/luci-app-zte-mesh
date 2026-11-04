@@ -20,7 +20,7 @@
    的（lab 里没有节点，走不到 `radio_select`），不是线上抓的。
 4. **`0x0008`（AP 自动配置响应）我们比原厂少两个 TLV**：原厂的响应带 `0xb3` Multi-AP Profile 和
    EOM，我们的只有 `0x0f`/`0x10`/`0x80`。同样会被 dissector 标 malformed。**这一处故意不改**：
-   现有形状是 Z506 上验证过能触发 M1 的那一份（`controller-packet.c` 的注释与
+   现有情况是 Z506 上验证过能触发 M1 的那一份（`controller-packet.c` 的注释与
    REAL_CHILD 第 1 节），没有子路由可复验之前不动它，只加注释说明。
 5. **`0x8006`/`0x8007` 的编号是对的**：dissector 的表里 `0x8006` = Channel Selection Request、
    `0x8007` = Channel Selection Response，与 `controller-packet.c` 的请求/应答配对一致。
@@ -86,7 +86,7 @@ dst 组地址、src 是本机 AL MAC。字节与字段一一对应（offset 从�
 
 ### 3.2 `0x0008` AP autoconfiguration response（35 字节，未上线，静态核对）
 
-`controller-packet.c:controller_autoconfig_response()` 的形状，lab 里只有 enroller 的
+`controller-packet.c:controller_autoconfig_response()` 的情况，lab 里只有 enroller 的
 `response_frame()` 会发它（听 `0x0007` 才回，这次没触发）。
 
 | 偏移 | 我们发的 | dissector | 判定 |
@@ -111,7 +111,7 @@ dst 组地址、src 是本机 AL MAC。字节与字段一一对应（offset 从�
 
 注意 `8b` 里那个"操作类计数"字节：直觉上会写成"操作类 + 信道列表"，dissector 的解析说明它是
 **先计数再列表**（`Operating class count: 1` → 列表里一项 → `Channel list count: 1` → 信道）。
-按直觉写出来的形状（去掉那个 `01`）反而被 dissector 判 malformed，已实测。
+按直觉写出来的情况（去掉那个 `01`）反而被 dissector 判 malformed，已实测。
 
 ## 4. 对端在同一根线上发的帧（原厂 `multiapd`）
 
@@ -138,9 +138,9 @@ dst 组地址、src 是本机 AL MAC。字节与字段一一对应（offset 从�
 | # | 差异 | 证据 | 处置 |
 |---|---|---|---|
 | 1 | `0x0007` 缺 End of Message | 12 帧全被标 `[Malformed Packet]`；补三个 0 后同一帧干净；原厂四类帧全带 EOM | **已修**（`enroller.c` `search_frame()`），改完重抓 34 帧 0 malformed，且对端照样回 `0x0008` |
-| 2 | `0x0008` 缺 `0xb3` 与 EOM | 静态构造 + 原厂 42 字节响应逐字段对照 | **不改**，只加注释：现有形状是 Z506 上验过触发 M1 的那一份，动它要重新做真机验收（MESH_INTEROP 硬约束 4） |
+| 2 | `0x0008` 缺 `0xb3` 与 EOM | 静态构造 + 原厂 42 字节响应逐字段对照 | **不改**，只加注释：现有情况是 Z506 上验过触发 M1 的那一份，动它要重新做真机验收（MESH_INTEROP 硬约束 4） |
 | 3 | `0x8006` 尾部 11 字节 0 被读成 extraneous | dissector 警告（warning，非 error） | **不改**：那是太网最小帧 60 字节的填充，真网卡也会补，只是我们补在用户态 |
-| 4 | `0x0007` 声明 `Supported service = Agent`、`Searched service = Controller` | dissector 逐字段；原厂响应把发送方当 agent | **记录待判**：这是"以 agent 身份找控制器"的形状。若本意是控制器去发现 agent，这两个 TLV 的值要反过来 —— 需要一台真子路由观察谁回应，不在 lab 里猜 |
+| 4 | `0x0007` 声明 `Supported service = Agent`、`Searched service = Controller` | dissector 逐字段；原厂响应把发送方当 agent | **记录待判**：这是"以 agent 身份找控制器"的情况。若本意是控制器去发现 agent，这两个 TLV 的值要反过来 —— 需要一台真子路由观察谁回应，不在 lab 里猜 |
 | 5 | `MESH_INTEROP` 第 2 节 CMDU 名字错位 | `tshark -G values` 的表：`0x8001` AP Capability Query、`0x8002` AP Capability Report、`0x8003` Multi-AP Policy Config Request、`0x8004/0x8005` Channel Preference Query/Report | 已按表改正 |
 
 ## 6. 局限

@@ -1,7 +1,7 @@
 # 实验室机器（x86_64 Ubuntu 编译机 + 两台设备）
 
 在一台普通 x86_64 Ubuntu 上编译并运行这套代码，不需要 mac、不需要路由器、不需要原厂固件镜像。架构与运行原理见 [ARCHITECTURE.md](ARCHITECTURE.md)，真机流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。
-本文只拥有两件事：**第 2.1 节的实验机台账**和**第 4.2 节的 ARM32 模拟器判定表**——别处引用它们，不在别处重复；各套测试的条数基线在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，真机待办在 [PLAN](PLAN.md) 第 5 节。
+本文只拥有两件事：**第 2.1 节的实验机清单**和**第 4.2 节的 ARM32 模拟器判定表**——别处引用它们，不在别处重复；各套测试的条数基线在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，真机待办在 [PLAN](PLAN.md) 第 5 节。
 
 ## 1. 能做什么、不能做什么
 
@@ -24,11 +24,11 @@ cat /proc/sys/fs/binfmt_misc/qemu-arm   # 应有 flags: PF（qemu-user-static �
 
 ## 2.1 另外两台：真机 AX3600 与 x86_64 的 immortalwrt
 
-实验台三台机器都在 `192.168.1.0/24`，二层互通（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。这张表是**实验机台账的唯一权威**，[FEATURE_STATUS](FEATURE_STATUS.md)、[DEVELOPMENT](DEVELOPMENT.md)、[INSTALL](INSTALL.md) 都指回这里，不再各写一份机器名单。登实验机一律走 `tools/lab/rssh.py`（密码登录，本机没有 sshpass；**口令只在本机 `.local/lab-env.md`**，已 gitignore，不入库，也不复述进任何文档、日志或命令回显）。
+实验台三台机器都在 `192.168.1.0/24`，二层互通（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。这张表是**实验机清单的唯一权威**，[FEATURE_STATUS](FEATURE_STATUS.md)、[DEVELOPMENT](DEVELOPMENT.md)、[INSTALL](INSTALL.md) 都指回这里，不再各写一份机器名单。登实验机一律走 `tools/lab/rssh.py`（密码登录，本机没有 sshpass；**口令只在本机 `.local/lab-env.md`**，已 gitignore，不入库，也不复述进任何文档、日志或命令回显）。
 
 ```sh
 export MSYS_NO_PATHCONV=1          # Git Bash 会把 /tmp/x 改写成 Windows 路径
-python tools/lab/rssh.py list      # 台账
+python tools/lab/rssh.py list      # 清单
 python tools/lab/rssh.py ax3600 --bench
 python tools/lab/rssh.py owrt 'uci show zte_mesh'
 python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
@@ -43,7 +43,7 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 ## 3. 日常流程
 
 ```sh
-# 从 Windows/mac 工作区同步（LAB_HOST 用第 2.1 台账里 ubuntu 的地址；三个环境变量都是必填）
+# 从 Windows/mac 工作区同步（LAB_HOST 用第 2.1 清单里 ubuntu 的地址；三个环境变量都是必填）
 LAB_HOST=192.168.1.191 LAB_USER=zzb LAB_PASS=… python3 tools/lab/push.py
 # 首次或删过 out/ 之后：从运行包重建 out/runtime + manifest.json（见第 5 节）
 python3 tools/lab/bootstrap-out.py

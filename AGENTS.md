@@ -11,7 +11,7 @@
 |---|---|
 | 构建、跑控制器、测试、分支与 `prebuilt/` | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | 装机上手、页面两个开关怎么摆出三种拓扑、卸载与"设了没动静" | [docs/INSTALL.md](docs/INSTALL.md) |
-| 碰实验机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器台账的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
+| 碰实验机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器清单的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
 | 上真子路由 Z506 | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的真机红线 |
 | 改服务模式、UCI/LuCI 映射 | [docs/SERVICE.md](docs/SERVICE.md) |
 | 查原厂数据库字段 | [docs/milestones/SCHEMA.md](docs/milestones/SCHEMA.md)、[docs/milestones/POLICIES.md](docs/milestones/POLICIES.md)、[docs/research/E2631_DB_SNAPSHOT.md](docs/research/E2631_DB_SNAPSHOT.md) |
@@ -70,5 +70,7 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 只读资料不在这三处里：取证存档（`research/`、`milestones/`、`E2631_*`）记录的是"当时在那台机器上看到什么"，结论变了不回去改它们——要写新结论就写进上面第 1 项。查原厂字段仍然照 `SCHEMA.md`/`POLICIES.md`，冻结指的是不再同步，不是不许读。
 
 提交前跑坏链与行尾检查；新文件用 LF（`.gitattributes` 已全局 `text=auto eol=lf`）。
+
+**用词**：不造词，通用缩写保持英文（写 SSID，不写"无线名称"）。`air`→"本机当前广播的 SSID"、`seed`→"SSID 初始配置"、`per-BSS`→"按 BSSID"、`applier` 原样引用；代码标识符与 `verify-install.sh` 的键名不译。对照表在 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 第 9 节。
 
 > `docs/journal/` 原名 `.workbuddy/memory/`，2026-11-02 迁入仓库。工具自带的会话记忆是本机文件，不随 clone 走——能让下一个人看到的只有这个目录。

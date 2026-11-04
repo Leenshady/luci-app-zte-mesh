@@ -39,7 +39,7 @@ README 说"推荐用工具包自带的 `node.exe`"——这条是对的：整套
 | 步 | 动作 | 通道 | 真正的门槛 |
 |---|---|---|---|
 | 1 | 刷 `6B5改_109适配.bin`（26.8 MB 官方改包） | Web 版本升级 或 `http://192.168.5.1/supgrade.html` | 只改机型/区域标识，内核 rootfs 仍是官方加密件 |
-| 2 | 备份配置 → `config.bin` 丢进本目录 → 双击 `点击开启telnet.bat` → 恢复该配置 | Web 备份/恢复 | 需要先知道该机型的配置密钥种子（见 §3） |
+| 2 | 备份配置 → `config.bin` 丢进本目录 → 双击 `点击开启telnet.bat` → 恢复该配置 | Web 备份/恢复 | 需要先知道该机型的配置密钥初始配置（见 §3） |
 | 3 | 双击 `一键换型号并刷boot.bat` | telnet 23（admin/admin） | `curUpgradeKey1` 必须 = 0，否则脚本自己拒绝 |
 | 4 | 重启 | — | 型号变 `ZXHN E2631`，bootloader 变新门 (1351,5211) |
 
@@ -83,7 +83,7 @@ README 说"推荐用工具包自带的 `node.exe`"——这条是对的：整套
 | `keySeed` | `"<机型>Key<8 位十六进制>"`，恰好 **16 字符** → `SHA256(ascii)` 32 字节 → AES-**256** |
 | `ivSeed` | `"<机型>Iv<8 位十六进制>"`，恰好 **15 字符** → `SHA256(ascii)[0:16]` → IV |
 
-已确认的种子（`telnet_enable.js` 的 `PROFILES`，按顺序试，靠 CRC 判对错）：
+已确认的初始配置（`telnet_enable.js` 的 `PROFILES`，按顺序试，靠 CRC 判对错）：
 
 | 机型 | 8 位后缀 |
 |---|---|
@@ -95,8 +95,8 @@ README 说"推荐用工具包自带的 `node.exe`"——这条是对的：整套
 同一套编号在 bootloader 里也有痕迹（§5.4）。
 
 判对错靠**五重校验**，不靠文件名或机型标签：外层长度 → 内层头 → 内层头 CRC32 →
-数据 CRC32 → zlib 解压长度 → XML 形状 → 加密后再解密的往返比对。全过才算命中，
-所以拿错种子必然失败而不是"解出垃圾"。
+数据 CRC32 → zlib 解压长度 → XML 情况 → 加密后再解密的往返比对。全过才算命中，
+所以拿错初始配置必然失败而不是"解出垃圾"。
 
 上面这张表已被一个独立的英文实现 `zcu` 逐字段确认过（含两个 CRC32 的覆盖范围，见 §10.2）。
 
@@ -113,8 +113,8 @@ TS_UName=admin / TS_UPwd=admin`，外加把 `ServName="TELNET"` 那条端口规�
 | 3 | `ServName="TELNET"` 判定从 `includes('…/>')` 改为正则 | 同源问题：带 `defval` 的行整条漏匹配，端口规则不会被打开，telnet 白开 |
 | 4 | 新增 `--keep-creds` 和 `TELNET_USER`/`TELNET_PASS` 环境变量 | 默认仍是 admin/admin |
 
-第 2、3 条是同一类错误的两个面：**XML 不是按固定形状序列化的**，凡是用"精确字符串相等"
-判断属性存在，遇到多一个 `defval` 就静默失效。改完的版本对两种形状都成立。
+第 2、3 条是同一类错误的两个面：**XML 不是按固定情况序列化的**，凡是用"精确字符串相等"
+判断属性存在，遇到多一个 `defval` 就静默失效。改完的版本对两种情况都成立。
 
 ## 5. `boot.bin` 拆解
 
@@ -139,7 +139,7 @@ TS_UName=admin / TS_UPwd=admin`，外加把 `ServName="TELNET"` 那条端口规�
 ### 5.2 镜像本体 = mtd1 原样内容（两段式 + 两个包尾）
 
 外层头之后的 558 656 字节，就是 mtd1 从 0 开始的原始内容。**用同目录的 E1630/6B5 整机 dump
-逐偏移比对过，布局完全同构**（`e1630.raw` 偏移 0 起就是同一形状）：
+逐偏移比对过，布局完全同构**（`e1630.raw` 偏移 0 起就是同一情况）：
 
 | 镜像内偏移 | 内容 |
 |---|---|
@@ -313,7 +313,7 @@ tag id `33024` = `0x8100`，分区 `/dev/mtd2`（脚本里 `OPT.part`）。写�
 ### 7.1 README 与实际文件的三处不符
 
 - README 让双击 `config-telnet-enable.bat`，实际叫 `点击开启telnet.bat`；
-- README 说 E2638 / E1630 的种子"未经验证"，代码里它们和已验证机型**同等对待**（同一套五重校验）；
+- README 说 E2638 / E1630 的初始配置"未经验证"，代码里它们和已验证机型**同等对待**（同一套五重校验）；
 - README 没提 `E2637`，改过的脚本里它排第一位。
 
 判断依据以 **JS 里的 `PROFILES`** 为准，README 只是历史说明。
@@ -323,7 +323,7 @@ tag id `33024` = `0x8100`，分区 `/dev/mtd2`（脚本里 `OPT.part`）。写�
 ### 8.1 立刻可用：解自己的 `config.bin`，把 mesh 配置库读出来
 
 这条路给了我们一把**不用 root 就能拿原厂配置库**的钥匙：Web 界面备份 → `config.bin` →
-用 `PROFILES` 里的种子解出 XML。里面是 `DM`/`Tbl`/`Row` 结构，也就是我们在
+用 `PROFILES` 里的初始配置解出 XML。里面是 `DM`/`Tbl`/`Row` 结构，也就是我们在
 [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 里靠 `db-engine-probe` 一行行摸的那张库。
 对 1905 相关项的用处：**直接把原厂 mesh 配置（SSID/回传/VLAN/ACL/漫游过滤表）的字段名和取值看清楚**，
 不用再猜 `0xa932/0xa94e/0xa971` 这些总线号背后写的是哪一行。
@@ -332,7 +332,7 @@ tag id `33024` = `0x8100`，分区 `/dev/mtd2`（脚本里 `OPT.part`）。写�
 
 ### 8.2 顺手做的交叉实验（负结果，别再重复）
 
-配置密钥用的是 `SHA256("<机型>Key<8hex>")` 派生，这套"种子当密钥"的风格让我怀疑
+配置密钥用的是 `SHA256("<机型>Key<8hex>")` 派生，这套"初始配置当密钥"的风格让我怀疑
 rootfs 是不是也这么来的。用 `e1630.raw` 的 rootfs 密文区（`0xA40000`，22.25 MiB）
 试了 **6 机型 × 2 后缀 × 7 种派生 = 84 组**（`SHA256`/`MD5`/`MD5×2`/ASCII 直用 ×
 ECB/CBC × 128/192/256 位），输入 1 MiB：
@@ -389,13 +389,13 @@ node telnet_enable.js config.bin out.bin --keep-creds   # 不动账号密码
 | `ZTE ZXHN config.bin decrypt AES key` | 网页搜索 | **命中 ZCU**（见 10.2） |
 | `zcu type 4 signature keygen` | 网页搜索 | 命中 ZCU 的 deepwiki 文档，含各型号密钥生成表 |
 
-结论：这五个种子的字面值**没有任何人公开过**。但**这套构造法早被独立实现过**，而且细节逐条对得上。
+结论：这五个初始配置的字面值**没有任何人公开过**。但**这套构造法早被独立实现过**，而且细节逐条对得上。
 
 ### 10.2 ZCU：同一格式的英文参考实现
 
 `mkst/zte-config-utility`（Python，README 说核心来自 Felis-Sapien 的 pastebin 泄漏，社区有大量 fork）。
 它自报验证过的机型是 H298A/H298N/H267A/H268Q/H298Q/H168N/H108N/F600W/F680/SR7410 那一批，
-**没有 E 系**——所以 E 系的种子没进它的表。
+**没有 E 系**——所以 E 系的初始配置没进它的表。
 
 三个常量（`zcu/constants.py`）：
 
@@ -446,7 +446,7 @@ def signature_keygen(params, key_suffix="Key02721401", iv_suffix="Iv02721401"):
     return (nospaces + key_suffix, nospaces + iv_suffix, ...)
 ```
 
-`<签名去空格><Key|Iv><8 位>`——**和我们这五个种子的拼法完全同构**。它已收录的后缀：
+`<签名去空格><Key|Iv><8 位>`——**和我们这五个初始配置的拼法完全同构**。它已收录的后缀：
 
 | 后缀 | 用在 |
 |---|---|
@@ -494,7 +494,7 @@ python3 examples/decode.py config.bin config.xml \
 通用 `signature_keygen` 会读 `params.key_suffix/iv_suffix`，于是拼出我们要的串。
 
 **未实测**：手上没有真实 `config.bin` 样本。要试先按 §9 确认文件头是 `01020304 00000004`。
-命中就说明可以拿它替代那两个 JS（对我们更有用：Python、直接吐 XML、还能把种子回馈上游）。
+命中就说明可以拿它替代那两个 JS（对我们更有用：Python、直接吐 XML、还能把初始配置回馈上游）。
 
 ### 10.6 顺手核对了 §7 第 4 条
 
@@ -526,7 +526,7 @@ crc32(全部压缩块)  = 0x94a47222 = field[5]
   真要用两个都试。
 - 顺带发现 `Zlion-Y/zte-e2631-openwrt`（GitHub，E2631 主线 OpenWrt 移植，带 `docs/`、`re/`、
   `board/`），正是这套配置工具作者的另一个仓库。它里面**没有** `0238002E`（代码搜索 0 命中），
-  所以种子确实没公开；但那个仓库对我们 E2631 那条线可能有料（驱动对齐、
+  所以初始配置确实没公开；但那个仓库对我们 E2631 那条线可能有料（驱动对齐、
   `wanlan-adaptive` 逆向记录、有线吞吐测量）。
 
 ## 11. 深挖 §10.7 的两条线索（2026-11-01）
@@ -571,7 +571,7 @@ lrwxrwxrwx  userconfig -> /defcfg        (board/caldata.out.txt)
 
 ### 11.2 `sendcmd 1 DB`：第二条读配置库的路，不用破解 `config.bin`
 
-§8.1 讲的是"解 `config.bin` 把 mesh 配置库读出来"。那需要种子、需要 Web 备份、需要五重校验。
+§8.1 讲的是"解 `config.bin` 把 mesh 配置库读出来"。那需要初始配置、需要 Web 备份、需要五重校验。
 **`sendcmd` 是另一条路**：设备自己有 DB 命令行，telnet 进去就能读。
 
 语义（多来源一致，且与 [MULTIAPD](MULTIAPD.md) §7 的符号对得上）：

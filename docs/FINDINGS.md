@@ -61,7 +61,7 @@
 `P1905AcdBssCfg.CustomTag=68`、`CmWLANGetAPConfig` 对槽位 0 到 3 都成功、每 BSS 的 `MapAccessAttr`（主 BSS 32）与 `ACLPolicy`
 （主/访客 1，回程 0））、热更新那条可靠通道 `SSEND(0x2401, {u32 消息号, char name[32], u32 0})` → `multiapd.map.master`
 （消息号 `0x10206` 域/漫游阈值、`0x10205` 主控策略）与控制器地址**只有末字节可配**（`AL MAC` 默认 `02:00:00:00:19:06`；
-`ZTE_MESH_AL_LAST` / UCI `al_last` 改最后一个字节，前五字节是子路由准入检查认的形状，改成别的地址子路由直接不收）——已并入
+`ZTE_MESH_AL_LAST` / UCI `al_last` 改最后一个字节，前五字节是子路由准入检查认的格式，改成别的地址子路由直接不收）——已并入
 [REAL_CHILD](REAL_CHILD.md) 第 2 节与第 4 节、[SERVICE.md](SERVICE.md) 和 [FEATURE_STATUS](FEATURE_STATUS.md) 的 B19。
 以下两条只在本文留着：
 
@@ -126,7 +126,7 @@ Multi-AP Profile-2，WSC M1 里带 Profile-2 AP 能力 TLV、物理链路上下�
 `CfMultiapGetCurHop` 读库偏移 260 失败返 -2、修复是 `multiap-cfg.c` 启动时写 `CurHop=2` 并真机验证子路由读到 2——这些已并入
 [REAL_CHILD](REAL_CHILD.md) 第 2 节、[milestones/SCHEMA](milestones/SCHEMA.md) 与 [FEATURE_STATUS](FEATURE_STATUS.md) 的 B16。
 留着子节点侧的那条规则：控制器把自己的 `MultiAPCfg.CurHop` 原样放进厂商私有 TLV（子类型 `0x43`，大端 4 字节，在 Higher Layer
-Response 即 CMDU `0x000e` 里），子节点收到后**有线接入直接采用，无线接入减 1（≤0 则 -1）**；未修复时子路由日志的形状是
+Response 即 CMDU `0x000e` 里），子节点收到后**有线接入直接采用，无线接入减 1（≤0 则 -1）**；未修复时子路由日志的情况是
 `Get hop -2 from 02:00:00:00:19:06`。 【代码】+【真机】
 
 ## 8. 子路由 Web 的"受控后锁定"
@@ -212,7 +212,7 @@ Web 代码在 `/home/httpd/webmodules`（Lua + `.lp`）和 `/home/httpd/public/j
 
 ## 14. 还没有查清的问题
 
-并入 [PLAN](PLAN.md) 第 5 节的真机台账（`VersionMode` 其余位与"兼容模式"文案的对应 = H-08，steering 等终端动作的触发路径 = H-03，
+并入 [PLAN](PLAN.md) 第 5 节的真机清单（`VersionMode` 其余位与"兼容模式"文案的对应 = H-08，steering 等终端动作的触发路径 = H-03，
 长稳与控制器异常退出后的恢复 = H-09）与 [REAL_CHILD](REAL_CHILD.md) 第 7 节（一次干净的"控制器关 V2 + 子路由开 V2"的真机验证、
 `Policy=2` 的限制行为、`allow` 策略、5G 驱动 ACL 读回；`DropNum` 单位与 `A1` 的含义另见本文第 5 节末尾）。更早一次"只锁备用和射频、
 不锁主 Wi-Fi"的原因挂在第 8 节末尾。剩下两条只在本文的：

@@ -325,7 +325,7 @@ shim 在主线 f66c96d8（首次冷启动成功）上，由 `tools/mreplay.py` �
 读 8 个 `MULTIAPDOMAIN` 行或 Master 行，字段没写进去就报错，热更新日志里的 `status=0` 即读回一致）。第 29 轮（`session/replay-run29-p0-notify-pair/`，
 改 `roam.force`、`band_steer.enabled`、`roam.rssi24` 的组合）：Domain 与 Master 两个变化同时出现时，`PolicyConfigReq` 83 B 与 52 B 相隔约 3 ms（原厂 12 ms），
 `roam.rssi24=-62` 的 `4a` 首字节 `0x60`（= 2×(-62+110)），改回 -60 变 `0x64`；`band_steer.enabled` 变化只出一个 52 B 帧。`band_steer.enabled` 没有原厂参照帧，
-这一项的验证依据是读回一致加线上帧形状。
+这一项的验证依据是读回一致加线上帧情况。
 
 ### 11.4 第 27 轮：按频段 Renew 与槽位热更新
 | 改动 | 线上（Renew 数 / M2 / 厂商查询对） | 原厂（FEATURE_MAP 第 8 节） |
