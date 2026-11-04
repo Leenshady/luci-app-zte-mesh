@@ -107,7 +107,7 @@ python3 tests/test_i18n.py                           # 改了界面文案必须�
 | `out/`、`evidence/` | 构建产物与验证证据，含原厂二进制，**不入库** |
 
 C 侧在 2026-11-04 挪进了 `src/`：`Makefile` 逐文件列源、`tests/*.c` 的 `../` 包含前缀、`.def`/`.inc` 的同目录包含
-都要跟着改，一共 74 个跟踪文件；随包分发的 `ns-run.c`/`controller-net.c` 用的是 tar 成员名，成员名一个没动。
+都要跟着改，一共动了 74 个跟踪文件（51 个挪、23 个改）；随包分发的 `ns-run.c`/`controller-net.c` 用的是 tar 成员名，成员名一个没动。
 Python 还留在根目录——`tests/` 用 `sys.path.insert(ROOT)` 按根目录找它们，挪它们要改的是同一批引用，收益只有"看着整齐"。
 
 ## 文档
