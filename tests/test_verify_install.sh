@@ -1,7 +1,8 @@
 #!/bin/sh
-# Host test for tools/lab/verify-install.sh without a router: the five commands it reads through (ubus / apk / uci /
-# logread / date) are the same names the script takes from its own environment, so the stubs answer from fixtures and the
-# assertions are about what the script decided. Run with the shell OpenWrt uses: busybox ash tests/test_verify_install.sh
+# Host test for tools/lab/verify-install.sh without a router: the seven commands it reads through (ubus / apk / uci /
+# iw / ip / logread / date) are the same names the script takes from its own environment, so the stubs answer from
+# fixtures and the assertions are about what the script decided.
+# Run with the shell OpenWrt uses: busybox ash tests/test_verify_install.sh
 #
 # What this test guards is the judgement, not the router: which instance set a role implies, which keys of the status
 # document are read, what "nothing should have been written here" means on a controller that touches no radio. Those
@@ -16,11 +17,13 @@ FIX=$T/fix
 RUN=$T/run
 mkdir -p "$BIN" "$FIX" "$RUN"
 
-# The script takes its five commands and its run directory from the environment precisely so this test can point them
+# The script takes its seven commands and its run directory from the environment precisely so this test can point them
 # at the fixtures. Forgetting one of these would make the test read the real machine (or fail on a missing ubus).
 UBUS=$BIN/ubus
 APK=$BIN/apk
 UCI=$BIN/uci
+IW=$BIN/iw
+IP=$BIN/ip
 LOGREAD=$BIN/logread
 DATE=$BIN/date
 INIT_D=$T/init.d
@@ -37,7 +40,7 @@ ZTE_MESH_LIBEXEC=$LIBEXEC
 # the host's wall clock would judge or not judge depending on what minute someone ran it.
 FIXED_NOW=1793686800
 mkdir -p "$ROOTFS/root/lib" "$ROOTFS/root/bin" "$LIBEXEC"
-export UBUS APK UCI LOGREAD DATE INIT_D RESTART_WAIT SSID_WAIT SSID_POLL ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS ZTE_MESH_LIBEXEC
+export UBUS APK UCI IW IP LOGREAD DATE INIT_D RESTART_WAIT SSID_WAIT SSID_POLL ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS ZTE_MESH_LIBEXEC
 
 pass=0
 fail=0
@@ -74,7 +77,7 @@ EOF
 cat > "$BIN/uci" <<EOF
 #!/bin/sh
 case "\$*" in
-*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*-q\ get*)   k=\${3##*.}; f='$FIX/uci/'"\$k"; [ -f "\$f" ] && cat "\$f" || case "\$*" in *mesh_role*) sed -n '1p' '$FIX/role' ;; esac ;;
 *show\ wireless*) cat '$FIX/wireless' ;;
 *) exit 1 ;;
 esac
@@ -99,6 +102,18 @@ cat > "$BIN/date" <<EOF
 #!/bin/sh
 echo $FIXED_NOW
 EOF
+# The radio side of PLAN H-01: the script only greps these two, so one fixture per command carries the whole answer
+# (`iw dev <if> info` and `iw dev <if> station dump` share theirs -- an ssid line, an Authorized line, no 4addr).
+cat > "$BIN/iw" <<EOF
+#!/bin/sh
+[ -f '$FIX/iw' ] && cat '$FIX/iw'
+EOF
+cat > "$BIN/ip" <<EOF
+#!/bin/sh
+[ -f '$FIX/ip' ] && cat '$FIX/ip'
+EOF
+mkdir -p "$FIX/uci"
+chmod +x "$BIN/iw" "$BIN/ip"
 chmod +x "$BIN/ubus" "$BIN/uci" "$BIN/apk" "$BIN/logread" "$BIN/date"
 # The two service scripts an install has to activate; each records that it was asked to restart.
 mkdir -p "$INIT_D"
@@ -107,7 +122,7 @@ for name in rpcd zte-mesh; do
 #!/bin/sh
 # the read-back greps this file for the batch's own marker: a child that borrows its seed from the air defines
 # live_ap_iface, and the r17 script on the lab machines has zero hits for it -- so the string here is the thing
-# a packaged shell change leaves behind when nothing in the rootfs tarball moves.
+# a packaged shell change leaves behind when nothing in the rootfs tarball moves. A12b's is mesh_compatible.
 if [ "\$1" = restart ]; then
 	echo '$name' >> '$FIX/restarted'
 	# the applier's write, once per line this fixture says the restart made. Only zte-mesh: rpcd does not touch
@@ -430,7 +445,7 @@ packed_libs
 mkdir -p "$RUN/peers"
 printf 'light=0\n' > "$RUN/peers/02:00:00:00:19:e3.light"
 printf 'hops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
-printf '{"nodes":[{"mac":"02:00:00:00:19:e3","stations":-1,"bss_detail":[]}]}\n' > "$RUN/state.json"
+printf '{"nodes":[{"mac":"02:00:00:00:19:e3","zte":true,"online":true,"light":-1,"light_age":-1,"stations":-1,"bss":0,"hops":1,"metrics_age":30,"bss_detail":[]}]}\n' > "$RUN/state.json"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line RESULT PASS
@@ -444,6 +459,15 @@ check_line peers_software 0
 # evidence against the decoder and must not be graded as one
 check_line peer_reports_stations no
 check_line state_bss_detail present
+# the counts beside that condition: one peer this machine heard from, nothing it ever split, and one child row the
+# controller still calls online. These are the H-12/H-13 numbers with the companion line that makes them mean
+# something -- `peers_seen=0` would make a zero software count say nothing about the Device Inventory TLV.
+check_line peers_seen 1
+check_line sta_file_sum 0
+check_line peer_software_bytes 0
+check_line bss_detail_rows 0
+check_line nodes_rows 1
+check_line nodes_online 1
 
 # the same machine with the files a real child produces: two BSS rows and a version string
 CASE=packed-readback-full
@@ -456,6 +480,19 @@ check_rc $? 0
 check_line peers_sta 2
 check_line peers_software 1
 check_line peer_reports_stations yes
+
+# the document those same frames leave behind: write_state sums the .sta files into the node row, so `sta_file_sum`
+# and `bss_detail_rows` are two readings of one witness. Neither is judged -- an empty split is H-13's answer, not a
+# fault -- but the script has to count them against the shape the daemon really writes, or it reads zero forever.
+CASE=peer-evidence-split-rows
+printf '{"nodes":[{"mac":"02:00:00:00:19:e3","zte":true,"online":true,"light":-1,"light_age":-1,"stations":4,"bss":2,"hops":1,"metrics_age":30,"bss_detail":[{"bssid":"02:00:00:00:19:e4","stations":3,"age":12},{"bssid":"02:00:00:00:19:e5","stations":1,"age":12}]}]}' > "$RUN/state.json"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line sta_file_sum 4
+check_line peer_software_bytes 16
+check_line bss_detail_rows 2
+check_line nodes_rows 1
+check_line nodes_online 1
 
 CASE=packed-stale
 packed_libs stale
@@ -481,11 +518,13 @@ check_line probe_bss_detail unreadable
 CASE=scripts-stale
 packed_libs
 sed -i 's/live_ap_iface/borrowed_seed/' "$INIT_D/zte-mesh"
+# the A12b reader, spelled the way an r18 init spells it: still reading the retired key
+sed -i 's/mesh_compatible/mesh_v2/' "$INIT_D/zte-mesh"
 printf '#!/bin/sh\n' > "$LIBEXEC/wlan-sync"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 1
 check_line RESULT FAIL
-for label in init_seed_from_air sync_flag_by_meaning; do
+for label in init_seed_from_air sync_flag_by_meaning init_reads_mesh_compatible; do
 	if grep -q "^FAIL $label expected=yes got=no" "$out"; then pass=$((pass + 1)); else
 		fail=$((fail + 1)); echo "FAIL case $CASE: an $label that is not in the package must fail the run"; fi
 done
@@ -494,6 +533,7 @@ done
 check_line trace_per_bss_name yes
 check_line probe_bss_detail yes
 sed -i 's/borrowed_seed/live_ap_iface/' "$INIT_D/zte-mesh"
+sed -i 's/mesh_v2/mesh_compatible/' "$INIT_D/zte-mesh"
 
 # and a machine where the applier file simply is not there is not a stale one either
 CASE=scripts-absent
@@ -531,7 +571,7 @@ rm -f "$FIX/count"
 cat > "$BIN/uci" <<EOF
 #!/bin/sh
 case "\$*" in
-*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*-q\ get*)   k=\${3##*.}; f='$FIX/uci/'"\$k"; [ -f "\$f" ] && cat "\$f" || case "\$*" in *mesh_role*) sed -n '1p' '$FIX/role' ;; esac ;;
 *show\ wireless*)
 	n=0
 	[ -f '$FIX/count' ] && n=\$(cat '$FIX/count')
@@ -552,7 +592,7 @@ if grep -q '^ssid_pending' "$out"; then fail=$((fail + 1)); echo "FAIL case $CAS
 cat > "$BIN/uci" <<EOF
 #!/bin/sh
 case "\$*" in
-*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*-q\ get*)   k=\${3##*.}; f='$FIX/uci/'"\$k"; [ -f "\$f" ] && cat "\$f" || case "\$*" in *mesh_role*) sed -n '1p' '$FIX/role' ;; esac ;;
 *show\ wireless*) cat '$FIX/wireless' ;;
 *) exit 1 ;;
 esac
@@ -609,7 +649,7 @@ rm -f "$FIX/count"
 cat > "$BIN/uci" <<EOF
 #!/bin/sh
 case "\$*" in
-*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*-q\ get*)   k=\${3##*.}; f='$FIX/uci/'"\$k"; [ -f "\$f" ] && cat "\$f" || case "\$*" in *mesh_role*) sed -n '1p' '$FIX/role' ;; esac ;;
 *show\ wireless*)
 	n=0
 	[ -f '$FIX/count' ] && n=\$(cat '$FIX/count')
@@ -632,7 +672,7 @@ rm -f "$FIX/writes" "$FIX/wireless-landed"
 cat > "$BIN/uci" <<EOF
 #!/bin/sh
 case "\$*" in
-*-q\ get*)   sed -n '1p' '$FIX/role' ;;
+*-q\ get*)   k=\${3##*.}; f='$FIX/uci/'"\$k"; [ -f "\$f" ] && cat "\$f" || case "\$*" in *mesh_role*) sed -n '1p' '$FIX/role' ;; esac ;;
 *show\ wireless*) cat '$FIX/wireless' ;;
 *) exit 1 ;;
 esac
@@ -894,5 +934,121 @@ check_line master_cur_hop not-master
 check_line cur_hop 2
 rm -f "$RUN/db-profile"
 
-printf 'verify-install test: %d passed, %d failed\n' "$pass" "$fail"
+# --- the MESH compatibility switch: the page key and the daemon key answer opposite questions (A12b) -----------------
+# `mesh_compatible=1` (the page's MESH 兼容 on, accept any child router) has to reach /run/zte-mesh/config as
+# `mesh.v2=0`. Two shapes are failures and one is nothing at all: a writer that does not invert, a reader that still
+# honours the retired key, and a machine whose daemon is not running (then there is no line to compare).
+CASE=mesh-compat-inverted-ok
+mkdir -p "$FIX/uci"
+printf '1\n' > "$FIX/uci/mesh_compatible"
+printf 'mesh.role=slave\nmesh.v2=0\n' > "$RUN/config"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line mesh_compat_uci 1
+check_line mesh_v2_line 0
+check_line mesh_compat_inverted 0
+check_line RESULT PASS
+
+# the un-inverted writer: the page asks for compatibility, the daemon is told strict admission
+CASE=mesh-compat-not-inverted
+printf 'mesh.role=slave\nmesh.v2=1\n' > "$RUN/config"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+if grep -q 'FAIL mesh_compat_inverted expected=0 got=1' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: the page value must reach the service file inverted"; fi
+
+# and the other direction: 0 on the page is strict, so the line has to read 1
+CASE=mesh-compat-off
+printf '0\n' > "$FIX/uci/mesh_compatible"
+printf 'mesh.role=slave\nmesh.v2=1\n' > "$RUN/config"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line mesh_compat_inverted 1
+check_line RESULT PASS
+
+# the retired key alone: an r18 conffile still holding mesh_v2, no page key. Nobody reads it, so the service file
+# carries no mesh.v2 line -- and a line there can only have come from a reader that still honours the retired name.
+CASE=mesh-compat-retired
+rm -f "$FIX/uci/mesh_compatible"
+printf '1\n' > "$FIX/uci/mesh_v2"
+printf 'mesh.role=slave\nmesh.v2=1\n' > "$RUN/config"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line mesh_compat_uci unset
+check_line mesh_v2_legacy_uci 1
+if grep -q 'FAIL mesh_compat_inverted expected=absent got=1' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: the retired key must not drive the line"; fi
+
+CASE=mesh-compat-no-config
+rm -f "$RUN/config" "$FIX/uci/mesh_v2" "$FIX/uci/mesh_compatible"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line mesh_v2_line no-config
+
+# --- the wireless backhaul as the child holds it (PLAN H-01) --------------------------------------------------------
+# The three uci lines this package writes are judged on a slave asked for multi_ap -- without `wds` netifd refuses the
+# bridge (BRIDGE_NOT_ALLOWED) and 4addr never opens, and without `multi_ap 1` the supplicant will not even associate
+# to a backhaul BSS. The radio's own answers (iface up, an ssid, a station, the two 4addr greps) are reported.
+backhaul_child() {
+	printf 'multi_ap\n' > "$FIX/uci/backhaul"
+	printf 'sta\n' > "$FIX/uci/mode"
+	printf '1\n' > "$FIX/uci/multi_ap"
+	printf '1\n' > "$FIX/uci/wds"
+	printf 'br-lan\n' > "$FIX/uci/network"
+	printf 'radio1\n' > "$FIX/uci/device"
+	printf '0\n' > "$FIX/uci/disabled"
+	printf "wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid='FRESHR10'\nwireless.default_radio1=wifi-iface\nwireless.default_radio1.ssid='FRESHR10-5G'\nwireless.zte_backhaul_sta_5g=wifi-iface\n" > "$FIX/wireless"
+	printf 'Interface zte_backhaul_sta_5g\n\ttype station\n\tssid ZTE-BH-5G\n\tfrequency 5745\nStation 02:00:00:00:19:e4 (on zte_backhaul_sta_5g)\n\tauthorized: yes\n\tsignal: -42 dBm\n' > "$FIX/iw"
+	printf '9: zte_backhaul_sta_5g: <BROADCAST,MULTICAST,UP> mtu 1500\n' > "$FIX/ip"
+}
+
+CASE=backhaul-child-ok
+backhaul_child
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line backhaul_asked multi_ap
+check_line backhaul_section_5g zte_backhaul_sta_5g
+check_line backhaul_mode_5g sta
+check_line backhaul_multi_ap_5g 1
+check_line backhaul_wds_5g 1
+check_line backhaul_network_5g br-lan
+check_line backhaul_iface_5g up
+check_line backhaul_assoc_5g yes
+check_line backhaul_station_5g authorized
+# no 4addr in either command's output here: that is a reading about these two tools, not a broken applier, so the
+# line is reported and the run still passes. Which build names the flag is the on-machine window's answer.
+check_line backhaul_4addr_iw_5g no
+check_line backhaul_4addr_ip_5g no
+check_line RESULT PASS
+
+# the known trap: the section exists and netifd will not bridge it
+CASE=backhaul-child-no-wds
+printf '0\n' > "$FIX/uci/wds"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+if grep -q 'FAIL backhaul_wds_5g expected=1 got=0' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: a backhaul client without 4-address must fail the run"; fi
+
+# asked for a mode the writer never produces: the section is the plan's, not this switch's, so nothing is judged
+CASE=backhaul-not-asked
+backhaul_child
+printf 'sta\n' > "$FIX/uci/mode"
+printf '0\n' > "$FIX/uci/multi_ap"
+printf 'off\n' > "$FIX/uci/backhaul"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line backhaul_asked off
+if grep -q '^FAIL backhaul' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: a machine not asked for multi_ap gets no verdict about it"; else pass=$((pass + 1)); fi
+
+# a child that has never been given a backhaul row: the section does not exist, and that is the controller's story
+CASE=backhaul-no-section
+printf 'off\n' > "$FIX/uci/backhaul"
+printf "wireless.default_radio0=wifi-iface\nwireless.default_radio0.ssid='FRESHR10'\nwireless.default_radio1=wifi-iface\nwireless.default_radio1.ssid='FRESHR10-5G'\n" > "$FIX/wireless"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line backhaul_asked off
+check_line backhaul_section none
+check_line RESULT PASS
+
+printf 'verify-install test: %d passed, %d failed\\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -25,17 +25,24 @@
 # controller's own database row now carries (`smoke_cur_hop_override`); a machine with no such file judges nothing.
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
-# installed (`packed_copy`), the two that say the batch's shell files are (`package_scripts` -- a batch that changes
+# installed (`packed_copy`), the three that say the batch's shell files are (`package_scripts` -- a batch that changes
 # only the init script and the applier leaves nothing in the rootfs), the peer files it has produced (`peer_files`) and
 # whether the state document carries the per-BSS key (`state_nodes`). Those are evidence lines, and only the four
 # markers are counted as assertions -- an empty peer directory on a link whose peer reports no station count is not a
 # fault of ours.
+# Two more pairs turn PLAN's on-machine questions into lines you can read twice. `smoke_mesh_compat` judges the page
+# option against the key the daemon reads (they answer opposite questions), and `smoke_backhaul` judges the four uci
+# lines this package writes for a wireless backhaul while reporting what wpad and the radio made of them.
+# `peer_evidence` counts the peer files and the per-BSS rows so H-12 and H-13 have a number beside the condition that
+# makes it mean something, and `nodes_rows`/`nodes_online` are the pair to read with the child's cable in and out.
 set -u
 
 APK_DIR=${1:-}
 UBUS=${UBUS:-ubus}
 APK=${APK:-apk}
 UCI=${UCI:-uci}
+IW=${IW:-iw}
+IP=${IP:-ip}
 LOGREAD=${LOGREAD:-logread}
 DATE=${DATE:-date}
 INIT_D=${INIT_D:-/etc/init.d}
@@ -484,6 +491,123 @@ smoke_restart_quiet() {
 	fi
 }
 
+# --- the MESH compatibility switch as the machine holds it (A12b) ---------------------------------------------------
+# The page option and the key the daemon reads answer opposite questions: `mesh_compatible=1` (MESH 兼容 on, accept
+# any child router) must reach /run/zte-mesh/config as `mesh.v2=0`. Both halves are on the machine, so the pair is
+# judged here: an install that put the new page over the old writer -- or the old conffile over the new writer --
+# would otherwise show up as a switch that quietly does nothing.
+# The retired `mesh_v2` is read by nobody. A machine whose /etc/config/zte-mesh still carries it, and has no
+# mesh_compatible, gets no mesh.v2 line at all and the daemon keeps its own default (compatible) -- which is what the
+# old key's default meant, so the behaviour does not move; the line `mesh_v2_legacy_uci` says that case happened.
+uci_get() { $UCI -q get "$1" 2>/dev/null || :; }
+
+smoke_mesh_compat() {
+	page=$(uci_get zte_mesh.main.mesh_compatible)
+	legacy=$(uci_get zte_mesh.main.mesh_v2)
+	say mesh_compat_uci "${page:-unset}"
+	say mesh_v2_legacy_uci "${legacy:-unset}"
+	if [ ! -r "$RUNDIR/config" ]; then
+		# the service file is what the init script writes on a start: no file says the daemon is not running here,
+		# and then there is nothing to compare the page value against.
+		say mesh_v2_line no-config
+		return 0
+	fi
+	line=$(sed -n 's/^mesh\.v2=//p' "$RUNDIR/config" | tail -1)
+	say mesh_v2_line "${line:-absent}"
+	case "$page" in
+	0) check mesh_compat_inverted 1 "${line:-absent}" ;;
+	1) check mesh_compat_inverted 0 "${line:-absent}" ;;
+	'') [ -z "$line" ] || check mesh_compat_inverted absent "$line" ;;
+	*) say mesh_compat_inverted "page value is not 0 or 1: $page" ;;
+	esac
+}
+
+# --- what one peer actually reported (PLAN H-12 and H-13) ------------------------------------------------------------
+# H-12 is whether a ZTE child router sends the Device Inventory TLV (0xd4) at all. That TLV carries three strings --
+# serial, software, hardware -- and only the middle one is ever written to a file: the serial belongs to the device,
+# so `peers_software` from `peer_files` plus `peer_software_bytes` here are the whole answer. They answer it only
+# beside a live peer: `peers_seen=0` means this machine never heard from one, and zero files says nothing about 0xd4.
+# H-13 is whether the station count arrives split per BSS. `<MAC>.<BSSID>.sta` is the record, `sta_file_sum` is what
+# those records add to, and `bss_detail_rows` is the page rows built from the same files (write_state sums them, so
+# the two agree by construction and neither is a verdict on the other). Empty means the frames never split -- the
+# finding PLAN wants, not a fault of ours, so nothing here is counted as an assertion.
+# `nodes_rows` and `nodes_online` are the controller's own list of its children: read them twice, with the child's
+# cable in and out, and that pair is PLAN H-01's "拔线后还在" -- the decision belongs to the second run, not the script.
+peer_evidence() {
+	seen=0
+	sta_sum=0
+	soft_bytes=0
+	if [ -d "$PEERS" ]; then
+		seen=$(ls "$PEERS" 2>/dev/null | cut -d. -f1 | sort -u | grep -c ':')
+		for f in $PEERS/*.sta; do
+			[ -e "$f" ] || continue
+			v=$(cat "$f" 2>/dev/null)
+			case "$v" in ''|*[!0-9]*) ;; *) sta_sum=$((sta_sum + v)) ;; esac
+		done
+		for f in $PEERS/*.software; do
+			[ -e "$f" ] || continue
+			n=$(wc -c < "$f" 2>/dev/null)
+			case "$n" in ''|*[!0-9]*) ;; *) soft_bytes=$((soft_bytes + n)) ;; esac
+		done
+	fi
+	say peers_seen "$seen"
+	say sta_file_sum "$sta_sum"
+	say peer_software_bytes "$soft_bytes"
+	if [ -r "$STATE" ]; then
+		say bss_detail_rows "$(grep -o '"bssid":"' "$STATE" | wc -l)"
+		say nodes_rows "$(grep -o '"zte":' "$STATE" | wc -l)"
+		say nodes_online "$(grep -o '"online":true' "$STATE" | wc -l)"
+	else
+		say bss_detail_rows no-state
+		say nodes_rows no-state
+		say nodes_online no-state
+	fi
+}
+
+# --- the wireless backhaul as the child holds it (PLAN H-01) ---------------------------------------------------------
+# The four uci lines are this package's own writer, so on a slave asked for `backhaul=multi_ap` they are judged:
+# without `wds` netifd refuses the bridge (BRIDGE_NOT_ALLOWED) and 4addr never opens, and without `multi_ap 1` the
+# supplicant will not associate to a backhaul BSS at all (PLAN H-01's known trap).
+# A section only exists once the controller has sent a backhaul row, so `backhaul_section=none` on a child that has
+# not been given one is reported, not failed.
+# Everything below that line belongs to wpad, the radio and the far end, so it is read and not judged -- including
+# the two 4addr greps: which command on which build actually names that flag is exactly what the on-machine window is
+# for, and a missing string here is a measurement about the tool, not a broken applier.
+smoke_backhaul() {
+	want=$(uci_get zte_mesh.main.backhaul)
+	bands=$($UCI -q show wireless 2>/dev/null | sed -n 's/^wireless\.zte_backhaul_sta_\([a-z0-9]*\)=.*/\1/p')
+	say backhaul_asked "${want:-unset}"
+	if [ -z "$bands" ]; then
+		say backhaul_section none
+		return 0
+	fi
+	for b in $bands; do
+		sec=zte_backhaul_sta_$b
+		ifn=$(uci_get "wireless.$sec.ifname")
+		[ -n "$ifn" ] || ifn=$sec
+		say "backhaul_section_$b" "$sec"
+		say "backhaul_device_$b" "$(uci_get "wireless.$sec.device")"
+		say "backhaul_network_$b" "$(uci_get "wireless.$sec.network")"
+		say "backhaul_disabled_$b" "$(uci_get "wireless.$sec.disabled")"
+		if [ "$S_ROLE" = slave ] && [ "$want" = multi_ap ]; then
+			check "backhaul_mode_$b" sta "$(uci_get "wireless.$sec.mode")"
+			check "backhaul_multi_ap_$b" 1 "$(uci_get "wireless.$sec.multi_ap")"
+			check "backhaul_wds_$b" 1 "$(uci_get "wireless.$sec.wds")"
+		fi
+		iwinfo=$($IW dev "$ifn" info 2>/dev/null)
+		if [ -z "$iwinfo" ]; then
+			say "backhaul_iface_$b" missing
+			continue
+		fi
+		say "backhaul_iface_$b" up
+		say "backhaul_assoc_$b" "$(printf '%s\n' "$iwinfo" | grep -qi '^[[:space:]]*ssid ' && echo yes || echo no)"
+		say "backhaul_4addr_iw_$b" "$(printf '%s\n' "$iwinfo" | grep -qi '4addr' && echo yes || echo no)"
+		say "backhaul_4addr_ip_$b" "$($IP -d link show "$ifn" 2>/dev/null | grep -qi '4addr' && echo yes || echo no)"
+		say "backhaul_brport_$b" "$([ -e "/sys/class/net/$ifn/brport" ] && echo yes || echo no)"
+		say "backhaul_station_$b" "$($IW dev "$ifn" station dump 2>/dev/null | grep -qi 'Authorized' && echo authorized || echo none)"
+	done
+}
+
 # --- reading the installed copy back -------------------------------------------------------------------------------
 marker_present() {
 	# marker_present FILE NEEDLE -- a string, not a hash: `apk` strips the ELF sections, so the device copy cannot
@@ -513,13 +637,18 @@ package_scripts() {
 	# either string, so this read-back grades the batch rather than the machine.
 	init=$(marker_present "$INIT_D/zte-mesh" 'live_ap_iface')
 	sync=$(marker_present "$LIBEXEC/wlan-sync" 'set_flag')
-	if [ "$init" = unreadable ] || [ "$sync" = unreadable ]; then
+	# A12b renamed the page option and inverted it, so the init script is the file that changed. This marker says the
+	# reader on the machine is the one that inverts; `smoke_mesh_compat` is the pair that shows it working.
+	compat=$(marker_present "$INIT_D/zte-mesh" 'mesh_compatible')
+	if [ "$init" = unreadable ] || [ "$sync" = unreadable ] || [ "$compat" = unreadable ]; then
 		say init_seed_from_air "$init"
 		say sync_flag_by_meaning "$sync"
+		say init_reads_mesh_compatible "$compat"
 		return 0
 	fi
 	check init_seed_from_air yes "$init"
 	check sync_flag_by_meaning yes "$sync"
+	check init_reads_mesh_compatible yes "$compat"
 }
 
 # Evidence, not judgement: a `<MAC>.<BSSID>.sta` only appears when a frame arrives that carries its station count
@@ -568,9 +697,12 @@ smoke_restart_quiet
 smoke_log
 smoke_cur_hop
 smoke_cur_hop_override
+smoke_mesh_compat
+smoke_backhaul
 packed_copy
 package_scripts
 peer_files
+peer_evidence
 state_nodes
 
 say pass "$pass"
