@@ -138,7 +138,7 @@ msgid "Device role"
 msgstr "设备角色"
 
 msgid "Controller: this router runs the mesh -- it answers the child routers, hands out the Wi-Fi profile and decides about roaming and steering. Child router: this router is a mesh agent, it hands nothing out and the controller gives it the Wi-Fi name, key and security. A child starts from the wireless network this router already broadcasts until the controller sends its own, so nothing has to be filled in here: the Wi-Fi, roaming and extra-network settings are hidden while the child role is selected. Whether a controller also broadcasts this router's own Wi-Fi is the choice below. Changing the role restarts the service and reloads this page, and the child routers drop out of the topology for a short while."
-msgstr "主控：本机运行整个 mesh——回应子路由、下发 Wi-Fi 档案、决定漫游与引导。子路由：本机是 mesh 代理，不下发任何东西，由主控给出 Wi-Fi 名称、密码与加密方式。子路由启动时先用本机正在广播的无线网络，直到主控下发自己的配置，所以这里不需要填任何东西：选中子路由后，Wi-Fi、漫游与额外网络设置都会隐藏。主控是否也广播本机自己的 Wi-Fi，是下面那个开关。改角色会重启服务并重新加载本页，子路由器会短暂掉出拓扑。"
+msgstr "主控：本机运行整个 mesh——回应子路由、下发 Wi-Fi 配置、决定漫游与引导。子路由：本机是 mesh 代理，不下发任何东西，由主控给出 Wi-Fi 名称、密码与加密方式。子路由启动时先用本机正在广播的无线网络，直到主控下发自己的配置，所以这里不需要填任何东西：选中子路由后，Wi-Fi、漫游与额外网络设置都会隐藏。主控是否也广播本机自己的 Wi-Fi，是下面那个开关。改角色会重启服务并重新加载本页，子路由器会短暂掉出拓扑。"
 
 msgid "Main router"
 msgstr "主路由"
@@ -147,7 +147,7 @@ msgid "Also broadcast here"
 msgstr "本机也广播"
 
 msgid "On: this controller puts the Wi-Fi profile below on its own radios as well as handing it to the child routers, so it and they broadcast the same network -- the main router of the factory page. Off: the profile goes to the child routers only and this router's own radios are left exactly as they are, which is the shape of most wired OpenWrt boxes at the head of a mesh, so it is the default. On a router that does apply a profile here, a radio device that was switched off is switched on when the band is enabled, because a disabled radio puts nothing on the air; a radio switched off afterwards stays off until a different profile arrives."
-msgstr "开：这个主控除了把下面的 Wi-Fi 档案下发给子路由，也把它放在自己的射频上，于是本机与子路由广播同一个网络——就是出厂页面里的主路由。关：档案只下发给子路由，本机的射频原样不动；这是有线 OpenWrt 盒子做组网头端时最常见的形态，所以是默认值。会把档案应用到本机的路由器上，某个频段启用时原先关着的射频设备会被打开——射频关着就等于什么都没发射；此后被手动关掉的射频会一直关着，直到来了不同的档案。"
+msgstr "开：这个主控除了把下面的 Wi-Fi 配置下发给子路由，也把它放在自己的射频上，于是本机与子路由广播同一个网络——就是出厂页面里的主路由。关：配置只下发给子路由，本机的射频原样不动；这是有线 OpenWrt 盒子做组网头端时最常见的形态，所以是默认值。会在本机应用这套配置的路由器上，某个频段启用时原先关着的射频设备会被打开——射频关着就等于什么都没发射；此后被手动关掉的射频会一直关着，直到来了不同的配置。"
 
 msgid "Child router"
 msgstr "子路由"
@@ -171,22 +171,22 @@ msgid "How this router reaches the controller over the radio. Off: only the main
 msgstr "本机如何通过无线连回控制器。关闭：只应用主 SSID，与之前一致。Multi-AP：控制器下发的回程网络会变成一个客户端接口（mode sta、标记为 Multi-AP 回程站、打开 4 地址并挂到该频段的桥上），组网控制报文因此走无线而不是网线。需要编译了 Multi-AP 支持的 hostapd（完整 wpad，不是 wpad-basic）；控制器没有下发回程网络之前不会创建任何东西。"
 
 msgid "Whether this router puts the backhaul network of its profile on the air. Off: only the main SSIDs are applied, as before. Multi-AP: the hidden backhaul network becomes its own BSS (multi_ap=2) and the main SSIDs are marked as fronthaul, so a child that joins it reaches this router as 4-address Ethernet over the radio. Requires a hostapd built with Multi-AP support (the full wpad, not wpad-basic); nothing is created until the profile carries a backhaul network."
-msgstr "本机是否广播档案里的回程网络。关闭：只应用主 SSID，与之前一致。Multi-AP：隐藏的回程网络成为独立的 BSS（multi_ap=2），主 SSID 标记为前传，子路由连上它之后以 4 地址以太网帧穿过无线到达本机。需要编译了 Multi-AP 支持的 hostapd（完整 wpad，不是 wpad-basic）；档案里没有回程网络时不会创建任何东西。"
+msgstr "本机是否广播配置里的回程网络。关闭：只应用主 SSID，与之前一致。Multi-AP：隐藏的回程网络成为独立的 BSS（multi_ap=2），主 SSID 标记为前传，子路由连上它之后以 4 地址以太网帧穿过无线到达本机。需要编译了 Multi-AP 支持的 hostapd（完整 wpad，不是 wpad-basic）；配置里没有回程网络时不会创建任何东西。"
 
 msgid "This router is a mesh child: the controller manages it and gives it the Wi-Fi name, password and security."
 msgstr "本机是 mesh 子路由：由主控管理，Wi-Fi 名称、密码与加密方式都由主控下发。"
 
-msgid "Self-organizing network"
-msgstr "自组网"
+msgid "MESH compatible"
+msgstr "MESH 兼容"
 
-msgid "On (ZTE enhanced)"
-msgstr "开（中兴增强模式）"
+msgid "Off (ZTE enhanced)"
+msgstr "关（中兴增强模式）"
 
-msgid "Off (ZTE compatible)"
-msgstr "关（中兴兼容模式）"
+msgid "On (ZTE compatible)"
+msgstr "开（中兴兼容模式）"
 
-msgid "The factory MESH switch. On (ZTE enhanced): only ZTE child routers with the same market code are accepted. Off (ZTE compatible, default): any child router is accepted. Switching restarts the mesh daemon (the child routers drop out of the topology for up to a minute)."
-msgstr "原厂的 MESH 开关。开（中兴增强模式）：只接受市场码相同的中兴子路由器。关（中兴兼容模式，默认）：接受任何子路由器。切换会重启组网守护进程（子路由器最多一分钟内掉出拓扑）。"
+msgid "The factory MESH switch. On (ZTE compatible, default): any child router is accepted. Off (ZTE enhanced): only ZTE child routers with the same market code are accepted. Switching restarts the mesh daemon (the child routers drop out of the topology for up to a minute)."
+msgstr "原厂的 MESH 开关。开（中兴兼容模式，默认）：接受任何子路由器。关（中兴增强模式）：只接受市场码相同的中兴子路由器。切换会重启组网守护进程（子路由器最多一分钟内掉出拓扑）。"
 
 msgid "Wi-Fi 7 MLO"
 msgstr "Wi-Fi 7 MLO"
@@ -270,13 +270,13 @@ msgid "Extra Wi-Fi networks"
 msgstr "额外的 Wi-Fi 网络"
 
 msgid "Guest, spare and hidden backhaul networks of the child routers. The slots of one band must be 1, 2, 3 in order without a gap: removing slot 1 while slot 2 exists is refused. Adding or removing a slot makes the child routers drop out of the topology for up to a minute; switching one on or off does not."
-msgstr "子路由器的访客、备用和隐藏回程网络。同一频段的槽位必须按 1、2、3 连续，不能有空档：槽位 2 还在时去掉槽位 1 会被拒绝。增加或去掉槽位会让子路由器最多一分钟内掉出拓扑；开关一个槽位不会。"
+msgstr "子路由器的访客、备用和隐藏回程网络。同一频段的网络序号必须按 1、2、3 连续，不能有空档：还有 2 号时去掉 1 号会被拒绝。增加或去掉一路会让子路由器最多一分钟内掉出拓扑；只开关其中一路不会。"
 
 msgid "Band"
 msgstr "频段"
 
 msgid "Slot"
-msgstr "槽位"
+msgstr "网络序号"
 
 msgid "1 (guest)"
 msgstr "1（访客）"
@@ -582,7 +582,7 @@ msgid "On (guest, spare and hidden backhaul too)"
 msgstr "开（含访客、备用和隐藏回程）"
 
 msgid "Whether the extra SSID slots are applied to this router as well. Off: only the main SSIDs are applied, as before. On: every enabled slot becomes its own network on the band it belongs to, and a slot that stops arriving is removed again. An extra slot shares the bridge of its band's main network: this image has no VLAN separation yet, so a guest slot is not isolated from the main one."
-msgstr "是否把额外 SSID 槽位也落到本机。关：只应用主 SSID，与之前完全一致。开：每个启用的槽位在所属频段上成为独立网络；不再下发的槽位会被删除。额外槽位与其频段的主网络共用同一个网桥：本镜像还没有做 VLAN 隔离，所以访客槽位并没有和主网络隔开。"
+msgstr "是否把额外 SSID 也应用到本机。关：只应用主 SSID，与之前完全一致。开：每个启用的额外网络在所属频段上成为独立网络；控制器不再下发的会被删除。额外网络与其频段的主网络共用同一个网桥：本镜像还没有做 VLAN 隔离，所以访客网络并没有和主网络隔开。"
 
 msgid "2.4 GHz wireless device"
 msgstr "2.4 GHz 射频设备"

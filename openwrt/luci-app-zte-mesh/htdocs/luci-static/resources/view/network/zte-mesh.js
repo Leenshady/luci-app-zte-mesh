@@ -136,8 +136,8 @@ return view.extend({
 				row(_('Host name'), state.self.name || 'router');
 			}
 			if (!child) {
-				row(_('Self-organizing network'), uci.get('zte_mesh', 'main', 'mesh_v2') === '1'
-					? _('On (ZTE enhanced)') : _('Off (ZTE compatible)'));
+				row(_('MESH compatible'), uci.get('zte_mesh', 'main', 'mesh_compatible') === '0'
+					? _('Off (ZTE enhanced)') : _('On (ZTE compatible)'));
 				row(_('Wi-Fi updates sent'), String(state.config_applied));
 			}
 			row(_('Wired port'), info.attached ? badge(_('Attached to the LAN bridge'), '#46a546')
@@ -444,10 +444,10 @@ return view.extend({
 		/* Controller side: what this router pushes to its child routers. Not rendered on a child, where the service runs
 		 * with these features off (a child has no agents of its own) and changing a value only invites misconfiguration. */
 		if (!child) {
-		o = s.taboption('general', form.Flag, 'mesh_v2', _('Self-organizing network'));
-		o.default = '0';
+		o = s.taboption('general', form.Flag, 'mesh_compatible', _('MESH compatible'));
+		o.default = '1';
 		o.rmempty = false;
-		o.description = _('The factory MESH switch. On (ZTE enhanced): only ZTE child routers with the same market code are accepted. Off (ZTE compatible, default): any child router is accepted. Switching restarts the mesh daemon (the child routers drop out of the topology for up to a minute).');
+		o.description = _('The factory MESH switch. On (ZTE compatible, default): any child router is accepted. Off (ZTE enhanced): only ZTE child routers with the same market code are accepted. Switching restarts the mesh daemon (the child routers drop out of the topology for up to a minute).');
 
 		o = s.taboption('general', form.Flag, 'mlo_enable', _('Wi-Fi 7 MLO'));
 		o.optional = true;

@@ -267,6 +267,9 @@ UCI_TEXT="config zte_mesh 'main'
 	option wifi_5g_tx_power '30'
 	option wifi_5g_acl_policy 'allow'
 	option wifi_dual_band_sync '1'
+	option mesh_compatible '0'
+	# The retired key stays in the file: read as well it would emit a second mesh.v2 line (exact-match below), and
+	# read instead of mesh_compatible it would emit mesh.v2=0. The expected output has mesh.v2=1 exactly once.
 	option mesh_v2 '1'
 	option mesh_role 'master'
 	option apply_local '1'
@@ -989,7 +992,7 @@ run master-no-profile 1 "Wi-Fi profile incomplete"
 
 # 9. bad optional values name the option
 for bad in "wifi_24g_hidden 2" "wifi_24g_security wep" "wifi_24g_beacon_interval 19" "wifi_24g_beacon_interval 1001" "wifi_24g_channel 14" \
-	"wifi_5g_channel 37" "wifi_24g_tx_power 31" "wifi_24g_tx_power -1" "wifi_24g_acl_policy deny" "mesh_v2 2" "mesh_role child" "apply_local 2" \
+	"wifi_5g_channel 37" "wifi_24g_tx_power 31" "wifi_24g_tx_power -1" "wifi_24g_acl_policy deny" "mesh_compatible 2" "mesh_role child" "apply_local 2" \
 	"mlo_enable x" "band_steer maybe" "roam_force 5" "wifi_dual_band_sync 2" "band_steer_rssi_24g -29" "roam_rssi_5g -111" \
 	"backhaul multi-ap" "backhaul on"; do
 	set -- $bad

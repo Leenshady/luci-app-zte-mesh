@@ -148,7 +148,9 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 	const block = text.slice(text.indexOf('# 8. every optional main option'), text.indexOf('run all-options'));
 	for (const m of block.matchAll(/^\toption (\w+) '/gm)) wanted.zte_mesh.add(m[1]);
 	// 'mode' is the legacy option of older files: the init script accepts and ignores it, so the form must not offer it.
+	// 'mesh_v2' is the retired name of mesh_compatible, kept in the init test to prove the reader ignores it.
 	wanted.zte_mesh.delete('mode');
+	wanted.zte_mesh.delete('mesh_v2');
 	for (const m of text.matchAll(/option (wifi_5g_ssid|wifi_5g_key|wifi_5g_suffix|wifi_dual_band_sync|wifi_24g_ssid|wifi_24g_key|wifi_5g_enabled|wifi_24g_enabled|enabled|bridge) /g)) wanted.zte_mesh.add(m[1]);
 	let bad = bad0;
 	for (const [type, set] of Object.entries(wanted)) {
@@ -202,7 +204,7 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		uciRole = 'main';
 		await viewDef.render([{ installed: true, running: true, state: { running: true, nodes: [] }, age: 1 }, {}]);
 		const m = registered.zte_mesh || {};
-		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_v2', 'extra_slots', 'apply_local', 'backhaul', 'wifi_2g', 'wifi_5g'].filter(n => !m[n]);
+		const missing = ['wifi_24g_ssid', 'wifi_24g_key', 'wifi_dual_band_sync', 'mesh_role', 'mesh_compatible', 'extra_slots', 'apply_local', 'backhaul', 'wifi_2g', 'wifi_5g'].filter(n => !m[n]);
 		if (missing.length) { console.log('main router form lacks the controller options:', missing.join(' ')); bad++; }
 		/* A pin is a wifi-device section name, and a name wlan-sync cannot match is ignored with a log line -- which is
 		 * the same silent no-op the field exists to avoid, so the shape is refused here, before it is saved. */
