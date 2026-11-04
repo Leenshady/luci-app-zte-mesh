@@ -131,8 +131,8 @@ br_ieee1905_check_is1905_msg
 `br_ieee1905_check_is1905_msg` 识别 1905 帧。也就是说原厂的 1905 数据面**穿过网桥时会被内核专门识别**，
 不是一束普通的以太网广播。
 
-这一条解释了实验室与真机的一个潜在差异：lab 里 1905 走 `veth` + `br-lan`，
-内核把它当普通帧泛洪；真机上有这个钩子参与。它可能是为了做
+这一条解释了测试环境与中兴原厂路由器的一个潜在差异：lab 里 1905 走 `veth` + `br-lan`，
+内核把它当普通帧泛洪；中兴原厂路由器上有这个钩子参与。它可能是为了做
 「1905 只往 MAP 口送、不往用户口送」或者「按 1905 目的 MAC 定向复制」。
 **没拿到内核源码，具体行为是推断。**
 
@@ -141,9 +141,9 @@ br_ieee1905_check_is1905_msg
 | 配置 | 值 | 对应我们已经实现的 |
 |---|---|---|
 | `CSP_WLAN_SUPPORT_80211KV` | y | 漫游只到 k/v，**没有 r**。与 [Z506 无 FT 的结论](../CONTROLLER_CAPABILITIES.md) 一致 |
-| `CSP_WLAN_DUAL_BAND_SETTING_SYNC` | y | `wifi_dual_band_sync` 是真机原生行为，不是我们发明的 |
+| `CSP_WLAN_DUAL_BAND_SETTING_SYNC` | y | `wifi_dual_band_sync` 是中兴原厂路由器原生行为，不是我们发明的 |
 | `CSP_WLAN_KEY_GLOBAL_SETTING` | y | 全局密钥，对应 M2 里一份凭据下发给多个 BSS |
-| `CSP_WLAN_VAP_CONFIG_INDEPENDENT` | y | 每个 BSS 独立配置，对应 `WLANCfg` 的多行槽位 |
+| `CSP_WLAN_VAP_CONFIG_INDEPENDENT` | y | 每个 BSS 独立配置，对应 `WLANCfg` 的多行序号 |
 | `CSP_WLAN_11AX` / `WPA3` / `160MHZ` | y | E2633 是 AX3000 级，比 Z506 新 |
 | `CSP_WLAN_VLAN` / `ELINK` | y | 我们有 VLAN 与 elink 无通道，符合原厂有而我们没有 |
 | `CONFIG_SMP` / `PREEMPT_NONE` / `HZ=100` | y/100 | `mem=128M console=ttyAMA0,115200n8` |
@@ -195,10 +195,10 @@ ECB 模式下「相同明文块 → 相同密文块」，于是密文里 `9b58f8
 | 路 | 怎么做 | 代价 / 对本项目的增量 |
 |---|---|---|
 | 读 bootloader 取密钥 | TTL 串口（115200）进 U-Boot，密码 `5cE080@fyBD`，逆向密钥推导 | 需要拆机 + 逆向 U-Boot 的 token 派生逻辑，工作量未评估 |
-| 真机 root 直接拷 | telnet 开后 `cat /usr/sbin/multiapd` 等 | **无增量**：SR1010 那份我们已有，mesh 实现相同 |
+| 中兴原厂路由器 root 直接拷 | telnet 开后 `cat /usr/sbin/multiapd` 等 | **无增量**：SR1010 那份我们已有，mesh 实现相同 |
 | 第三方解包工具 | 社区对 ZTE 家用机有若干（见 §7） | 版本相关，不保证命中 E2633/6B5 |
 
-**关键判断**：第三条路其实指向「从真机读」，而不是「解这个 bin」——因为密钥在
+**关键判断**：第三条路其实指向「从中兴原厂路由器读」，而不是「解这个 bin」——因为密钥在
 U-Boot 运行时才推导出来，任何纯软件解包工具都得先拿到密钥，而密钥又不在包内。
 换句话说，**对「复现 mesh」这个目标，解密这个 bin 的边际价值接近零**：SR1010 上
 已经拿到同一套 `multiapd`/`libcmapi`，解 E2633 的 rootfs 不会多出任何新代码。
@@ -255,8 +255,8 @@ ECB 下「相同明文块 → 相同密文块」⇒ 密文区最高频 16 字节
 > 「按设备 eFuse」形态排除。五类静态构造方式至此试尽，细节与剩余两支出路见
 > [MESH_INTEROP](MESH_INTEROP.md) §4.2.4。
 
-> **2026-11-01 夜补：真机取证把整节的出发点改了——这件事不用再查了。**
-> 上了真机才发现：`/proc/cmdline` = `root=/dev/mtdblock8 ro rootfstype=jffs2`，
+> **2026-11-01 夜补：中兴原厂路由器取证把整节的出发点改了——这件事不用再查了。**
+> 上了中兴原厂路由器才发现：`/proc/cmdline` = `root=/dev/mtdblock8 ro rootfstype=jffs2`，
 > `/proc/mounts` = `/dev/root / jffs2 ro 0 0`，`/proc/mtd` = `mtd8: 01100000 rootfs`，
 > 全表**没有任何 crypt/dm 层** ⇒ 运行中的 rootfs 是**明文 JFFS2**，尺寸与本地
 > `rootfs.jffs2`（17 825 792 B）逐字节相同。所以：
@@ -278,7 +278,7 @@ ECB 下「相同明文块 → 相同密文块」⇒ 密文区最高频 16 字节
 
 | 想做的事 | 这个固件能不能帮上 | 理由 |
 |---|---|---|
-| 提取 mesh 实现、移植代码 | **能（改判）** | 原判「rootfs 加密不能提取」已废：真机 rootfs 是明文 JFFS2，`multiapd`/`cspd`/`libcmapi`/`domain_policy.so` 全部可取，且 `/kmodule`（squashfs）在机上就是明文。见 §5.4 晚补 |
+| 提取 mesh 实现、移植代码 | **能（改判）** | 原判「rootfs 加密不能提取」已废：中兴原厂路由器 rootfs 是明文 JFFS2，`multiapd`/`cspd`/`libcmapi`/`domain_policy.so` 全部可取，且 `/kmodule`（squashfs）在机上就是明文。见 §5.4 晚补 |
 | 弄清原厂架构（用不用标准栈、谁建回程） | **能，而且是硬证据** | 完整 `.config` 拿到了 |
 | 验证我们已逆向的协议常量 | **不能** | `MAP24G`/`MAP5GL`/`0x1018` 这些在用户态库里，内核里没有 |
 | 判断 E2633 能不能刷我们的方案 | **能，而且是否定的** | 见下 |
@@ -292,12 +292,12 @@ ECB 下「相同明文块 → 相同密文块」⇒ 密文区最高频 16 字节
 所以这个固件的实际价值是**三张证据**，不是一堆代码：
 
 > 2026-11-01 夜限定：这句只对**E2633 的 `.bin` 包**成立（包里 rootfs 段是整包加密，
-> 解不开）。同血统的 E2631 真机上 rootfs 是明文 JFFS2，「代码那一块」改从真机取，
+> 解不开）。同血统的 E2631 中兴原厂路由器上 rootfs 是明文 JFFS2，「代码那一块」改从中兴原厂路由器取，
 > 见 §5.4 晚补与 [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md)。
 
 1. **第二个机型独立确认了「原厂无线不在标准栈里」** —— 之前只有 e2631-openwrt 一个来源
 2. **`EXTENDER_LINK_BY_DRIVER=y` 明确了回程归驱动** —— 我们之前对 Z506 的推断得到验证
-3. **`br_ieee1905_filter_init` 说明 1905 在内核网桥有专门钩子** —— 这是之前完全不知道的，能解释 lab 与真机可能的行为差异
+3. **`br_ieee1905_filter_init` 说明 1905 在内核网桥有专门钩子** —— 这是之前完全不知道的，能解释 lab 与中兴原厂路由器可能的行为差异
 
 它在什么时候才真的有用：如果你想**给 E2633 做 OpenWrt 移植**，
 这份 `.config` 是现成的对照表（哪些原厂功能要在新栈上重新实现）。

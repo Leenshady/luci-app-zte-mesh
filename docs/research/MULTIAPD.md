@@ -109,7 +109,7 @@ Msg: %d not last fragment.                                  ← CMDU 分片重�
 _acdcSendApAutoConfigWSCM1  0x71188
   acdGetACDConfigByFreq(band)      0x77b74   取本频段 ACD 配置，为 0 直接 return -1
   acdcRestBssCfg()                 0x77844   清 BSS 暂存
-  I5MessageInit(buf, 0x9a, band)   0x66220   分配消息体（0x9a = 单播目的槽位）
+  I5MessageInit(buf, 0x9a, band)   0x66220   分配消息体（0x9a = 单播目的地址表的位置）
   I5PacketHeaderInit(msg, 9, seq)  0x68284   messageType = 9 = 0x0009（AP-Autoconfiguration WSC）
   acdcBuildM1Msg(两个栈缓冲, band)  0x75aa8   非 0 即失败：打 "acdcBuildM1Msg fail" 并 free
   I5MessageSend(ctx, msg)          0x66bd8   逐 fragment 发送
@@ -184,7 +184,7 @@ M2 侧 `MessageType=0x5`，`EnrolleeNonce` 与对应 M1 逐字节相同——配
 `_acdcConfigHandler`、`_acdcVendorHandler` 三处各有一份**结构完全相同**的 `event=8` 分支：
 打一行 `... state, Rcv AP-autoconfiguration renew message`，把 `ctx[band]+0x40` 压回 **2**，
 清计数，然后 `bl _acdcSendApAutoConfigWSCM1`。所以不论当前在哪个状态，收到 `0x0008` 就重发 M1
-并回到 Config。真机日志 `acdc current state[0]:3,event:10` 里的 3 是**处理前**的状态，
+并回到 Config。中兴原厂路由器日志 `acdc current state[0]:3,event:10` 里的 3 是**处理前**的状态，
 说明它当时停在 Vendor（详见 §3.2）。
 
 ### 怎么量（别再用 tcpdump 的文本长度）
@@ -202,7 +202,7 @@ M2 侧 `MessageType=0x5`，`EnrolleeNonce` 与对应 M1 逐字节相同——配
 ## 3.2 M2 之后：Vendor 阶段与那个永远不来的 state 4
 
 厂商私有 TLV 的细节在 §3.1 已经够用了，但**拿到 M2 之后往哪走**是另一套逻辑，2026-11-01 才逐
-函数读通。结论先说：**真机日志里反复出现的 `state[0]:3,event:10` 是 V1（兼容模式）下的正常
+函数读通。结论先说：**中兴原厂路由器日志里反复出现的 `state[0]:3,event:10` 是 V1（兼容模式）下的正常
 驻足，不是故障**；真正值得注意的是它**永远到不了 state 4**，而这件事对可用性没有影响。
 
 ### 事件号
@@ -239,7 +239,7 @@ M2 侧 `MessageType=0x5`，`EnrolleeNonce` 与对应 M1 逐字节相同——配
 | 0 | = 0 | state 4 Complete |
 
 `acdGetCurVersionMode`（`0x7a250`）读 `basicInfo+0x110`，小于 0 才去问
-`acdGetMapCfgVersionMode`（`0x89d5c`，返回 `g_mapCfg+8`）。真机实测
+`acdGetMapCfgVersionMode`（`0x89d5c`，返回 `g_mapCfg+8`）。上机实测
 `/run/zte-mesh/state.json` 里 `"version_mode":128`，`128 & 3 == 0`，所以走 Vendor 分支。
 
 > `acdSetMapCfgVersionMode`（`0x89d74`）在整个二进制里**没有调用者** —— `g_mapCfg` 是启动时
@@ -289,7 +289,7 @@ sub=0x0100 的 opcode 序列：[0, 1, 2, 0, 1, 2, ...]
    `_acdcSendApAutoConfigVendor` 里那条「长度为 0 → state 4」永远不触发。
 3. **卡在 state 3 不影响可用性**。`_acdcConfFinish`（`0x71cd4`）负责 `dbAPISave` 和
    `AcdNotifyNetworkStatus`，它只在 state 4 被调用；但 SSID / 密钥这些配置在 M2 里就已经
-   经 `CmWLANSetAPConfig` 落到 DB 并生效了 —— 实测改主控 SSID 20 秒内子节点本机广播名就跟着变。
+   经 `CmWLANSetAPConfig` 写进 DB 并生效了 —— 实测改主控 SSID 20 秒内子节点本机广播名就跟着变。
 
 重试也有上限：Vendor 的 `event=9` 分支比较 `ctx[band]+0xa0` 与 5，**超过就回 state 1 重新
 Search**（`0x72764`，日志 `Vendor state:vendor query timeout,send AP-autoconfiguration search
@@ -413,7 +413,7 @@ CmWLANSetACLIsFrom1905Slave / CmWLANSetAclList_1905_Slave   ← 1905 下发 ACL 
 1. **`MESH_INTEROP` §5 要改**：内核不是「只识别、只丢弃」，还有 `br_ieee1905_local_in_handle`
    把帧送给本机——这正好是 `multiapd` 那条 raw socket 的对端。已在 §5.5 补。
 2. **「M1/M2 走不通」已经证伪**：`0x71188` 已逐函数反汇编（§3.1），M1 在线上是 771 / 801 字节，
-   对端回 911 字节的 M2，`EnrolleeNonce` 严格配对。真正没有证据的是**收下 M2 之后有没有落地**——
+   对端回 911 字节的 M2，`EnrolleeNonce` 严格配对。真正没有证据的是**收下 M2 之后有没有写进配置**——
    那条链在 `0x6edd0`（agent 收 M1，2 388 B）与 M2 应用侧，还没反汇编。
 3. **验证成本整体下降**：`pktdump` 替代自带抓包程序，`showMsgStatistics` 替代逐帧人工数，
    `querydev` 直接吐拓扑。原先「需要停机窗口」的几项，至少前两项不再需要。
@@ -425,7 +425,7 @@ CmWLANSetACLIsFrom1905Slave / CmWLANSetAclList_1905_Slave   ← 1905 下发 ACL 
 - **§3.2 的 `basicInfo+0x10c` 语义未定**。只知道它是「M2 之后是否进 Vendor」的开关，不知道谁写它、
   写的条件是什么（`acdSetMapCfgVersionMode` 都没有调用者，`g_mapCfg` 是启动时整块填的）。
 - **Vendor 链表由谁填充未定**。`ctx[band]+0x58` 的入队点和 `acdParseVendorMsg`（`0x7c810`）里
-  是否重置游标，都还没读；所以「队列每轮重置」是实测出来的现象，机制还没落到指令级。
+  是否重置游标，都还没读；所以「队列每轮重置」是实测出来的现象，机制还没查到指令级。
 - 样本是 **SR1010 版**，不是 E2631 原厂那份；两者差异未知。
 - 命令表只证明「命令存在」，**不证明命令在当前构建/配置下可达**；`pktdump` 的入口尤其未定。
 - `1:SLAVE 2:MASTER` 是日志串里的编码，**没在线上验证过 DB/消息里用的是不是同一套值**。

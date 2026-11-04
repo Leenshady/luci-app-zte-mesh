@@ -1,19 +1,19 @@
-# 实验台上的 1905 实测：线上到底有哪些帧、哪些字段（2026-11-01）
+# 测试主机上的 1905 实测：线上到底有哪些帧、哪些字段（2026-11-01）
 
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
 
 > 起因：批 2 的 A18a 要给拓扑页补"每个节点的回程指标与终端数"。以前的 `controller-trace.c` 只统计帧长，
-> 值从哪来一直没落到字节上。这次不猜，直接在实验台上抓一段真流量，再用 Wireshark 的 dissector 核对
+> 值从哪来一直没定到字节上。这次不猜，直接在测试主机上抓一段真流量，再用 Wireshark 的 dissector 核对
 > 构造帧的字段布局。
 
 ## 1. 结论
 
-1. **有线实验台上，子节点真正发的只有四类帧**：`0x0000`（发现）1 个、`0x0004`（ZTE 专用）98 个、
+1. **有线测试主机上，子节点真正发的只有四类帧**：`0x0000`（发现）1 个、`0x0004`（ZTE 专用）98 个、
    `0x0005`（链路度量查询，我们发）4 个、`0x0006`（链路度量应答）4 个。40 秒 107 帧。
 2. **没有拓扑应答（`0x0003`）、没有 AP Metrics 应答（`0x800c`）**——只有子节点被查拓扑、或被要求度量时
    才发。所以"终端数"在一条空闲的有线链路上本来就是"没上报"，`state.json` 里就该是 `-1` 而不是 `0`。
 3. **这段流量里没有任何 RSSI**。链路度量应答里装的是 ZTE 自己的定长结构（子 TLV `0x49`，110 字节），
-   两端的条目除 MAC 外逐字节相同，不含信号强度。**回程 RSSI 的来源仍然未知，只能等无线回程的真机**，
+   两端的条目除 MAC 外逐字节相同，不含信号强度。**回程 RSSI 的来源仍然未知，只能等无线回程那次上机**，
    见 [PLAN](../PLAN.md) H-05。
 4. **ZTE 把所有私有数据包在 `Vendor specific`（TLV `0x0b`）里**：`OUI 00:19:c6` + 3 字节 + 一串
    `[类型(1) 长度(2) 值]` 子 TLV。这个结构在 107 帧里的 61 个厂商 TLV 上**全部按字节走完、无剩余**，
@@ -31,7 +31,7 @@
 ## 2. 怎么抓的
 
 ```sh
-# 1. 在实验台主控（owrt，192.168.1.20）上抓 40 秒，只留 1905 以太类型
+# 1. 在测试主机主控（owrt，192.168.1.20）上抓 40 秒，只留 1905 以太类型
 python tools/lab/rssh.py owrt "tcpdump -i br-lan -s0 -U -w /tmp/1905.pcap 'ether proto 0x893a' -G 40 -W 1"
 # 2. 取回（Git Bash 会把 /tmp 改写成 Windows 路径，必须关掉路径转换）
 MSYS_NO_PATHCONV=1 python tools/lab/rssh.py owrt get /tmp/1905.pcap ./out/lab-1905.pcap
@@ -62,7 +62,7 @@ python tools/capture/frames.py out/lab-1905.pcap --cmdu
 `0x49` 那 110 字节里，除开头 6 字节 MAC 外是可复现的定长块（大量 0 与几处小整数），两端的条目完全相同：
 **同一份模板 + 不同 MAC**，不像运行时测量值。
 
-## 4. 对插件的结论（落到代码）
+## 4. 对插件的结论（写进代码）
 
 `controller-1905.c` 只解码**字段含义有依据**的东西：
 
@@ -72,7 +72,7 @@ python tools/capture/frames.py out/lab-1905.pcap --cmdu
 | `bss` | `0x83` AP operational BSS 的接口数 | dissector 字段 `ap_bss_intf_count`，构造帧核对 |
 | `hops` | 1905 头 flags 的 relay 位：0 → 1 跳（直连），1 → 2 跳（经中继） | dissector 把 bit6 叫 "Relay indicator" |
 | `light` | 厂商子 TLV `0x21`（仅 `0x000e` 帧） | 原有的实现，主控 `_topoLightStatusHandle` 读的是它 |
-| ~~`rssi`~~ | **没有来源** | 这段流量里不存在；无线回程真机才能验（H-05） |
+| ~~`rssi`~~ | **没有来源** | 这段流量里不存在；只能上无线回程那台验（H-05） |
 
 `state.json` 的每个节点因此多了 `bss`、`hops`、`metrics_age`，取值 `-1` 表示"没上报"，与 `0` 区分开：
 一个报 0 个终端的节点和一个从来没说过话的节点，页面上不该长一样。
@@ -90,7 +90,7 @@ python tools/capture/frames.py out/lab-1905.pcap --cmdu
    `I5TlvDeviceInventoryTypeExtract @0x3d674`。它按
    `I5TlvExtractChildlv @0x68764` 走三个 `[长度(1) 文本]`：
 
-   | 顺序 | 落到设备记录 | 长度上限 |
+   | 顺序 | 写进设备记录 | 长度上限 |
    |---|---|---|
    | 1 序列号 | `+312` | `cmpls r2, #64`：>64 只跳过、不拷贝，偏移照前进 |
    | 2 **软件版本** | `+247` | 同上 |
@@ -104,20 +104,20 @@ python tools/capture/frames.py out/lab-1905.pcap --cmdu
    这就是 REPLAY_RESULTS §16.2 那句"数据库的 `SoftwareVer` 没被填"的确证：不是没收到，是收到了没落库。
 4. **顺带否掉一条老笔记**：同一份 §16.2 猜版本串在 HigherLayerResponse 的厂商 TLV 里。它的解析器是
    `I5TlvHigherLayerVendorTypeExtract @0x981f8`，身份扩展走
-   `I5TlvVonderDevIdenExtExtract @0x6888c` → `I5TlvCoverStructToDevice @0x96010`，落到
+   `I5TlvVonderDevIdenExtExtract @0x6888c` → `I5TlvCoverStructToDevice @0x96010`，写进
    设备记录的 `+392 / +60 / +124 / +648 / +456 / +784` 和两个 u32——**没有一个落在 `+247`**。
    本机留存的 15 个 pcap 里也搜不到那个版本串。所以版本只可能来自 0x8002 的 0xd4。
 
 **插件的做法**：不动数据库那一列（那是原厂 `dbAPISetView` 的事，我们改不了），在自己的接收钩子里解
-0xd4 的第二段文本，落成 `/run/zte-mesh/peers/<MAC>.software`，服务的 `state.json` 在 `SoftwareVer`
-列为空时用它。**布局是 [代码] 级**：真子路由（Z506 V1.0.0.2B2.8000）到底发不发这条 TLV、发的字段顺序
+0xd4 的第二段文本，写成 `/run/zte-mesh/peers/<MAC>.software`，服务的 `state.json` 在 `SoftwareVer`
+列为空时用它。**布局是 [代码] 级**：中兴原厂路由器（Z506 V1.0.0.2B2.8000）到底发不发这条 TLV、发的字段顺序
 是否与这份二进制一致，都要上机看——见 PLAN 第 5 节 H-12。
 
 ## 6. 局限
 
 - **有线拓扑**：主控是 x86 虚拟机（没有无线网卡），子节点走网线，所以没有 4 地址回程、没有 RSSI、
   没有无线侧的 1905 帧。无线那半边等 H-01。
-- **`0x0003`/`0x800c` 没出现**：这两类只有在被要求时才发。要看它们的真实配置，得在真机上让子节点
+- **`0x0003`/`0x800c` 没出现**：这两类只有在被要求时才发。要看它们的真实配置，得在中兴原厂路由器上让子节点
   带着终端跑一轮，见 H-05。
 - **pcap 不入库**（`*.pcap` 在 `.gitignore` 里）。能复现的部分放进了 `tests/controller-1905-codec.c`：
   一帧是上面这段抓包的原文（260 字节，`0x0006`），其余是构造帧。

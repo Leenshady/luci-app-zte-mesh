@@ -2,7 +2,7 @@
 
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
 
-2026-11-01。真机（市售 AX3000，自报 E2631）上按 [MESH_INTEROP](MESH_INTEROP.md) §4.2.3 的办法把
+2026-11-01。中兴原厂路由器（市售 AX3000，自报 E2631）上按 [MESH_INTEROP](MESH_INTEROP.md) §4.2.3 的办法把
 `/dev/mtdblock8` 取回，得到 `rootfs.jffs2`。这份文档记录**取法与解包的两个坑**，以及
 **从里面挖到的、对 mesh 项目真正有用的东西**——其中最关键的是 §6：厂商 mesh 配置库的表名与列名。
 
@@ -205,7 +205,7 @@ D7 的"固件不支持 FT"是同一件事的两面，现在有编译期证据，
    `MarketConfEn`（164）、`MarketSign`（196）、`DropRoam`（292）、`A1Enable`（324），共 328 字节"，
    **与 E2631 实测逐字一致**。我重新从字符串表推断时没先查它，等于把 B.2.1 干过的活重做一遍还做错了。
 
-已经能落地归位的两列：`TopoSortTimer`、`EnBSFilter` 实测在 **`MultiAPMaster`**（§6.2）；
+已经能归位的两列：`TopoSortTimer`、`EnBSFilter` 实测在 **`MultiAPMaster`**（§6.2）；
 `MarketSign` / `MarketConfEn` 确实在这里。
 
 还没定位的那些（角色/跳数/1905 报文开关/ACD 密钥族/绑定目标）**不在 `P1905ComCfg` 里**，但现在都有了
@@ -247,12 +247,12 @@ deauth/disassoc，而不是 11v 的 BTM Request。详见快照 §1.1。
 
 实测带来两条推断时代没有的结论：
 
-- **domain 实例与 SSID 槽位 1:1**（`MULTIAPDOMAINn` ↔ 第 n 个 SSID）：`ESSID` 与 `DomainUsed`
+- **domain 实例与 SSID 序号 1:1**（`MULTIAPDOMAINn` ↔ 第 n 个 SSID）：`ESSID` 与 `DomainUsed`
   都是 `isSave=0` 的运行时值，实测 8 个实例里生效 4 个（1/4/5/8），占位名直接是 `SSID3`/`SSID7`。
 - **组网专用 SSID 也占一个 domain**：`ZMESH-TRx3zR`（DOMAIN4）与 `ZMESH-TRx3zR_5G`（DOMAIN8）
   是自动生成的两个槽。踢人阈值是 per-domain 的，回程那一路同样要配。
 
-这张表解释了为什么 BTM 在真机上"看起来不生效"：**踢人是策略函数的输出，阈值全在这里**，
+这张表解释了为什么 BTM 在中兴原厂路由器上"看起来不生效"：**踢人是策略函数的输出，阈值全在这里**，
 `EnBtmKickoff=1` 只打开开关，还要 `ToSlowLmt`/`RoamingLmt`/`StatusPreRoamTimer` 这一整套状态机
 参数配合（`InitLmt/PreRoamLmt/RoamingLmt/OfflineLmt/ForbidLmt` 配 `Status*Timer`）。
 
@@ -299,7 +299,7 @@ deauth/disassoc，而不是 11v 的 BTM Request。详见快照 §1.1。
 **附带的独立收获**：实测列序与反汇编还原的序位**逐字段一致**，`36 + 32n` 在序号 0–26 上六个锚点全中
 （`MaxHop`228 / `CurHop`260 / `VersionMode`356 / `P1905DevNum`388 / `EnMasterOnly`804 / `MeshName`868），
 只有 `IFLink`(1444)、`NoSteeringOUIs`(1540) 不符 ⇒ 序号 27 起进入变长区。
-这是本仓库第一次"离线还原的 schema"与"真机 dump"完全对上，可以反过来把 SCHEMA 那句"前 25 个字段是 32 字节"
+这是本仓库第一次"离线还原的 schema"与"中兴原厂路由器 dump"完全对上，可以反过来把 SCHEMA 那句"前 25 个字段是 32 字节"
 精确成"前 27 个"。
 
 ### 6.4.2 表名全集：276 张，`sendcmd 1 DB all`
@@ -351,7 +351,7 @@ mesh 相关的表不是我们之前跟踪的 5 张，而是 **19 张**（10 张 
     `MultiAPRoamCatonCfg`(7)、`P1905Cfg`(12×3)、`WlanRoamingCfg`(1×6)、`MultiapCapability`(1×2)、
     `Brport`(16×23)、`MapCooperatorCfg`(1×5)、`WLANSSID`(8×8)、`WLANBase`(2×68)、`WLANCfg`(8×49)、
     `WLANSetting`(1×9)
-    的**列名与列归属 = 强**（真机 dump）；
+    的**列名与列归属 = 强**（中兴原厂路由器 dump）；
   - `MultiAPStaCfg` / `MultiAPCacheMac` / `P1905StaBind` / `EthVlan` / `PortBinding` / `WlanRoamingSta` / `AclCfg`
     的**表存在 = 强**，但列名与列语义 = 中（七张都 0 行，只能靠名字）；
   - **表名全集 = 强**（276 张，`DB all`）；
@@ -432,7 +432,7 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 
 ## 9. 对 mesh 项目的影响（可以直接执行的部分）
 
-编号与 [FEATURE_STATUS](../FEATURE_STATUS.md) D 段一致。**"实测"= 本条已在 2026-11-01 的真机 dump 里
+编号与 [FEATURE_STATUS](../FEATURE_STATUS.md) D 段一致。**"实测"= 本条已在 2026-11-01 的中兴原厂路由器 dump 里
 看到过这个列名**（见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md)），"待取证"= 还没看到。
 
 | 待办 | 之前 | 现在 |
@@ -445,7 +445,7 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 | D7 BTM 踢人 | 只知字符串在 | `MultiAPMaster.{EnBtmKickoff=0,EnRoamKick=0,En11rSteer=0,11rSsidSync=1,EnActiveDeauth=1}` + `MultiAPDomain` 五组状态机参数 + `MultiAPRoamCatonCfg.BtmCacheEn=0`（全部实测）+ `WlanRoamingCfg`（实测，**与 11r 无关**） |
 | 角色开关（不在 D 段） | 只有 `libzte_agent_mm.so` 三个导出 | **结案：静态 Slave，六开关同向**。`MultiAPCfg.{Mode=1, SetRoleEnable=0, RoleElect=0, EnMasterOnly=0, MaxHop=2, CurHop=2}` + `MapCooperatorCfg.{AutoSetup=0, EnRebootElect=0}`（全部实测）⇒ 不选举、不自动开局、重启也不改主意 |
 | SSID 与 band 分组 | 未知 | **两份实测交叉**：`WLANSSID`（8 行 × 8 列）给出 `SSID1`–`SSID4`→`Device.WiFi.Radio.1`、`SSID5`–`SSID8`→`Radio.2`（**4+4**）；`WLANBase`（2 行 × 68 列）给出 `RD1.Band=0/Channel=4`、`RD2.Band=1/Channel=40` ⇒ **`Radio.1` = 2.4G、`Radio.2` = 5G，且 `Radio.n` ↔ `RDn` 同号**。`WLANSSID` 全列 `isSave=0`（运行时视图，写不进去），真配置在 `WLANCfg` |
-| B16 `CurHop` | 要真机确认 | **结案**：`CurHop=2=MaxHop`，且 `EnMasterOnly=0`，与 SCHEMA 的条件句三者自洽 |
+| B16 `CurHop` | 要上机确认 | **结案**：`CurHop=2=MaxHop`，且 `EnMasterOnly=0`，与 SCHEMA 的条件句三者自洽 |
 | 11r/FT 支持 | "固件不支持"（推断） | **结案，两条独立证据**：编译期 `CONFIG_CSP_WLAN_SUPPORT_80211KV`（只有 11k/11v）+ 配置层 `WlanRoamingCfg` 六列里**没有任何 FT 开关**（实测）。`En11rSteer=0`、`SupportRrm=1` 与之吻合。**不必再找 11r 的配置入口** |
 | 1905 接口使能 | 未知 | **`P1905Cfg` 实测**：`eth1`–`eth4`、`wlan0`、`wlan1` 六个接口全 `EnableP1905=1`，行名 `IGD.P1905CFG1..6`，12 行容量 6 用。**但只能证"允许"，证不了"在跑"**：`wlan0`=`AP1`(主 2.4G, `Enable=1`)、`wlan1`=`AP2`(访客 2.4G, **`Enable=0`**)，两个都在 2.4G、5G 一个没列；而 `REPLAY_RESULTS` §5 在 Z506 上抓到 ACD 实际走 `wlan0`+`wlan5g0`（两频段各一）。见快照 §11.6 |
 | 桥端口拓扑 | 未知 | **`Brport` 实测（16 行 × 23 列）**：`BRPORT1` 是桥自身（`LowerLayers` 列 `BRPORT2`–`BRPORT12`）；`LAN1/2/3` = `DEV.ETH.IF2/IF3/IF4`；`SSID1`–`SSID8` = 8 个 BSS；`APCLI1`/`APCLI5G1` = 回程 STA；WAN 侧两条 = `IF1`(`WanName=Bridge`) 与 `IF99`(`Alias=ETH_WAN`)。**以太口没有 `IF0`** |
@@ -456,7 +456,7 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 **已执行的八轮只读命令**（2026-11-01，结果见快照与全表清单）：
 
 ```sh
-sendcmd 1 DB p MultiAPMaster        # 55 列，EnVbss/EnBtmKickoff/En11rSteer 落地
+sendcmd 1 DB p MultiAPMaster        # 55 列，EnVbss/EnBtmKickoff/En11rSteer 写进配置
 sendcmd 1 DB p P1905ComCfg          # 只有 8 列 —— 切错表的证据
 sendcmd 1 DB p MultiAPDomain        # 8 实例 × 106 列，DomainUsed 指认生效的 4 个
 sendcmd 1 DB p P1905CFGn            # table not find —— 它不是表名，是 P1905Cfg 的行名
@@ -487,7 +487,7 @@ sendcmd 1 DB p AclCfg               # RowCount=0（准入层第五张空表）
 
 ## 10. 局限
 
-- **实测只覆盖"存在与出厂值"**：表名、列名、列归属、行名现在是硬的（八轮真机 dump + 276 张表名全集），
+- **实测只覆盖"存在与出厂值"**：表名、列名、列归属、行名现在是硬的（八轮中兴原厂路由器 dump + 276 张表名全集），
   但每一列的**语义**仍只有命名和出厂值可依，没有协议字段级或反汇编级对应。特别是
   `EnRoamModes=19`、`SupportStrategies=251` 这两个位图，位的含义没解——**且不可能靠 dump 解**
   （值早就在库里，缺的是语义；`MultiapCapability` 已经证伪过一次，见快照 §9.1）。

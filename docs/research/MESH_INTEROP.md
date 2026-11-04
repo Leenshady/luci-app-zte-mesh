@@ -30,9 +30,9 @@
 
 | 层 | 内容 | 本项目状态 | 依据 |
 |---|---|---|---|
-| IEEE 1905.1 | CMDU 0/1/2/3（拓扑发现/通知/查询/响应）、5/6（链路度量） | 已实现 | FINDINGS 第 4 节，真机通过 |
+| IEEE 1905.1 | CMDU 0/1/2/3（拓扑发现/通知/查询/响应）、5/6（链路度量） | 已实现 | FINDINGS 第 4 节，中兴原厂路由器通过 |
 | 1905.1a | 13/14（邻居/非 1905 邻居相关） | 已观测到，未主动用 | REAL_CHILD 第 1 节 |
-| WFA Multi-AP R1 | `0x0007`/`0x0008`/`0x000a`（AP 自动配置）、`0x8006`/`0x8007`（信道选择请求/响应）、`0x0009` 里的 WSC M1/M2、`0x8003` Multi-AP Policy Config Request、`0x8001`/`0x8002` 能力查询/报告 | 已实现，M2 在 Z506 上真机生效（编号已用 dissector 的表核过，见 [WIRESHARK_1905](WIRESHARK_1905.md)） | REAL_CHILD 第 1 节 |
+| WFA Multi-AP R1 | `0x0007`/`0x0008`/`0x000a`（AP 自动配置）、`0x8006`/`0x8007`（信道选择请求/响应）、`0x0009` 里的 WSC M1/M2、`0x8003` Multi-AP Policy Config Request、`0x8001`/`0x8002` 能力查询/报告 | 已实现，M2 在 Z506 上中兴原厂路由器生效（编号已用 dissector 的表核过，见 [WIRESHARK_1905](WIRESHARK_1905.md)） | REAL_CHILD 第 1 节 |
 | ZTE 私有 TLV | 厂商 TLV（`0xdd`/`0xe0`），由 `MultiAPCfg.VersionMode` 决定发不发 | 已实现，`version_mode=128` 时发 | REAL_CHILD 第 2 节 |
 | ZTE 私有策略 | `SSEND(0x2401, 0x10205/0x10206)` 热更新域/漫游阈值 | 已实现 | FINDINGS 第 4 节 |
 | ZTE 内部总线（不是协议） | `ASEND`/`SSEND` 消息号：`0x9095` 角色、`0x90d3` DevSearch、`0x90aa` 拓扑查询、`0xa932`/`0xa93c` Multi-AP 配置、`0xa94e` VLAN、`0xa980` 信道扫描 | 不适用——我们直接把 CMDU 组出来发 | [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 第 3 节 |
@@ -50,7 +50,7 @@
 | [BBF 1905.1a 参考栈](https://github.com/BroadbandForum/1905.1a) | 1905.1/1a 的参考实现，prplMesh 的前身 | 查 1905 基础消息的字段定义 |
 | Technicolor `multiap_controller` | 另一套开源 Multi-AP 控制器（libuv 事件循环 + TLV 引擎） | 结构对照：它的拓扑树、策略下发与我们 `controller-run.c` 的差异 |
 | Wireshark `ieee1905` dissector | 现成的 1905/Multi-AP 解析器 | 抓我们的帧逐字段核对，不需要中兴设备 |
-| Zlion-Y 的 E2631 移植记录 / `e2631-openwrt` | 同一平台的第三方 OpenWrt 移植，给了固件槽位表与 rootfs 加密算法 | 固件线的唯一可复用外部事实来源 |
+| Zlion-Y 的 E2631 移植记录 / `e2631-openwrt` | 同一平台的第三方 OpenWrt 移植，给了固件里的升级分区表与 rootfs 加密算法 | 固件线的唯一可复用外部事实来源 |
 
 一条现实约束：OpenWrt 官方**没有**中兴这几代 SoC（ZX2791xx 系列）的支持，论坛的答复是"驱动与
 主控都没有，等于从零做"。这正是"互操作"而不是"替换"的理由 —— 我们的目标只能是"让 OpenWrt
@@ -73,7 +73,7 @@
 1. `CONFIG_CSP_WLAN_*` + 没有 `CONFIG_CFG80211`/`CONFIG_MAC80211` → 原厂无线是私有栈，
    **第二个机型独立确认**（此前只有 e2631-openwrt 一个来源）。
 2. `EXTENDER_LINK_BY_DRIVER=y`、`br_ieee1905_filter_init` → 回程由驱动建、内核网桥对 1905 有专门钩子。
-   后者解释了 lab 与真机可能的行为差异（沙箱里没有这个钩子）。
+   后者解释了 lab 与中兴原厂路由器可能的行为差异（沙箱里没有这个钩子）。
 
 **真正有效且合法的取代码方式是运行态**：本项目用的 `libcmapi.so`、`libzte_controller_route.so`
 就是从自己拥有的设备上取的（root 后读分区），不是从加密镜像里撬出来的。这条路的成本比破解低两个
@@ -97,7 +97,7 @@
 1. **BOOTROM / cspboot**（`0x0`–`0x100000`，LZ 之后是 ARM32，这次没反汇编）；
 2. **NAND 控制器硬件透明解密** —— 编程器关 ECC 裸读拿到的是物理密文，设备通过控制器读同一页拿到明文。
    这一条能同时解释三件事：OOB 全 `0xFF`、rootfs 高熵、以及同型号活机器的 rootfs 是明文 JFFS2
-   （最后这一条当时是从 `mount`/`df` 推的，实证判据与真机侧做法见 §4.2）；
+   （最后这一条当时是从 `mount`/`df` 推的，实证判据与中兴原厂路由器侧做法见 §4.2）；
 3. eFuse/OTP 里的设备唯一密钥，运行时喂给上面两者之一。
 
 **这条判据已于 2026-11-01 在 E2631 上跑完，结果落在第 2 条**：
@@ -228,7 +228,7 @@ while [ $i -lt 9 ]; do
 done
 ```
 
-实验机侧按序拼回来，**首 2 字节应当是 `85 19`**（JFFS2 magic），不等就说明拼接或偏移错了：
+测试机侧按序拼回来，**首 2 字节应当是 `85 19`**（JFFS2 magic），不等就说明拼接或偏移错了：
 
 ```sh
 cat part0.bin part1.bin part2.bin part3.bin part4.bin \
@@ -246,7 +246,7 @@ cat /dev/mtdblock8 | /kmodule/bin/curl -T - http://192.168.1.191:8000/rootfs.jff
 前提是对端有一个接受 `PUT` 的服务（`python3 -m http.server` **不接受** PUT）。仓库里带了一个：
 
 ```sh
-# 实验机上
+# 测试机上
 python3 tools/lab/httpput.py --dir /srv/tftp --port 8000
 # 设备上（没有 dd，用 cat；curl 在 /kmodule/bin 里，可能不在 PATH）
 cat /dev/mtdblock8 | /kmodule/bin/curl -T - http://192.168.1.191:8000/rootfs.jffs2
@@ -257,20 +257,20 @@ cat /dev/mtdblock8 | /kmodule/bin/curl -T - http://192.168.1.191:8000/rootfs.jff
 写临时名完成后才 `rename`，所以传一半中断不会留下一个看起来正常的小文件。已用 3 000 001 字节
 随机数据对两种传输各测一遍，逐字节一致。
 
-`tftp -p`（put）是 busybox 自带，这条通道在实验机上已经验过（见 [LAB](../LAB.md)）。
+`tftp -p`（put）是 busybox 自带，这条通道在测试机上已经验过（见 [LAB](../LAB.md)）。
 离线侧用 `jefferson`（pip）或 `mtd-utils` 解 JFFS2；`unsquashfs` 用不上，它不是 squashfs。
 
 #### 4.2.4 如果非要那把密钥：只有 RAM 一条路，期望值不高
 
-> **2026-11-01 夜：本节的前提被真机取证推翻，先读这条再看下面。**
-> 真机 `/proc/cmdline` = `root=/dev/mtdblock8 ro rootfstype=jffs2 mem=256M; ...`，
+> **2026-11-01 夜：本节的前提被中兴原厂路由器取证推翻，先读这条再看下面。**
+> 中兴原厂路由器 `/proc/cmdline` = `root=/dev/mtdblock8 ro rootfstype=jffs2 mem=256M; ...`，
 > `/proc/mounts` = `/dev/root / jffs2 ro 0 0`，`/proc/mtd` = `mtd8: 01100000 rootfs`，
 > **命令行与挂载表里没有任何 crypt/dm/mapper 层** ⇒ 运行中的 rootfs 就是明文 JFFS2。
 > 也就是说：**对「读 mesh 实现」这个目标，rootfs 密钥不存在也不需要**——它不存在于你
 > 需要解决的问题里。密钥只服务**升级包分发**（`.bin` 里那两段整包加密），细节见本节末
 > 补记。下面关于 RAM 搜 key 的推演，只在「非要解 `.bin` 升级包」时才还有意义。
 
-先说为什么"拿真机当解密机"没用：把 dump 的密文写回同地址 NAND 再读出来，确实得到明文，
+先说为什么"拿中兴原厂路由器当解密机"没用：把 dump 的密文写回同地址 NAND 再读出来，确实得到明文，
 但那是**解密服务**不是密钥；AES 下已知明文-密文对推不出 key。而写 NAND 是这台机器上
 唯一可能变砖的操作。**不做。**
 
@@ -328,7 +328,7 @@ AES 驱动，**CBC 用于配置/升级包，与 rootfs 的 ECB 不同路**），
 出厂熔丝）；② 密钥不是任何 flash/软件产物中可静态构造的 16 字节——明文、字节序/排列变换、
 hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换混淆或未知 KDF」与「控制器/熔丝
 硬件驻留」两支。前者要反汇编 cspboot 的 AES 函数（`CBC decrypt OK!` 附近）或 `zx_denali_nand`
-的引擎初始化，后者走本节的真机 RAM/寄存器路线；`aesbrute.c` 与 `tools/lab/ecb-key-scan.py`
+的引擎初始化，后者走本节的中兴原厂路由器 RAM/寄存器路线；`aesbrute.c` 与 `tools/lab/ecb-key-scan.py`
 两套判据工具（FIPS-197 自检）都可直接用于 RAM dump。
 
 两种结果都有信息量，别只看"命中"那一种：
@@ -343,7 +343,7 @@ hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换
 > 所以"全空"**不能**单独证明 OTP——它同样兼容"每台设备一把 key"。要分开这两者，得在**同一台
 > 设备**上同时拿到 RAM 和它的编程器 dump。
 
-**2026-11-01 夜：真机取证，结论改写成「不需要密钥」。**
+**2026-11-01 夜：中兴原厂路由器取证，结论改写成「不需要密钥」。**
 
 受限壳（`shellproc`，`command -v` 对一切返回 no）里能读到的证据：
 
@@ -364,7 +364,7 @@ hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换
 | 路径 | 用途 |
 |---|---|
 | `/kmodule/bin/busybox` | 398 568 B 真二进制；applet 含 `hexdump`/`md5sum`/`grep`/`sed`/`tar`/`tftp`/`cat`/`sh`（**不含** `dd`/`head`/`tail`/`base64`/`od`/`nc`） |
-| `/kmodule/bin/{cat,ls,tar,cp,mkdir,sed,...}` | 列表里绝大多数是 **busybox 符号链接**（本地解包后落成 0 字节空文件，别当成独立二进制）；调用一律写成 `/kmodule/bin/busybox <applet>` 最稳 |
+| `/kmodule/bin/{cat,ls,tar,cp,mkdir,sed,...}` | 列表里绝大多数是 **busybox 符号链接**（本地解包后变成 0 字节空文件，别当成独立二进制）；调用一律写成 `/kmodule/bin/busybox <applet>` 最稳 |
 | `/kmodule/bin/curl`（190 558 B）、`wput`、`wgets` | 真二进制，上行通道，`curl -T -` 直接接管道 |
 | `/kmodule/bin/devmem2`（6 719 B）、`memtest`、`ftest` | 单字读写/内存测试，做不了 256 MiB 流式 dump |
 
@@ -388,7 +388,7 @@ hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换
 ```
 
 （写 `busybox hexdump` 而不是 `/kmodule/usr/bin/hexdump`：后者在本地解包后是 0 字节，
-真机上大概率是 busybox 的符号链接，别赌。）
+中兴原厂路由器上大概率是 busybox 的符号链接，别赌。）
 
 - 打出 `85 19 01 e0 31 00 00 00 ...` ⇒ 读路径返回明文，解释 1 或 2；
 - 打出随机字节、而 `/` 又确实挂着 jffs2 ⇒ **解释 2 成立**，`patch.ko` 就是那个透明层，
@@ -540,8 +540,8 @@ bx   lr
 ### 5.3 这些证据改变了什么
 
 1. **§6 的第 2 条硬约束（不新增控制通道）从"推论"变成"可复现的事实"**：内核里连解析器都没有，
-   任何 mesh 语义只可能存在于 1905 帧里。想做新功能又没有对应 CMDU/TLV，就必然无处落地。
-2. **解释了 lab 与真机的行为差**：沙箱里没有这对钩子（丢转发 + 送本机，见 §5.5），`0x893a` 帧会在 `br-lan` 上被泛洪回
+   任何 mesh 语义只可能存在于 1905 帧里。想做新功能又没有对应 CMDU/TLV，就必然无处可写。
+2. **解释了 lab 与中兴原厂路由器的行为差**：沙箱里没有这对钩子（丢转发 + 送本机，见 §5.5），`0x893a` 帧会在 `br-lan` 上被泛洪回
    `zmesh0`——上一轮自检功能的假阳性正是这个原因（[WIRESHARK_1905](WIRESHARK_1905.md) 记的
    `/run/zte-mesh/search-sent` 绕法，本质是在用户态模拟这个钩子该做的事）。
 3. **对我们自己的实现没有要求变更**：我们发的帧本来就是单播/组播的裸 `0x893a`，不带 VLAN。
@@ -636,11 +636,11 @@ wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
 
 ## 6. 兼容性原则（做功能时的硬约束）
 
-1. **必须落到线上**：新功能要能指出它用哪个 CMDU/TLV；指不出来的，要么做成本机 UCI 行为，要么不做。
+1. **必须发到线上**：新功能要能指出它用哪个 CMDU/TLV；指不出来的，要么做成本机 UCI 行为，要么不做。
 2. **不在自己节点之间新增控制通道**：角色协商、状态同步走 1905 或本机 UCI，不发明"插件内部协议"。
    一旦发明，装了这个插件的两台机器能组网、装一台就不行 —— 那就是独立 mesh 插件。
 3. **私有扩展必须可选、可降级**：`mesh_v2=0` 时只发标准 TLV，中兴设备照样能入网（现在就是这个行为）。
-4. **验收门槛是真中兴子路由**：只有 Z506 上实测生效的功能才写"支持"；只在自己沙箱里成立的，写"沙箱"。
+4. **验收门槛是中兴原厂路由器**：只有 Z506 上实测生效的功能才写"支持"；只在自己沙箱里成立的，写"沙箱"。
 5. **不碰对端身份**：发给子路由的身份（DevInfo 的 ZTE / `ZXSLC SR1010`）是为了过准入检查，
    **不要**换成宿主的真实型号 —— 换掉的表现是子路由直接不收（REAL_CHILD 第 2 节）。
    宿主型号只用于页面显示（`state.json` 的 `self`）。
@@ -651,7 +651,7 @@ wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
 |---|---|---|
 | 跑 §4.2.2 那条 `hexdump -C -n 64 /dev/mtdblock8`（一秒，只读） | 把"rootfs 明文"从**推断**变成**实证**，顺手把 §4.1 的判据关掉；同时决定要不要走 §4.2.4 | 一次 telnet，无需停机 |
 | `tar` 一份 `/etc` + `/etc/init.d` + Web CGI | D3–D6 的入口命名全在这几处明文里（§4.2.5），比继续逆向二进制便宜 | 一次 telnet + tftp |
-| ~~用 Wireshark `ieee1905` 对照我们发出的帧~~ **已做**（2026-11-01） | 不用真机就能查编码错误，比"装上去看现象"快 | 结果与改法见 [WIRESHARK_1905](WIRESHARK_1905.md)：`0x0007` 缺 EOM 已修，`0x0008` 的 EOM/`0xb3` 留待真机复验 |
+| ~~用 Wireshark `ieee1905` 对照我们发出的帧~~ **已做**（2026-11-01） | 不用中兴原厂路由器就能查编码错误，比"装上去看现象"快 | 结果与改法见 [WIRESHARK_1905](WIRESHARK_1905.md)：`0x0007` 缺 EOM 已修，`0x0008` 的 EOM/`0xb3` 留待中兴原厂路由器复验 |
 | 拿 **AX3000（E2631）** 当子路由，验 Steering / BTM | D7 的接收路径（`handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`）在原厂 `cspd` 里是齐的，但线上没有证据 | 停机窗口 + 限时抓包，步骤见 [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 第 8 节 |
 | 找一台**非中兴**的标准 agent 做对照 | 证明我们不是"只会跟 ZTE 说话"；这是"兼容任意 OpenWrt"这句话的唯一证据 | 一台支持 Multi-AP 的 OpenWrt 设备（hostapd 带 multi_ap） |
 | `slave` 角色补 Topology Response 的 BSS/终端 TLV | 现在中兴主控看不到我们下面挂了哪些终端 | Z506 或任意主控做对照 |
@@ -666,4 +666,4 @@ wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
 - 中兴 EasyMesh 认证公告：[F680（2019，R1）](https://zte.com.cn/global/about/news/20190620e1.html)、
   [F689（2020，R2）](https://www.zte.com.cn/global/about/news/20201229e1)
 - prplMesh：<https://github.com/prplfoundation/prplmesh>；BBF 1905.1a：<https://github.com/BroadbandForum/1905.1a>
-- E2631 移植记录（固件槽位表、rootfs 加密算法）：<https://blog.zlion.top/posts/zte-e2631-mainline-linux-port/>
+- E2631 移植记录（固件里的升级分区表、rootfs 加密算法）：<https://blog.zlion.top/posts/zte-e2631-mainline-linux-port/>

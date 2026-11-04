@@ -407,7 +407,7 @@ ZTE_MAGIC       = (0x99999999, 0x44444444, 0x55555555, 0xAAAAAAAA)
 
 第三行就是 §5.1 里 `boot.bin` 的那四个魔数——**所谓"ZXIC 烧写容器"其实是 ZTE 的通用信封**：
 boot 的 `[2]`（0x18）= 1，config 的 `[2]` = 4，同族不同布局。config(type 4) 的长度在 `[13]/[14]`
-（0x44/0x48），boot(type 1) 的在 `[21]/[22]`（0x64/0x68）——这解释了 §5.1 里那两个"未解"槽位。
+（0x44/0x48），boot(type 1) 的在 `[21]/[22]`（0x64/0x68）——这解释了 §5.1 里那两个"未解"序号。
 
 密钥派生（`zcu/xcryptors.py` 的 `CBCXcryptor.set_key`）：
 
@@ -598,7 +598,7 @@ MultiAPCfg / MultiAPRoamCatonCfg / MultiAPCacheMac / MultiAPStaCfg
 所以**待验证清单里"`EnVbss`/`ToVbssMode` 在哪个视图"这一条，现在有零成本的做法**：
 `sendcmd 1 DB p` 挨个表打出来 grep 就行，不用上编程器、不用解 rootfs。
 
-风险也要写清：`set` + `save` 会改真机配置，`rreset` 会重建整库（相当于恢复出厂）。
+风险也要写清：`set` + `save` 会改中兴原厂路由器配置，`rreset` 会重建整库（相当于恢复出厂）。
 **只读优先**：先 `p`，先 `dd if=/dev/mtdblock5 of=/tmp/defcfg.bak` 备份，再考虑写。
 
 ### 11.3 `/kmodule/bin` 里的运维工具清单（实机 `ls` 实证）

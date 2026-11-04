@@ -182,9 +182,9 @@ mt7916.ko
 > 由 `libcfapi.so` 与 `cspd` 各导出一份），正确做法是**先找"程序名字符串被谁引用"**，
 > 再顺着引用点看调用的是什么函数——字符串引用数比调用点扫描更能兜住未知封装。
 
-### 3.3 实测：`Cm*` 到底落到哪几张表（2026-11-01 深夜四，本轮）
+### 3.3 实测：`Cm*` 到底写进哪几张表（2026-11-01 深夜四，本轮）
 
-§3.2 证明了"`Cm*` 是纯 DB 客户端"，但留了一个只有机器码能回答的问题：**落到哪几张表**。
+§3.2 证明了"`Cm*` 是纯 DB 客户端"，但留了一个只有机器码能回答的问题：**写进哪几张表**。
 这个数直接决定 A 方案 applier 的规模 —— 不先量出来，写 applier 就是猜。
 本轮用 `tools/lab/cmapi-tables.py` 从两份**独立构建**里把它读出来了。
 
@@ -271,7 +271,7 @@ SR1010 构建是 119 个函数 / 27 张表 —— 少的两张正是它没有的
 
 原估"要写一个 DB 表 → nl80211 的 applier"，现在的边界清楚了：
 
-1. **无线配置面**：17 张表、34 个 `Wlan*Db*`。其中真正需要落到驱动的，是
+1. **无线配置面**：17 张表、34 个 `Wlan*Db*`。其中真正需要写进驱动的，是
    `WLANCfg`（SSID/加密/隐藏/`MapAccessAttr`）、`WLANBase`（信道/带宽/功率）、
    `WLANPSK`（密钥）、`WLANSetting`、`AclCfg` —— 5 张，其余是查询/调度/时段类。
 2. **mesh 决策面**（`MultiAP*`/`P1905*`）：不进驱动，`multiapd` 自己读写并据此发 1905 消息。
@@ -354,7 +354,7 @@ SR1010 构建是 119 个函数 / 27 张表 —— 少的两张正是它没有的
 ### P3 整包搬迁 + DB 层垫片（真正的"跨平台"）
 
 把 `/kmodule` 整个搬走（本地解包 946 个文件，其中 115 个是 0 字节——解包时丢掉的 busybox
-符号链接，真机上是软链；真二进制都完整），目标是 mac80211/mt76 平台。
+符号链接，中兴原厂路由器上是软链；真二进制都完整），目标是 mac80211/mt76 平台。
 **关键变化：`cspd` 不进新栈**（它就是那个 68 次 ioctl + 30 次 exec 的硬件执行体，
 且边界在"DB 之后"，搬它等于搬半个运营商固件）。
 
@@ -401,7 +401,7 @@ multiapd ──► libcmapi / libcfapi / libmultiapcfapi / liboss（原样搬，
 
 | 未决 | 验证办法 | 成本 |
 |---|---|---|
-| **MM 是谁**（`CmSendMsg2MM` 的对端） | 真机 `ps` 看常驻进程；或扫 `bin/pc`、`liboss.so` 是否导出 `MM` 相关符号 | 一条命令 |
+| **MM 是谁**（`CmSendMsg2MM` 的对端） | 中兴原厂路由器 `ps` 看常驻进程；或扫 `bin/pc`、`liboss.so` 是否导出 `MM` 相关符号 | 一条命令 |
 | `WLANCfg`/`WLANBase`/`WLANPSK`/`AclCfg` 的**字段偏移** | 照搬 `cm-profile-evidence.py`：从 `CmWLAN*` 的读写指令反推结构体布局 | 1–2 天（静态） |
 | `CmWLANKickOutSta` 的参数结构 | 写个 5 行的 C 测试程序，链接 `libcmapi.so` 试调用 | 1 天（需交叉编译） |
 
@@ -412,7 +412,7 @@ multiapd ──► libcmapi / libcfapi / libmultiapcfapi / liboss（原样搬，
 >   `multiapd` 侧写入口只有 4 个。剩列级（见上表）。工具：`tools/lab/cmapi-tables.py`。
 > - ~~`cspd` 是否真 fork `iwpriv`~~ → **确实 fork，7 处**，但走的是自封装
 >   `MonitorPcStartProgram()` 而非 `system()`，所以第一版扫 `system`/`popen` 得 0 处是**误判**
->   （完整过程见 §3.1）。原计划的 `mv /kmodule/bin/iwpriv` 在真机上直接失败：
+>   （完整过程见 §3.1）。原计划的 `mv /kmodule/bin/iwpriv` 在中兴原厂路由器上直接失败：
 >   `Read-only file system`（`/kmodule` squashfs ro、`/` jffs2 ro，两边都不可写）。
 >   要在只读系统上验证/拦截，走 `mount --bind /tmp/fake_iwpriv /sbin/iwpriv`
 >   （前提：`/tmp` 可写且有 root），或者给 `cspd` 换 `PATH` 后重启——**但见 §3.1，

@@ -2,7 +2,7 @@
 
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
 
-2026-11-01，真机（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。七轮：
+2026-11-01，中兴原厂路由器（市售 AX3000，自报 E2631，2026-08 固件）上跑**只读**命令得到的原文整理。七轮：
 
 ```sh
 # 第一轮
@@ -148,7 +148,7 @@ Management Request）那条路默认是关的。做 D7 时这决定了我们该�
 
 两条可用的结论：
 
-1. **domain 实例 1:1 对应 SSID 槽位**（`MULTIAPDOMAINn` ↔ 第 n 个 SSID）。占位名直接就是
+1. **domain 实例 1:1 对应 SSID 序号**（`MULTIAPDOMAINn` ↔ 第 n 个 SSID）。占位名直接就是
    `SSID3` / `SSID7`，改名后的则是 `LLJ_SF`、`LLJ_5G`、`ZMESH-TRx3zR(_5G)`。做多 SSID 时
    不要再去找"domain 和 SSID 怎么映射"——就是槽号。
 2. **生效的只有 4 个**：SSID 1/4/5/8。其中 4 与 8 是同一台机器自动生成的 `ZMESH-` 专用 SSID
@@ -466,7 +466,7 @@ sendcmd 1 DB all             # 276 张表名全集（见 E2631_DB_TABLES）
 | `IFLink` | 36 | 1188 | 1444 | ❌ |
 | `NoSteeringOUIs` | 37 | 1220 | 1540 | ❌ |
 
-**这是本仓库第一次「反汇编还原的 schema」与「真机 dump 的列序」逐字段对上**——
+**这是本仓库第一次「反汇编还原的 schema」与「中兴原厂路由器 dump 的列序」逐字段对上**——
 在 50 个字段里，实测列序与还原序完全一致，六个锚点无一偏差。可以顺带把 SCHEMA 那句话精确化：
 原文说"前 25 个字段（序号 0–24）都是 32 字节"，实测证明是**前 27 个（序号 0–26）都是 32 字节**，
 `PluginLimit`(25)=836、`MeshName`(26)=868 都在这个 32 字节区里。
@@ -557,7 +557,7 @@ sendcmd 1 DB p WlanRoamingCfg   # RowCount=1，6 列
 
 三件事：
 
-**① `IGD.` 是行名前缀，已由真机确证。** §7 是从 `TimePolicy` 的 `IGD.TpCfg0..2` 推出这个结论的，
+**① `IGD.` 是行名前缀，已由中兴原厂路由器确证。** §7 是从 `TimePolicy` 的 `IGD.TpCfg0..2` 推出这个结论的，
 本轮在 `P1905Cfg` 上再次看到，形如 `IGD.P1905CFG<n>`，与 `MULTIAPDOMAIN<n>` 完全同构。
 于是上一轮判死的 `IGD.P1905CFGn` 应当**复活为"`P1905Cfg` 的第 n 行"**。
 
@@ -843,7 +843,7 @@ sendcmd 1 DB p PortBinding        # RowCount=0
 `SCHEMA.md` 第 140 行记的是「`AutoSetup`、`WpsActiveDelayTime`、`Addr4EffectDelayTime`、
 `EnRebootElect`、`WpsLongPress`」——**五个字段名与顺序全部命中，一个不多一个不少**。
 
-这是本仓**第三次**「离线还原被真机逐字证实」（前两次：`MultiAPCfg` 的 `36+32n` 六锚点、
+这是本仓**第三次**「离线还原被中兴原厂路由器逐字证实」（前两次：`MultiAPCfg` 的 `36+32n` 六锚点、
 `IGD.` 是行名前缀）。三次的共同点：还原物是**有结构约束的东西**（偏移公式、行名层级、字段序列），
 不是「表名像什么」式的联想——后者就是 §9.1 那次翻车的原因。
 
@@ -949,7 +949,7 @@ band 归属**仍未定**（Radio.1 是 2.4G 还是 5G），要从 `WLANBase`/`WL
 - **IPv4 地址生效延迟**（拿到地址后等 10 秒再生效）；
 - **4-address 模式生效延迟**（WDS/4 地址模式下，客户端 MAC 独立成帧的那套模式）。
 
-如果是后者，它与 **B13（无线回程 STA，要真机看 `4addr`）直接相关**——那是本项目里第一次看到
+如果是后者，它与 **B13（无线回程 STA，要上机看 `4addr`）直接相关**——那是本项目里第一次看到
 "4 地址模式"有专门的时序参数，说明厂商侧这套是**运行时可控**的，不只是编译进去。
 但两种读法都讲得通，这里只登记为歧义，**不当证据用**。判据：`multiapd`/`cpsd` 的字符串里
 `Addr4` 前后出现的上下文，或上机看 `iw` 的 `4addr` 状态与这个值是否联动。
@@ -986,7 +986,7 @@ sendcmd 1 DB p WlanRoamingSta    # RowCount=0
 | `TargetPower` / `AntennaGain` / `PowerEnhance` | 36 / 10 / 1 | 36 / 10 / 1 | 两行一致 |
 
 ⇒ **`Device.WiFi.Radio.1` = `DEV.WIFI.RD1` = 2.4G（ch 4）；`Radio.2` = `DEV.WIFI.RD2` = 5G（ch 40）。**
-§10.6 那条"`Radio.n` 在库里是哪一行"随之落地：就是 `RDn`，**编号同号**。
+§10.6 那条"`Radio.n` 在库里是哪一行"随之定下来：就是 `RDn`，**编号同号**。
 （"同号"仍是推断——没有哪张表把 `Radio.1` 和 `RD1` 写在同一行，只能说两个编号都从 1 起、
 且 2.4G/5G 的顺序与 `WLANSSID` 的 4+4 分组吻合。）
 
@@ -1007,13 +1007,13 @@ sendcmd 1 DB p WlanRoamingSta    # RowCount=0
 实测**逐字一致**，并补齐了后两个：AP7 `wlan5g2`、AP8 `wlan5g3`。命名规律是
 **2.4G 用 `wlan0..3`、5G 用 `wlan5g0..3`，槽号在后缀上不变**。
 
-这是本仓第四次"离线还原被真机命中"（前三次：`MultiAPCfg` 的 `36+32n` 六锚点、`IGD.` 是行名前缀、
+这是本仓第四次"离线还原被中兴原厂路由器命中"（前三次：`MultiAPCfg` 的 `36+32n` 六锚点、`IGD.` 是行名前缀、
 `MapCooperatorCfg` 五字段同序）。
 
 注意 `IfName` 是 `isSave=0`（运行时映射）。但它恰恰是 cspd 自己给出的"AP → 内核接口"对照表，
 比 `ip link` 更直接——**以后要接口名不用上系统命令，dump `WLANCfg` 就有**。
 
-### 11.3 八个槽位的全景（本轮信息密度最高的一张）
+### 11.3 八个序号的全景（本轮信息密度最高的一张）
 
 `domain ESSID` 一列引自 §3.1，其余全部本轮实测：
 
@@ -1034,8 +1034,8 @@ sendcmd 1 DB p WlanRoamingSta    # RowCount=0
 
 1. **`Enable=1` 的正好五个：AP1 / AP3 / AP4 / AP5 / AP8**（= `SSID1/3/4/5/8`）——与 `Brport.PortState=4`
    的五个 BSS **逐个相同**。§11.4 处理这件事。
-2. **槽位划分与 `FINDINGS.md` §9 记的"0 主 / 1 访客 / 2 备用 / 3 回程隐藏"对得上**，
-   而且四个槽位的特征是互斥可辨的：槽 1 是唯二 `GuestSsid=1`、槽 3 是唯二隐藏 + `ACLPolicy=0`
+2. **序号划分与 `FINDINGS.md` §9 记的"0 主 / 1 访客 / 2 备用 / 3 回程隐藏"对得上**，
+   而且四个序号的特征是互斥可辨的：槽 1 是唯二 `GuestSsid=1`、槽 3 是唯二隐藏 + `ACLPolicy=0`
    + `MapAccessAttr=64` + `ZMESH-` SSID。**唯一不齐的是槽 2**：2.4G 的 AP3 开着、5G 的 AP7 关着，
    而这两个偏偏是唯二 `ForceWiFi5=1` 的。
 3. **`ESSID` 在 `WLANCfg` 里被遮蔽成 `***`**（`WPAEAPSecret` 也是），但 §3.1 的 `MultiAPDomain.ESSID`
@@ -1179,7 +1179,7 @@ sendcmd 1 DB p AclCfg            # RowCount=0
 两条结论：
 
 - 行名 `DEV.WIFI.APn.PSK1` 与 [`FEATURE_MAP`](FEATURE_MAP.md) §4 早记的
-  `OBJ_WLANPSK_ID(DEV.WIFI.AP1.PSK1)` **逐字对上**——本仓第五次「离线还原被真机命中」
+  `OBJ_WLANPSK_ID(DEV.WIFI.AP1.PSK1)` **逐字对上**——本仓第五次「离线还原被中兴原厂路由器命中」
   （口径同前四次：dump 前写下的结构被证实）。
 - **密钥读不出来**：`PreSharedKey` 与 `KeyPassphrase` 都被 `sendcmd` 打码成 `***`，
   和 `WLANCfg.ESSID`/`WPAEAPSecret` 一样。但这套遮蔽**不一致**：
@@ -1187,7 +1187,7 @@ sendcmd 1 DB p AclCfg            # RowCount=0
   ⇒ **SSID 名能还原，密钥不能**——遮蔽是按表/列做的，不是全局策略，攻击面口径要按这个来记。
 
 另外两条小的：8 个 AP **每个都有且只有 `PSK1` 一行**（含关着的 AP2/6/7 和隐藏的 AP4/8）——
-密钥槽是出厂就给全部槽位配好的，且没有第二把（无轮换密钥）；`isSave=1`，是可写配置（写进去也只落密文/受保护区）。
+密钥槽是出厂就给全部序号配好的，且没有第二把（无轮换密钥）；`isSave=1`，是可写配置（写进去也只落密文/受保护区）。
 
 ### 12.2 `AclCfg`：0 行 —— 准入层第五张空表
 

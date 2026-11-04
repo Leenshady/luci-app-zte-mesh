@@ -5,7 +5,8 @@
 ## 1. 机器与连接
 
 **三台测试机的清单（机型、地址、角色、能力差异）只在 [LAB](LAB.md) 第 2.1 节**：`ax3600` 192.168.1.1、`owrt` 192.168.1.20、
-`ubuntu` 192.168.1.191，登机器一律 `python tools/lab/rssh.py`，口令只在本机 `.local/lab-env.md`。别名 `owrt` 是登录用的名字，
+`ubuntu` 192.168.1.191，登机器一律 `python tools/lab/rssh.py`，账号与口令只在本机 `.local/lab-env.md`（脚本读那张表，也认
+`ZTE_LAB_USER_<别名>` / `ZTE_LAB_PASS_<别名>`）。别名 `owrt` 是登录用的名字，
 那台机器跑的同样是 ImmortalWrt——`owrt` 只是登录用的别名，不是另一套系统。以前那台测试主机上的旧清单（2026-10
 之前：mac `192.168.167.93` 上的 `/Volumes/code/sr1010-mesh`、开发机 `git push` + `receive.denyCurrentBranch updateInstead`、
 ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再保留，复盘历史证据按 [journal](journal/) 查，本文不再维护第二份机器名单。
@@ -76,7 +77,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
   `container-make.sh` 的 noexec 注意项在这里不适用。
 - LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；PATH 里没有 `node`，测试环境那两台机器也没装）。
   实测可用的解释器是这台机器上另一套工具带的独立二进制，直接给绝对路径就能跑：
-  `"/c/Users/ZZB001/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe" tests/test_luci.js`（v24.21.0）。
+  `"<本机那个 node.exe 的绝对路径>" tests/test_luci.js`（v24.21.0）。
   这个测试只读仓库里的 `zte-mesh.js` 与 `tests/test_init.sh`，不需要 LuCI 运行时，所以不必上开发机。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
 - 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`、`python tests/test_runtime.py`（29 条，守的是"tarball 成员与仓库文件逐字节一致"）、`python tests/test_i18n.py`。
@@ -217,6 +218,9 @@ gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 | 机器与环境 | 测试主机、测试环境、测试机 | 实验台、实验室、实验机 |
 | 那台 ImmortalWrt 虚拟机 | 「ImmortalWrt 虚拟机」（`owrt` 只是 `rssh.py` 的别名） | 把 `owrt` 当成系统名 |
 | 机型 | `ZXHN Z506`（又叫中兴小方糖）、`ZXSLC SR1010`（又叫中兴星云 MAX）、小米 AX3600 | "中兴 Z506"、第一次出现只写 `Z506` / `SR1010` |
+
+这套称呼**只读资料也跟着改**（`docs/research/`、`docs/milestones/`、`docs/journal/` 里旧的那些）：改的是称呼，不是结论，
+所以不违背"冻结"。存档里当时没写明是哪一台的，泛指用「真实路由器」，不要替它猜型号。
 
 界面上**所有**给用户看的文字都要走 `_()`，msgid 就是那句英文本身（LuCI 用 msgid 当键，没有别名字符串）。改文案时
 `.po` 里那条旧 msgid 就失效了——它不会报错，只会安静地变回英文，所以有一条测试盯着这件事。

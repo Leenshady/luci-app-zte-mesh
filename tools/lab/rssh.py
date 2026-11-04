@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """三台测试机的统一 SSH 通道（密码登录）。
 
-`tools/lab/rsh.py` 走 telnet，只服务中兴原厂子路由（中兴 Z506 只开 telnet + 明文
+`tools/lab/rsh.py` 走 telnet，只服务中兴原厂路由器（ZXHN Z506 只开 telnet + 明文
 密码）。本文件是另一回事：2026-11-01 起测试环境换成 ImmortalWrt 虚拟机 +
 Ubuntu 虚拟机 + 小米 AX3600（刷 ImmortalWrt）三台，全部是 OpenSSH + 密码。
 本机（Windows）没有 sshpass、没有 rsync，`ssh` 又不能喂密码，所以用 paramiko
 当一个可脚本化的 scp/ssh。
 
-机器表故意的：地址、账号、密码都写在 HOSTS 里，命令行只写别名。这样脚本和
-CI 里不会散落凭据，改台账只改一处。
+命令行只写别名。账号与口令不在这棵树里：读本机的 `.local/lab-env.md`（已
+gitignore）——那份表格每行的第 1/3/4 格是别名、用户、口令。也可以用环境变量
+`ZTE_LAB_USER_<别名>` / `ZTE_LAB_PASS_<别名>` 覆盖某一台，或 `ZTE_LAB_PASS`
+覆盖全部；`ZTE_LAB_ENV` 指到别的文件。
 
 用法：
     python tools/lab/rssh.py owrt uname -a
@@ -32,24 +34,57 @@ try:
     import paramiko
 except ImportError:  # 只有 3.13 那个解释器没有，miniconda 的有
     sys.stderr.write(
-        "需要 paramiko。本机装在 miniconda："
-        r"C:\Users\ZZB001\miniconda3\python.exe tools\lab\rssh.py ..." + "\n"
+        "需要 paramiko：用装了它的那个解释器跑（本机是 miniconda 的 python），或 pip install paramiko。\n"
     )
     raise SystemExit(2)
 
-# 别名 -> (地址, 用户, 密码, 说明)
+# 别名 -> (地址, 说明)。账号与口令见文件头：只从本机 .local/lab-env.md 或环境变量取。
 HOSTS = {
-    "ax3600": ("192.168.1.1", "root", "root", "小米 AX3600 / ImmortalWrt / ipq807x aarch64"),
-    "owrt": ("192.168.1.20", "root", "root", "ImmortalWrt 虚拟机（测试环境里的主控）"),
-    "ubuntu": ("192.168.1.191", "zzb", "123", "Ubuntu 虚拟机（编译机）"),
+    "ax3600": ("192.168.1.1", "小米 AX3600 / ImmortalWrt / ipq807x aarch64"),
+    "owrt": ("192.168.1.20", "ImmortalWrt 虚拟机（测试环境里的主控）"),
+    "ubuntu": ("192.168.1.191", "Ubuntu 虚拟机（编译机）"),
 }
 
 CONNECT_TIMEOUT = 15
 CMD_TIMEOUT = 300
 
 
+def _env_file() -> str:
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.environ.get("ZTE_LAB_ENV") or os.path.join(root, ".local", "lab-env.md")
+
+
+def _local_accounts() -> dict:
+    """读本机那份未入库的表格，返回 别名 -> (用户, 口令)。文件不在就返回空。"""
+    found: dict = {}
+    try:
+        lines = open(_env_file(), encoding="utf-8").read().splitlines()
+    except OSError:
+        return found
+    for line in lines:
+        cells = [c.strip().strip("`") for c in line.strip().strip("|").split("|")]
+        if len(cells) >= 4 and cells[0] in HOSTS:
+            found[cells[0]] = (cells[2], cells[3])
+    return found
+
+
+def credentials(alias: str) -> tuple:
+    user, secret = _local_accounts().get(alias, (None, None))
+    upper = alias.upper()
+    user = os.environ.get(f"ZTE_LAB_USER_{upper}", user)
+    secret = os.environ.get(f"ZTE_LAB_PASS_{upper}") or os.environ.get("ZTE_LAB_PASS") or secret
+    if not user or not secret:
+        raise SystemExit(
+            f"{alias}: 没有账号或口令。在 {_env_file()} 的表格里补一行"
+            f"「| `{alias}` | 地址 | 用户 | 口令 | … |」，或设环境变量"
+            f" ZTE_LAB_USER_{upper} / ZTE_LAB_PASS_{upper}。"
+        )
+    return user, secret
+
+
 def connect(alias: str) -> paramiko.SSHClient:
-    host, user, pwd, _ = HOSTS[alias]
+    host = HOSTS[alias][0]
+    user, secret = credentials(alias)
     cli = paramiko.SSHClient()
     # 测试机随时重刷，host key 每次都会变；这里信任并记录，不做 pin。
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -57,7 +92,7 @@ def connect(alias: str) -> paramiko.SSHClient:
         host,
         port=22,
         username=user,
-        password=pwd,
+        password=secret,
         timeout=CONNECT_TIMEOUT,
         banner_timeout=CONNECT_TIMEOUT,
         auth_timeout=CONNECT_TIMEOUT,
@@ -207,8 +242,10 @@ def main(argv: list[str]) -> int:
         command = command[1:]
 
     if a.host == "list" or (a.host is None and not a.all and not a.bench):
-        for k, (h, u, _, d) in HOSTS.items():
-            print(f"{k:8s} {u}@{h:15s} {d}")
+        accounts = _local_accounts()
+        for k, (h, d) in HOSTS.items():
+            have = "凭据有" if (k in accounts or os.environ.get("ZTE_LAB_PASS")) else "凭据缺"
+            print(f"{k:8s} {h:15s} {have}  {d}")
         return 0
 
     targets = sorted(HOSTS) if (a.all or a.host is None) else [a.host]

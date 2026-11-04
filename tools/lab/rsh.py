@@ -3,7 +3,7 @@
 
 Credentials come from the environment, never from the repository:
 
-    LAB_HOST=10.23.90.131 LAB_USER=zzb LAB_PASS=*** python3 tools/lab/rsh.py 'uname -a'
+    LAB_HOST=<地址> LAB_USER=<账号> LAB_PASS=<口令> python3 tools/lab/rsh.py 'uname -a'
 
 Optional: LAB_PORT (default 22), LAB_KEY (path to a private key; preferred
 once the key is installed, since password auth is only a bootstrap path).

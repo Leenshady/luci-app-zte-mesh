@@ -129,7 +129,7 @@ B.2 仍未完成：产品/节点身份、远端 WLAN profile、配置 helper/RPC
 
 ## 补充（2026-10-12）：几张表的真实语义
 
-以下来自读 `multiapd`/`cspd` 反汇编和真机读回，细节见 [FINDINGS.md](../FINDINGS.md)。
+以下来自读 `multiapd`/`cspd` 反汇编和上机读回，细节见 [FINDINGS.md](../FINDINGS.md)。
 
 - **`MultiAPCfg`（偏移 = 36 + 32 × 字段序号，前 25 个字段（序号 0 到 24）都是 32 字节）：**
   `Mode`（0 自适应、1 Slave、2 Master、3 两者）、`Enable`（MESH 总开关）、`SetRoleEnable`（自适应角色开关，网页选"自适应"时置 1）、`RoleElect`、`WANForward`、
@@ -141,9 +141,9 @@ B.2 仍未完成：产品/节点身份、远端 WLAN profile、配置 helper/RPC
   `startup-schema.py` 的 `SPECS` 可复现）。
 - **`MapCooperatorCfg`（子路由 `cspd`）：** `AutoSetup`、`WpsActiveDelayTime`、`Addr4EffectDelayTime`、`EnRebootElect`、`WpsLongPress`；`AutoSetup` 影响角色选举的触发分支。
 
-## 补充（2026-11-01）：真机 `sendcmd 1 DB p MultiAPCfg` 验证 `36 + 32n`
+## 补充（2026-11-01）：中兴原厂路由器 `sendcmd 1 DB p MultiAPCfg` 验证 `36 + 32n`
 
-E2631 真机 dump 出 `MultiAPCfg` 的 **50 列**（原文见
+E2631 中兴原厂路由器 dump 出 `MultiAPCfg` 的 **50 列**（原文见
 [E2631_DB_SNAPSHOT](../research/E2631_DB_SNAPSHOT.md) §6），实测列序与本文还原的字段序
 **逐字段一致**，`偏移 = 36 + 32 × 序号` 六个锚点全中：
 

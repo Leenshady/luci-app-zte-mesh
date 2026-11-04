@@ -34,7 +34,7 @@
 5. **仍未验证的是对端行为**：ZTE 固件收到 `0x8014` 之后会不会真踢，取决于它自己的
    `MultiAPMaster.EnBtmKickoff`/`EnRoamKick`/`EnActiveDeauth` 与终端是否支持 11v。出厂
    `EnBtmKickoff=0`（[E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md)），所以**很可能发了也不动**——
-   这一步只能真机看，见 [PLAN](../PLAN.md) H-03。
+   这一步只能中兴原厂路由器看，见 [PLAN](../PLAN.md) H-03。
 
 ## 2. 怎么问出来的
 
@@ -85,7 +85,7 @@ Steering request flags: 0xc0, Mode, BTM disassociation imminent
     .1.. .... = BTM disassociation imminent: BTM disassociation imminent
 ```
 
-## 4. 对插件的结论（落到代码）
+## 4. 对插件的结论（写进代码）
 
 `controller-steer.c` 只实现上面四类，编解码都是纯函数（无 socket、无日志）：
 
@@ -106,12 +106,12 @@ Steering request flags: 0xc0, Mode, BTM disassociation imminent
 
 ## 5. 局限
 
-- **没有真机证据**：这一轮所有结论都是"dissector 认可"，不是"ZTE 照做"。ZTE 的接收代码
+- **没有上机证据**：这一轮所有结论都是"dissector 认可"，不是"ZTE 照做"。ZTE 的接收代码
   （`handle_wlan_multiap_steering_req`）在，但触发它之后的行为、以及它是否还要求厂商 TLV 陪跑，
-  只能上真机（H-03）。**特别注意**：出厂 `EnBtmKickoff=0`，`0x8014` 很可能被接受但什么也不做。
+  只能上中兴原厂路由器（H-03）。**特别注意**：出厂 `EnBtmKickoff=0`，`0x8014` 很可能被接受但什么也不做。
 - **窗口/timer 的单位照发不译**：`window` 原样写进帧（`steer_request.window` 注释里说明了这一点），
-  因为"100 ms 还是秒"没有 dissector 可问，只有真机日志能定。
+  因为"100 ms 还是秒"没有 dissector 可问，只有中兴原厂路由器日志能定。
 - **一帧一个终端**：`0x9b` 本身支持 STA 列表，这里只发一个。多终端踢是 A17b 的批量语义，
   届时决定是"一条消息多个 STA"还是"多条消息"。
 - **组播还是单播没定**：builder 只接受调用者给的 `dst`，单播到子节点 AL MAC 与组播到
-  `01:80:c2:00:00:13` 都能编。哪个有效要真机看（组播会被所有子节点看到，单播不会）。
+  `01:80:c2:00:00:13` 都能编。哪个有效要上机看（组播会被所有子节点看到，单播不会）。

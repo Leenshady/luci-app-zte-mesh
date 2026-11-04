@@ -86,7 +86,7 @@
 - **线上（约 3 秒）：** `APAutoconfRenew` ×2（每频段） → 子节点 `APAutoconfWSC` M1 ×2 → 主控 M2 ×2，**每个 M2 三个分片**（1324 + 1383 + 209 字节，与入网时一致，最后一片是厂商 TLV） →
   子节点主动发起 **12 对厂商消息查询**，主控逐条回答：
   - `hdr=010100`（频段配置）：`07[4]=00000064`（BeaconInterval=100）、`19[4]=00000002`（MaxHop=2）、`55[1]=55`；每频段一对。
-  - `hdr=010101`（每个 SSID 槽位，index 0 到 3，请求 `0b[1]=index 1d[1]=04`）：回复 `0b=index 0c 46[4] 11[4] 0f 1e 0d`。观察到：index 0 `0c=1 11=1 0f=0 1e=0 0d=0`；index 1 `0c=0 11=1 0f=1 1e=1 0d=0`；index 2 `0c=0 11=1 0f=0 1e=0 0d=0`；index 3 `0c=1 11=0 0f=0 1e=0 0d=1`。
+  - `hdr=010101`（每个 SSID 序号，index 0 到 3，请求 `0b[1]=index 1d[1]=04`）：回复 `0b=index 0c 46[4] 11[4] 0f 1e 0d`。观察到：index 0 `0c=1 11=1 0f=0 1e=0 0d=0`；index 1 `0c=0 11=1 0f=1 1e=1 0d=0`；index 2 `0c=0 11=1 0f=0 1e=0 0d=0`；index 3 `0c=1 11=0 0f=0 1e=0 0d=1`。
     `0c` 与 `WLANCfg.Enable`（1,0,0,1）一致，即 SSID 使能。其余字段的含义待用"隐藏 SSID"、"访客开关"等逐项确认。
   - `hdr=010102`（ACL 列表，请求 `1b[4]=00000040 1c[4]=00000002 1d[1]=04`）：库里 `AclCfg` 为 0 行，主控回空。
   - 另有每频段的 `0100` 对应 band 0、`0101` 对应 band 1（头的前两字节是频段）。
@@ -97,18 +97,18 @@
 
 - **库：** `WLANCfg[0].ESSIDHideEnable 0→1` 与 `WLANCfg[4].ESSIDHideEnable 0→1`（2.4G 与 5G 主 SSID 一起，明文字段，持久）；`SECRET_WLANCfg[0]/[4]` 哈希随之变化。
 - **事件链与线上：** 同第 4、5 节（`webd` → `multiapd_mgr` → ACD Renew → M1×2 → M2×2（各 3 分片）→ 12 对厂商查询，约 3 秒）。`acdsGetSSIDConf … ESSIDHideEnable[1]`。
-- **`hdr=010101` SSID 槽位配置字段对应**（请求 `0b[1]=槽位 1d[1]=04`，回复 `0b 0c 46 11 0f 1e 0d`）：
+- **`hdr=010101` SSID 序号配置字段对应**（请求 `0b[1]=序号 1d[1]=04`，回复 `0b 0c 46 11 0f 1e 0d`）：
 
   | 字段 | 对应库字段 | 依据 |
   |---|---|---|
-  | `0b[1]` | 槽位序号（0 到 3，对应 AP1 到 AP4） | |
+  | `0b[1]` | 网络序号（0 到 3，对应 AP1 到 AP4） | |
   | `0c[1]` | `WLANCfg.Enable` | 模式 (1,0,0,1) |
   | `0d[1]` | `WLANCfg.ESSIDHideEnable` | **本次实验确认**：index 0 的 `0d` 0→1 |
   | `11[4]` | `WLANCfg.ACLPolicy` | 模式 (1,1,1,0)，4 字节 |
   | `0f[1]`、`1e[1]` | `WLANCfg.VapIsolationEnable` 与 `WLANCfg.GuestSsid` 二者之一 | 两个库字段模式同为 (0,1,0,0)，待用访客或 AP 隔离实验区分 |
-  | `46[4]` | 未知 | 4 槽位均为 0 |
+  | `46[4]` | 未知 | 4 个序号均为 0 |
 
-- 附：第 4 槽（AP4）`MapAccessAttr=64`，其余 32，`BeaconType` 为 12,12,6,6；该槽位疑为回程 BSS（隐藏标志、ACL 策略与前三槽不同）。ACL 查询 `hdr=010102` 的 `1b[4]=0x40`、`1c[4]=2` 可能与此相关，待确认。
+- 附：第 4 槽（AP4）`MapAccessAttr=64`，其余 32，`BeaconType` 为 12,12,6,6；该序号疑为回程 BSS（隐藏标志、ACL 策略与前三槽不同）。ACL 查询 `hdr=010102` 的 `1b[4]=0x40`、`1c[4]=2` 可能与此相关，待确认。
 
 ## 7. 我的 Wi-Fi → Wi-Fi 频段聚合（MLO，开 → 关）
 
@@ -120,7 +120,7 @@
 ## 8. 我的 Wi-Fi → 只改 5G 名称（MLO 关闭后可独立设置）
 
 - **库：** 只有 `SECRET_WLANCfg[4]`（5G）哈希变化，2.4G 行不变。
-- **Renew 按频段精确触发：** 日志只有一次 `MapHandleWlanRenew bFreqBand:1`（5G），只发 1 个 `APAutoconfRenew`、1 个 M1、1 个 M2（1340 + 1353 + 209），厂商查询只有 5G 的 6 对（频段配置 1 对、SSID 槽位 4 对、ACL 1 对），没有 2.4G 的 6 对；`0200fe` 不出现（MLO 未变）。
+- **Renew 按频段精确触发：** 日志只有一次 `MapHandleWlanRenew bFreqBand:1`（5G），只发 1 个 `APAutoconfRenew`、1 个 M1、1 个 M2（1340 + 1353 + 209），厂商查询只有 5G 的 6 对（频段配置 1 对、SSID 序号 4 对、ACL 1 对），没有 2.4G 的 6 对；`0200fe` 不出现（MLO 未变）。
 - **触发判据：** `webd` 每次都写 `OBJ_WLANAP_ID(AP1)`、`OBJ_WLANPSK_ID(AP1.PSK1)`、`OBJ_WLANSETTING_ID(RD1/RD2)`，即使只改了 AP5；说明触发频段不取决于被写的对象名，而是 cspd 侧（`multiapd_mgr`）比较出的实际变化频段（推断，日志未直接给出判据）。
 - **移植要点：** shim 必须按频段判断变化后各自触发 Renew，不能"收到 WLAN 写库就两个频段都 Renew"，否则线上流量与原厂不同。
 - M2 长度对名称长度不敏感（WSC 加密设置按 16 字节分组）；不要用 M2 长度判断名称是否变化。
@@ -200,7 +200,7 @@
 ### 11.1 5G 密码（只改 5G）
 
 - **库：** 只有 `SECRET_WLANPSK[4]` 哈希变化（`02af1b63 → 5309b577`），`WLANCfg` 不变。
-- **线上：** 与改名字相同：单频段（5G）Renew ×1 → M1 → M2（1340+1353+209）→ 子节点 6 对厂商查询（频段配置 1、SSID 槽位 4、ACL 1）。厂商查询里**没有密码**，密码只在 M2 的加密段里。
+- **线上：** 与改名字相同：单频段（5G）Renew ×1 → M1 → M2（1340+1353+209）→ 子节点 6 对厂商查询（频段配置 1、SSID 序号 4、ACL 1）。厂商查询里**没有密码**，密码只在 M2 的加密段里。
 - **还原核对：** 原值哈希 `02af1b63`，改回原密码后应回到该值（`SECRET_WLANPSK[4]`）。
 
 ## 12. 我的 Wi-Fi → 5G 安全模式（逐个切换）
@@ -224,21 +224,21 @@
   - WPA2 `0x20&0x23=0x20`、WPA2/WPA `0x22&0x23=0x22`、Open `0x01&0x23=0x01`：不变，无改动日志；
   - WPA3/WPA2 `0x60&0x23=0x20`：**降级为 WPA2-PSK**，`Change Auth Type to [20]!`；
   - **WPA3（纯）`0x40&0x23=0`：`Change Auth Type to [0]!`，M2 里认证类型为 0。** Z506 如何处置**未验证**（读不到子节点的库）。
-  其它 BSS 槽位（默认 `0x60`）每次也都被同样降为 `[20]`。
+  其它 BSS 序号（默认 `0x60`）每次也都被同样降为 `[20]`。
 - **M2 大小：** 5 次中只有不加密一次第一分片短 16 字节（1324，其余 1340），疑与 Open 不带密钥属性有关，M2 内有 AES 分组填充，仅作旁证。
 - **移植要点：** shim 必须保存"子节点在 M1 里报告的认证类型能力"并在生成 M2 时按位与；原厂 `multiapd` 自己做这个交集，shim 只需让 M1 解析与数据库字段正确（`WLANCfg.BeaconType` 需映射为上表的认证类型位掩码，由原厂 CM 读函数完成，`CmWLANGetAPConfig`）。需验证 shim 对 `BeaconType=3/6/10/12/0` 五个值都给出一致的认证类型。
 
 ## 13. 访客 Wi-Fi（开启）
 
 - **库：** `WLANCfg[1].Enable`、`WLANCfg[5].Enable`（AP2、AP6，2.4G 与 5G 访客）0→1；`SECRET_WLANCfg[1]/[5]` 哈希变化，密码 `WLANPSK[1]/[5]` 不变。
-- **线上（13:40:51 起，约 3 秒）：** 两个频段各一次 Renew（`RenewID` 5 与 17）→ M1 ×2 → M2 ×2（各 3 分片）→ 12 对厂商查询，访客槽位（index 1，`ZTE-tsEG65_GUEST`）回复 `0c=1`，其余与第 5 节相同；约 14 秒后子节点 `TopoNotification`，主控刷新 `PolicyConfigReq`、`CombinedInfraMetrics`。无新类型消息。
-- **槽位总览（日志 `acdsGetSSIDConf`）：** index 0 主 SSID、1 访客、2 Wi-Fi 5 兼容网络、3 **回程 BSS**（名称形如 `ZMESH-xxxxxx_5G`，隐藏、使能，`MapAccessAttr=64`，`BeaconType=6`，ACL 策略 0）。
+- **线上（13:40:51 起，约 3 秒）：** 两个频段各一次 Renew（`RenewID` 5 与 17）→ M1 ×2 → M2 ×2（各 3 分片）→ 12 对厂商查询，访客序号（index 1，`ZTE-tsEG65_GUEST`）回复 `0c=1`，其余与第 5 节相同；约 14 秒后子节点 `TopoNotification`，主控刷新 `PolicyConfigReq`、`CombinedInfraMetrics`。无新类型消息。
+- **序号总览（日志 `acdsGetSSIDConf`）：** index 0 主 SSID、1 访客、2 Wi-Fi 5 兼容网络、3 **回程 BSS**（名称形如 `ZMESH-xxxxxx_5G`，隐藏、使能，`MapAccessAttr=64`，`BeaconType=6`，ACL 策略 0）。
 - 网页请求（`vueData/advanced_separated_data`）：`Enable2/Enable6`、`guestAccessTime`、`GuestOffTime`、`ESSIDHideEnable`、`ACLPolicy`、`LimitEnable/DownRate/UpRate`（限速，单位 Mbps）、`ESSID`、`KeyPassphrase`（加密）、`BeaconType`…，`encode`。限速与限时未单独测试。
 
 ## 14. Wi-Fi 5 兼容网络（开启，`ForceWiFi5`）
 
 - **库：** `WLANCfg[2]/[6]`（AP3、AP7）：`Enable 0→1`、`ForceWiFi5 0→1`、`ESSIDHideEnable`、`BeaconType 6→12` 随用户设置变化，`WLANPSK[2]/[6]` 变化。
-- **厂商字段对应：** `hdr=010101` 回复里的 **`46[4]` = `WLANCfg.ForceWiFi5`**：整个采集中只有槽位 2 在 `ForceWiFi5=1` 时 `46=00000001`（两个频段各一次），其余全为 0。
+- **厂商字段对应：** `hdr=010101` 回复里的 **`46[4]` = `WLANCfg.ForceWiFi5`**：整个采集中只有序号 2 在 `ForceWiFi5=1` 时 `46=00000001`（两个频段各一次），其余全为 0。
 - 其余同第 5 节（按频段 Renew、M2、12 对厂商查询）。网页请求（`vueData/vue_wifi_merger`）：`SubmitFlag=SSIDIY`，`EnableI/EnableY`、`ESSIDI/ESSIDY`、`ForceWiFi`、`BeaconTypeI/Y`、`ESSIDHideEnableI/Y`、`KeyPassphraseI/Y`（加密）、`_InstID_PSKI/Y`。
 
 ## 15. Wi-Fi 定时关闭（`WlanTimeCfg.TimerEnable`）
@@ -283,14 +283,14 @@
 
 日志级别已还原为 7，原厂上的采集与临时文件已清理，mac 上的会话文件已删除。
 
-## 17. 子节点管理、拓扑页、IPTV、访客、定时（2026-10-18，静态分析 + 真子节点；没有再用原厂路由器抓包）
+## 17. 子节点管理、拓扑页、IPTV、访客、定时（2026-10-18，静态分析 + 中兴原厂路由器当子节点；没有再上中兴原厂路由器抓包）
 
 原厂 Web 前端和 Lua 层在 `out/led-vendor-kmodule/home/httpd`（`webmodules/modules/*.lua` 是字节码，用 `strings` 看字段；前端 JS 在 `public/jquery/static/js`）。
 
 | 页面/动作 | Web 请求（`POST /?_type=vuejsonData&_tag=…`） | 往下的路径 | 子节点 Z506 |
 |---|---|---|---|
-| 拓扑页：重启子节点 | `router_manage_lua`：`IF_ACTION=Apply&ACTION_TYPE=RebootDev&DestMac=<AL MAC>&RebootSwitch=1` | `OBJ_ROUTER_MANAGE` → libieee1905cmapi `CmMultiApSendMsg2TopoDev`（"RebootDev" → 事件 0x90a0）→ `ASEND(0x90a0, 16 字节, "multiapd.topo.dev")` → `_topoDevRebootSetMsgHandle` → `_topoDevSendVendorSetByTunnel(0x20)` → `tunnelFloodSend`（`ASEND(0x90d2, "multiapd.base.tunnel")`）→ 单播 VendorSpecific | 支持，真机验证 |
-| 拓扑页：开/关指示灯 | 同上，`ACTION_TYPE=LightSet&DestMac=…&LightSwitch=0|1` | "LightSet" → 事件 0x909f → `_topoDevLightSetMsgHandle` → 内层 TLV 0x21 | 支持，真机验证；子节点的灯状态由它的 HigherLayerResponse 里厂商子 TLV 0x21 `{AL MAC, 状态}` 报给主控 |
+| 拓扑页：重启子节点 | `router_manage_lua`：`IF_ACTION=Apply&ACTION_TYPE=RebootDev&DestMac=<AL MAC>&RebootSwitch=1` | `OBJ_ROUTER_MANAGE` → libieee1905cmapi `CmMultiApSendMsg2TopoDev`（"RebootDev" → 事件 0x90a0）→ `ASEND(0x90a0, 16 字节, "multiapd.topo.dev")` → `_topoDevRebootSetMsgHandle` → `_topoDevSendVendorSetByTunnel(0x20)` → `tunnelFloodSend`（`ASEND(0x90d2, "multiapd.base.tunnel")`）→ 单播 VendorSpecific | 支持，上机验证 |
+| 拓扑页：开/关指示灯 | 同上，`ACTION_TYPE=LightSet&DestMac=…&LightSwitch=0|1` | "LightSet" → 事件 0x909f → `_topoDevLightSetMsgHandle` → 内层 TLV 0x21 | 支持，上机验证；子节点的灯状态由它的 HigherLayerResponse 里厂商子 TLV 0x21 `{AL MAC, 状态}` 报给主控 |
 | 拓扑页：改名 | `getEditTableLua`：`InstIdentity=<MAC>&Alias=<名称>` | `CmMultiApTopoSetDevInfo` → `CmSendMsg2MM("multiapd.topo.topo", 0x2401, 0x47000b)` → `topoDevSet` → `i5DmAddOrModifyAliasName`：只改主控自己保存的别名 | 不下发 |
 | 拓扑页：每个 AP 一张卡 | `vue_topo_data`（`OBJ_LISTAPTOPO_ID`/`OBJ_GETTOPOAD_ID`） | 字段 `DeviceName`、`IpAddr`、`MacAddr`、`BhStaRssi`、`LightStatus`、`AccessType`、`accdevCount`、角色 AC/AP | — |
 | AC→AP 的 IPTV 同步（`acap_iptv`） | （cspd 内部，无 Web 请求） | cspd `AcApIptv*`：AP 上线时 `IdmSsendApi` → `idm_service`（libidmapi），**不是 1905** | Z506 没有 `idm_service`/libidm，数据库没有 `ApIptv` 表，`multiapd` 里没有 IPTV 代码 |
@@ -299,15 +299,15 @@
 | Wi-Fi 定时关闭 | `hiddenData/vue_internet_advanced_rftimer_data`（第 15 节） | cspd `wlancfg_hdl_time_action`：写全局 WLAN 状态，再对每个无线卡/实例发 `CmMultiAPWlanRenewNotify`（没有新的 1905 报文，子节点通过正常 Renew 看到关闭的 BSS） | 通过 M2 的使能位 |
 
 隧道设置报文（重启/指示灯）的线上格式：`VendorSpecific`（CMDU 4）单播给子节点 AL MAC，厂商 TLV `0b`：`00 19 c6`（OUI）`02`（版本）`<计数|分片>` `07`（消息类型）+ 内层 TLV `<类型 0x20 重启 | 0x21 指示灯> 00 07 <AL MAC 6 字节> <值>`。重启的值要 1，指示灯 0/1。
-示例（真机抓包）：`0019c6 02 00 07 | 21 0007 d4b7090d7730 00`（关灯）、`… 02 01 07 | 21 0007 d4b7090d7730 01`（开灯）、`… 02 02 07 | 20 0007 d4b7090d7730 01`（重启）。
+示例（上机抓包）：`0019c6 02 00 07 | 21 0007 d4b7090d7730 00`（关灯）、`… 02 01 07 | 21 0007 d4b7090d7730 01`（开灯）、`… 02 02 07 | 20 0007 d4b7090d7730 01`（重启）。
 另有一条 `CfIeee1905SendRebootMsgForBaffalo`（事件 0x90a8，Buffalo OEM 的厂商 TLV），与中兴子节点无关。
 
 ## 18. 未解与不确定（2026-10-16/17；原 `GAP_ANALYSIS.md` 第 4、5 节）
 
-- `hdr=010101` 各字段：`0b`=槽位、`0c`=`Enable`、`0d`=`ESSIDHideEnable`（实验确认）、`11[4]`=`ACLPolicy`（模式吻合）、`46[4]`=`ForceWiFi5`（模式吻合）、`0f`/`1e`=`VapIsolationEnable`/`GuestSsid`（**没区分出来**）。
+- `hdr=010101` 各字段：`0b`=序号、`0c`=`Enable`、`0d`=`ESSIDHideEnable`（实验确认）、`11[4]`=`ACLPolicy`（模式吻合）、`46[4]`=`ForceWiFi5`（模式吻合）、`0f`/`1e`=`VapIsolationEnable`/`GuestSsid`（**没区分出来**）。
 - `hdr=010102`（ACL 查询）的 `1b[4]=0x40`、`1c[4]=2` 含义未确认，可能与回程槽 `MapAccessAttr=64` 有关。
 - 日志里 `web set (objname:…)` 的对象名与 Lua 源码的字段归属相反，疑为日志标注错位——以库差分为准。
-- Z506 对 M2 里认证类型 0（纯 WPA3）的处理：2026-10-17 在停用槽位上试过，Z506 忽略该项、保持原值、不掉线（见 REPLAY_RESULTS 第 11.5 节）；**主 SSID 上没试**。
+- Z506 对 M2 里认证类型 0（纯 WPA3）的处理：2026-10-17 在停用序号上试过，Z506 忽略该项、保持原值、不掉线（见 REPLAY_RESULTS 第 11.5 节）；**主 SSID 上没试**。
 - `TimePolicy` 的语义、`Map Renew delay 10 s` 的含义。
 - 范围决定（2026-10-17）：当时定为**只做 AC（master-only）**，Slave 角色、桥接模式判断、ACD 自己的 1905 选举都不算缺口。这一条后来被推翻——子节点角色是现在的主线（逐项状态见 [../FEATURE_STATUS.md](../FEATURE_STATUS.md) 的 B 系列），留在这里只为说明当时为什么没做。
 - 当年 P0 收尾时**没做的相邻项**：`SetRoamCatonCfg` 的 `0xa96a`、事件 `0x10208`（BTM）；`CmMultiAPSetMultiAPCfg` 的 `0xa93c` 只在 `Mode`/`VersionMode` 变化时才重启守护进程，当时固定 `Mode=2`，所以 `version_mode` 仍需重启服务。

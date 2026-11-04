@@ -9,7 +9,7 @@
 set -eu
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 LAB_HOST=${LAB_HOST:-10.23.90.131}
-LAB_USER=${LAB_USER:-zzb}
+LAB_USER=${LAB_USER:?set LAB_USER}
 LAB_DIR=${LAB_DIR:-\~/zte-mesh}
 [ $# -gt 0 ] || { echo "usage: $0 FILE..." >&2; exit 2; }
 

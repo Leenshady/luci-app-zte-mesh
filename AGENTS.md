@@ -43,7 +43,7 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 
 **秘密**
 
-- 仓库里不放任何密码和密钥。telnet 口令只从环境变量 `ZTE_TN_PASS` 读；Wi-Fi 密钥只写进 0600 临时文件，用完删除。
+- 仓库里不放任何账号、密码、口令和密钥。telnet 口令只从环境变量 `ZTE_TN_PASS` 读；测试机的账号与口令只在本机 `.local/lab-env.md`（`tools/lab/rssh.py` 读那张表，也认 `ZTE_LAB_USER_<别名>` / `ZTE_LAB_PASS_<别名>`）；Wi-Fi 密钥只写进 0600 临时文件，用完删除。发现某个脚本或文档里写了明文凭据，先删掉再做事。
 - `evidence/`、`out/` 含原厂二进制与 WSC 材料，不入库、不外传。
 
 **版本控制**

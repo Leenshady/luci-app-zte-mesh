@@ -2,7 +2,7 @@
 
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
 
-> [MESH_INTEROP](MESH_INTEROP.md) 第 7 节第一条：不用真机先查编码错误。这篇是那次核对的记录：
+> [MESH_INTEROP](MESH_INTEROP.md) 第 7 节第一条：不用中兴原厂路由器先查编码错误。这篇是那次核对的记录：
 > 抓了什么、每个字段是什么、跟规范和对端比哪里不一样、改了哪一处、哪一处故意不改。
 
 ## 1. 结论
@@ -37,7 +37,7 @@
 | 坑 | 现象 | 原因 |
 |---|---|---|
 | `nsenter -t <pid> -n` 进错命名空间 | 看到 `ens33`/`docker0`，没有 `veth-lab` | `timeout`/`ns-run` 外层进程没 unshare，要挑**真正 exec 进客户机**的那个 pid（`/proc/<pid>/ns/net` 与自己的不同） |
-| `lab-peer` 是 `DOWN`，一个包都抓不到 | `tcpdump -i lab-peer` 0 包 | 服务模式把 `lab-peer` 挪进**宿主**命名空间（真机上由 init 挂进 `br-lan`），lab 里没人给它 up，veth 对端 down 就丢包 |
+| `lab-peer` 是 `DOWN`，一个包都抓不到 | `tcpdump -i lab-peer` 0 包 | 服务模式把 `lab-peer` 挪进**宿主**命名空间（中兴原厂路由器上由 init 挂进 `br-lan`），lab 里没人给它 up，veth 对端 down 就丢包 |
 | 守护进程自己不定期发包 | 干等 75 秒 0 帧 | 它的 search 定时器要 cspd 置位；sandbox 没有 cspd。发一个 `0x0007` 进去它就活了 |
 
 可用的做法（`sudo`，70 秒左右）：
@@ -128,28 +128,28 @@ dst 组地址、src 是本机 AL MAC。字节与字段一一对应（offset 从�
    用 `(cmdu, mid)` 配对是对的。
 2. **它的响应里 `Supported role = Registrar`、`Supported service = 0x00 Controller`**：在这条线上
    它把自己当注册者/控制器，我们的 search 在它眼里是"一个 agent 在找控制器"。lab 里这是
-   沙箱自嗨（没有第二个 1905 设备），真机上谁扮演哪个角色要看 Z506 的对端行为。
+   沙箱自嗨（没有第二个 1905 设备），中兴原厂路由器上谁扮演哪个角色要看 Z506 的对端行为。
 3. **它每 10 秒一轮 `0x000a` renew 且永不停止** —— renew 是"我还没被配置"。lab 里没有人给它 M2，
    所以它一直循环；这也说明 **M1/M2 在 lab 里走不通**（要 cspd 把 search 标志置位），
-   M2 只能到真子路由上验。
+   M2 只能到中兴原厂路由器上验。
 
 ## 5. 差异清单与处置
 
 | # | 差异 | 证据 | 处置 |
 |---|---|---|---|
 | 1 | `0x0007` 缺 End of Message | 12 帧全被标 `[Malformed Packet]`；补三个 0 后同一帧干净；原厂四类帧全带 EOM | **已修**（`enroller.c` `search_frame()`），改完重抓 34 帧 0 malformed，且对端照样回 `0x0008` |
-| 2 | `0x0008` 缺 `0xb3` 与 EOM | 静态构造 + 原厂 42 字节响应逐字段对照 | **不改**，只加注释：现有情况是 Z506 上验过触发 M1 的那一份，动它要重新做真机验收（MESH_INTEROP 硬约束 4） |
+| 2 | `0x0008` 缺 `0xb3` 与 EOM | 静态构造 + 原厂 42 字节响应逐字段对照 | **不改**，只加注释：现有情况是 Z506 上验过触发 M1 的那一份，动它要重新做中兴原厂路由器验收（MESH_INTEROP 硬约束 4） |
 | 3 | `0x8006` 尾部 11 字节 0 被读成 extraneous | dissector 警告（warning，非 error） | **不改**：那是太网最小帧 60 字节的填充，真网卡也会补，只是我们补在用户态 |
-| 4 | `0x0007` 声明 `Supported service = Agent`、`Searched service = Controller` | dissector 逐字段；原厂响应把发送方当 agent | **记录待判**：这是"以 agent 身份找控制器"的情况。若本意是控制器去发现 agent，这两个 TLV 的值要反过来 —— 需要一台真子路由观察谁回应，不在 lab 里猜 |
+| 4 | `0x0007` 声明 `Supported service = Agent`、`Searched service = Controller` | dissector 逐字段；原厂响应把发送方当 agent | **记录待判**：这是"以 agent 身份找控制器"的情况。若本意是控制器去发现 agent，这两个 TLV 的值要反过来 —— 需要一台中兴原厂路由器观察谁回应，不在 lab 里猜 |
 | 5 | `MESH_INTEROP` 第 2 节 CMDU 名字错位 | `tshark -G values` 的表：`0x8001` AP Capability Query、`0x8002` AP Capability Report、`0x8003` Multi-AP Policy Config Request、`0x8004/0x8005` Channel Preference Query/Report | 已按表改正 |
 
 ## 6. 局限
 
-- **没有真中兴设备**：对端是沙箱里的原厂 `multiapd`，它和真子路由的差异（`br_ieee1905_filter`
+- **没有中兴原厂路由器**：对端是沙箱里的原厂 `multiapd`，它和中兴原厂路由器的差异（`br_ieee1905_filter`
   钩子、cspd、无线栈）在这里都看不到。这张表证明的是"我们的字节与规范一致"，不是"ZTE 认"。
 - **`0x8006` 只在静态核对里验过**：`radio_reconcile()` 要节点表里有一个 ZTE agent 才会发，
   lab 的 `state.json` 永远 `nodes: []`，所以这一帧没有线上证据。要抓它，得先让沙箱的拓扑里
-  出现一个节点（真子路由，或者给沙箱造一个假节点）。
+  出现一个节点（中兴原厂路由器，或者给沙箱造一个假节点）。
 - **M1/M2 没验**：这块要 cspd 把 search 标志置位，lab 里它是无限 renew。
 - 抓到的 pcap 里有 SSID/PSK 相关的 lab 配置，按仓库规矩不入库（`*.pcap` 在 `.gitignore` 里）。
 

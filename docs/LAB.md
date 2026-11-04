@@ -24,7 +24,7 @@ cat /proc/sys/fs/binfmt_misc/qemu-arm   # 应有 flags: PF（qemu-user-static �
 
 ## 2.1 另外两台：小米 AX3600 与 ImmortalWrt 虚拟机（x86_64）
 
-三台测试机器都在 `192.168.1.0/24`，二层互通（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。这张表是**测试机清单的唯一权威**，[FEATURE_STATUS](FEATURE_STATUS.md)、[DEVELOPMENT](DEVELOPMENT.md)、[INSTALL](INSTALL.md) 都指回这里，不再各写一份机器名单。登测试机一律走 `tools/lab/rssh.py`（密码登录，本机没有 sshpass；**口令只在本机 `.local/lab-env.md`**，已 gitignore，不入库，也不复述进任何文档、日志或命令回显）。表里的 `ax3600` / `owrt` / `ubuntu` 是 `rssh.py` 的别名，敲命令时用的就是它，与机型无关。
+三台测试机器都在 `192.168.1.0/24`，二层互通（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。这张表是**测试机清单的唯一权威**，[FEATURE_STATUS](FEATURE_STATUS.md)、[DEVELOPMENT](DEVELOPMENT.md)、[INSTALL](INSTALL.md) 都指回这里，不再各写一份机器名单。登测试机一律走 `tools/lab/rssh.py`（密码登录，本机没有 sshpass；**账号与口令只在本机 `.local/lab-env.md`**，已 gitignore，不入库，也不复述进任何文档、日志或命令回显——`rssh.py` 就是读那张表，`ZTE_LAB_USER_<别名>` / `ZTE_LAB_PASS_<别名>` 可单独覆盖）。表里的 `ax3600` / `owrt` / `ubuntu` 是 `rssh.py` 的别名，敲命令时用的就是它，与机型无关。
 
 ```sh
 export MSYS_NO_PATHCONV=1          # Git Bash 会把 /tmp/x 改写成 Windows 路径
@@ -44,7 +44,7 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 
 ```sh
 # 从 Windows/mac 工作区同步（LAB_HOST 用第 2.1 清单里 ubuntu 的地址；三个环境变量都是必填）
-LAB_HOST=192.168.1.191 LAB_USER=zzb LAB_PASS=… python3 tools/lab/push.py
+LAB_HOST=192.168.1.191 LAB_USER=<账号> LAB_PASS=<口令> python3 tools/lab/push.py
 # 首次或删过 out/ 之后：从运行包重建 out/runtime + manifest.json（见第 5 节）
 python3 tools/lab/bootstrap-out.py
 # 编译（ROUTERCC=cc 让 ns-run/exec-check 能在本机跑；要打包时才用 aarch64）

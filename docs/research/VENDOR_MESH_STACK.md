@@ -7,7 +7,7 @@
 **但不是同一版固件；那份 `.bin` 包里的 rootfs 密文在这里也解不开**（`.bin` 是整包加密分发，
 刷机侧才解密）。这里拿到的是另一件事——**原厂 mesh 栈的用户态实现，明文**。
 `/proc/cmdline` 实测 `root=/dev/mtdblock8 ro rootfstype=jffs2`、`/proc/mounts` 是
-`/dev/root / jffs2 ro`，说明**真机上连 rootfs 也是明文**，「密文」只存在于分发包里
+`/dev/root / jffs2 ro`，说明**中兴原厂路由器上连 rootfs 也是明文**，「密文」只存在于分发包里
 （改判过程见 [E2633_FIRMWARE](E2633_FIRMWARE.md) §5.4 晚补）。
 
 ## 1. 样本与取法
@@ -22,7 +22,7 @@
 | mesh 进程（**首次取漏**） | `multiapd`，PID 1293，`/kmodule/bin/multiapd`，**大小未取**；`VSZ 45344 / RSS 8260` KiB |
 | 库所在 | `/kmodule` = `/dev/loop0` 挂载的 12.6 MiB 镜像 |
 
-取出来的是 22 个文件（`cspd` + 6 个 mesh 库 + 15 个支撑库），走 tftp 上传到实验机：
+取出来的是 22 个文件（`cspd` + 6 个 mesh 库 + 15 个支撑库），走 tftp 上传到测试机：
 
 ```
 meshstack.tgz  sha256 f6508f456af1655ff5aae15629c360f259b225838dae3f53a933d3c6cdb86265
@@ -188,7 +188,7 @@ D 段原来整段写「没有通道的（换子路由固件才谈得上）」，
 | # | 原结论 | 新证据 | 修订 | 强度 |
 |---|---|---|---|---|
 | D4 VBSS | Z506 无 | `cspd` 有 `EnVbss`/`ToVbssMode`，但**无任何 `Cm*`/`Cf*` 导出** | 配置位存在，**无下发入口** | 中 |
-| D5 VLAN / 流量分离 | Z506 无 | `CfMultiAPSetVlanCfg`，152 B 实函数，`ASEND(0xa94e, ptr, 300)` | **有下发入口**，是否落成 CMDU 待实测 | 中 |
+| D5 VLAN / 流量分离 | Z506 无 | `CfMultiAPSetVlanCfg`，152 B 实函数，`ASEND(0xa94e, ptr, 300)` | **有下发入口**，是否会发出 CMDU 待实测 | 中 |
 | D6 STA 绑定 | Z506 无 | `CmMultiApSetStaBind`，走 `0x2401`（wlan 本地命令） | 有入口，但**不是 1905 通道** | 中 |
 | D7 802.11r / BTM 踢人 | Z506 不支持 FT | `EV_WLAN_MULTIAP_STEERING_REQUEST` + `handle_wlan_multiap_steering_req` + `wnm_send_btm_req_raw` + `En11rSteer` | **大概率真的能踢**，缺实测 | **强**（接收侧处理路径齐全） |
 | D1 带宽 20/40/80/160 | Z506 不写 `BandWidth` | 未找到新证据 | 不变 | — |
@@ -221,7 +221,7 @@ D 段原来整段写「没有通道的（换子路由固件才谈得上）」，
 |---|---|---|
 | 内核 | 4.1.25，**2024-09-25** | 4.1.25，**2026-08-26** |
 | 根分区 | UBI/UBIFS（`ubi.mtd=5`），AES-ECB 密文 | JFFS2 明文 |
-| kernel 槽位 | 单份 | `kernel1`+`kernel2` 双份 |
+| kernel 序号 | 单份 | `kernel1`+`kernel2` 双份 |
 | 内存 | DT 写 128 MB | `mem=256M` |
 
 dump 里那个 22.25 MiB 的密文 rootfs 在这台上**依然解不开**（密钥运行时派生，跨固件版本不同），
@@ -232,8 +232,8 @@ dump 里那个 22.25 MiB 的密文 rootfs 在这台上**依然解不开**（密�
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
 | **取 `/kmodule/bin/multiapd` 原件** | 我们剖析的那份是 SR1010 版；E2631 原厂那份大小与行为都可能不同，而 M2 是否被接受取决于它 | 一次 tftp，几 MB，**不用停机** |
-| **在 multiapd 里开 `pktdump 1`** | 它自带 1905 抓包，落到 `/var/tmp/<pid>_<proc>`——设备没有 tcpdump，这条比 static 编 `spark` 便宜一个量级，见 [MULTIAPD](MULTIAPD.md) §5 | 找到进 debug CLI 的口（stdin 还是消息） |
-| 把它拉成我们控制器的 slave，看 M2 是否被接受 | 第二个真机样本；E2631 的 `MarketSign`/`VersionMode` 可能和 Z506 的 `8000` 不同 | 改它 Wi-Fi（会断网），需停机窗口 |
+| **在 multiapd 里开 `pktdump 1`** | 它自带 1905 抓包，存到 `/var/tmp/<pid>_<proc>`——设备没有 tcpdump，这条比 static 编 `spark` 便宜一个量级，见 [MULTIAPD](MULTIAPD.md) §5 | 找到进 debug CLI 的口（stdin 还是消息） |
+| 把它拉成我们控制器的 slave，看 M2 是否被接受 | 第二个中兴原厂路由器样本；E2631 的 `MarketSign`/`VersionMode` 可能和 Z506 的 `8000` 不同 | 改它 Wi-Fi（会断网），需停机窗口 |
 | 抓 `0x893a` 看有没有 Steering / Assoc Control | 第 4 节的接收路径是否真被触发，只有线上证据算数 | 先用 `pktdump`；退路才是 static 编 `spark`（armv7l musl）+ 限时 promisc |
 | 本地触发 BTM：`/proc/wlan_cfg/map/btm_kick` | 不用控制器就能验证 BTM 通路是否存在 | 只写一个 `/proc`，可回退；内核侧确有 `wlan_multiap_btm_kick_write`，见 [MESH_INTEROP](MESH_INTEROP.md) §5.5 |
 | `EnVbss`/`ToVbssMode` 在 DB 里属于哪个视图 | 判断 D4 到底是「没入口」还是「入口在别处」 | 只读查 DB，`sendcmd 1 DB p <表名>` 即可 |

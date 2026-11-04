@@ -4,7 +4,7 @@
 > B.3（沙箱里初始化真实 `multiapd`）、B.3.1（CM 替身读取）、B.3.2/B.3.3（1905 线上校验）六篇当时的验收记录
 > 合成一份，保留的是"那天在哪台机器上跑什么命令、看到什么输出"。文中的 `controller_ready=false`、
 > "M2 尚未完成"、"未接入真实子节点"都是当时的状态，**不是现在的状态**——现在的逐项状态与判据看
-> [FEATURE_STATUS](../FEATURE_STATUS.md)，排期看 [PLAN](../PLAN.md)，真子路由联调看
+> [FEATURE_STATUS](../FEATURE_STATUS.md)，排期看 [PLAN](../PLAN.md)，中兴原厂路由器联调看
 > [REAL_CHILD](../REAL_CHILD.md)，跨里程碑的结论看 [FINDINGS](../FINDINGS.md)。字段级还原仍以
 > [SCHEMA](SCHEMA.md)、[POLICIES](POLICIES.md) 为准（这两份是查表用的参考资料，不在本文范围）。
 

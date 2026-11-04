@@ -1,11 +1,11 @@
-# 逆向与真机发现汇总
+# 逆向与中兴原厂路由器发现汇总
 
-> **存档：** 这份是查证资料，不再随功能改动更新。功能状态以 [FEATURE_STATUS](FEATURE_STATUS.md) 为准，排期与真机待办以 [PLAN](PLAN.md) 为准。
+> **存档：** 这份是查证资料，不再随功能改动更新。功能状态以 [FEATURE_STATUS](FEATURE_STATUS.md) 为准，排期与上机待办以 [PLAN](PLAN.md) 为准。
 
 已经查实的事实，按主题组织。操作流程见 [DEVELOPMENT.md](DEVELOPMENT.md)，配置语法与验证结果见
 [REAL_CHILD.md](REAL_CHILD.md)，控制器能下发什么见 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)。
 
-可信度标记：**【真机】** 在测试子路由 ZXHN Z506（V1.0.0.2B2.8000）上抓包或读回验证过；**【代码】** 读到反汇编，没在真机跑；
+可信度标记：**【原厂路由器】** 在测试子路由 ZXHN Z506（V1.0.0.2B2.8000）上抓包或读回验证过；**【代码】** 读到反汇编，没在上机跑；
 **【推测】** 由证据推断。没有标记的是定义或来源说明。
 
 ## 1. 总体原理
@@ -22,7 +22,7 @@
 "Z506 有没有对应接收代码"那一列：vendor 策略 TLV、STA 绑定、CAC、信道扫描、流量分离、Wi-Fi 7/MLO 都逐项标了）与
 [REAL_CHILD](REAL_CHILD.md) 第 2 节末尾（两份 `libcmapi.so` SHA256 不同、M2 由 SR1010 一侧构造，所以控制器行为读 SR1010 的
 二进制、子路由能不能收读子路由自己的）；`P1905ComCfg` 的 3 字段对 8 字段见 [CONTROLLER_CAPABILITIES](CONTROLLER_CAPABILITIES.md)
-第 H 节与 [milestones/SCHEMA](milestones/SCHEMA.md)。 【真机/代码】
+第 H 节与 [milestones/SCHEMA](milestones/SCHEMA.md)。 【原厂路由器/代码】
 
 ## 3. 子路由的角色、选举与"组网"
 
@@ -38,7 +38,7 @@
 - `_autoSetRole(角色)` 写 `Mode`/`SetRoleEnable=1`，再通知 `cspd`（`ASEND` `0xa26d` → `cspd.cspd.multiapd_mgr`）。
 - 触发事件：`0x909b` 开始、`0x909e` 停止、`0x9095` 直接设为控制器。调试命令 `sendcmd multiapd.base.base roleplay`。
 
-### 3.3 谁触发选举：`cspd` 里的两个调用点【代码】+ 真机读内存【真机】
+### 3.3 谁触发选举：`cspd` 里的两个调用点【代码】+ 上机读内存【原厂路由器】
 `CfIeee1905RoleElect` 在 `cspd` 里只有两处调用：`MapCooperatorACDUpProc`、`MapCooperatorV4AddrProc`。全局标志
 `g_TriggerSelectFlag`（`.bss` 0x203370）两位：bit0 = br0 已获得 IPv4 地址；bit1 = 收到 ACD 上线通知且当时 `Mode == 0`
 （且 `IsBridgeMode() == 1`）。**两位都为 1（值 3）时，后到的那个事件才调用 `CfIeee1905RoleElect`。** 本机实测
@@ -46,19 +46,19 @@
 
 ### 3.4 观察到的行为
 - 手动设 Slave：选举没有发生，子路由照常入网。
-- 改成自适应后（网页改不会重启 `multiapd`）：**子路由一个 Search 都不发**，停在"角色未定"，所以"组网失败"。【真机】
+- 改成自适应后（网页改不会重启 `multiapd`）：**子路由一个 Search 都不发**，停在"角色未定"，所以"组网失败"。【原厂路由器】
 - `sendcmd multiapd.base.base roleplay` 手动开始选举：子路由发 Search、控制器回 Response、M1/M2 完成，`Mode` 0→1。
-  说明控制器能被选举接受，缺的只是触发。【真机】
-- 用户设好三项并**重启**子路由：自行选举为 Slave，`CurHop=2`、`P1905DevNum=2`。【真机】
+  说明控制器能被选举接受，缺的只是触发。【原厂路由器】
+- 用户设好三项并**重启**子路由：自行选举为 Slave，`CurHop=2`、`P1905DevNum=2`。【原厂路由器】
 - 反复 `kill` 子路由 `multiapd` 后，每次启动都有 `SubScribPublish server 10022 already exist!`、
   `acdInit SubScribPublish multiapd ACD Service Fail`、`ACD Notify event[4] to 0 clients`，计数
   `multiapd restart unexpected 17 times`——通知发给了 0 个订阅者，bit1 永远置不上。**所以不要再用 `kill multiapd`
-  触发重新入网。** 【真机】
+  触发重新入网。** 【原厂路由器】
 
 ## 4. 入网准入链
 
 准入清单（设备身份 ZTE / `ZXSLC SR1010`、市场码 `MarketConfEn=1` + `MarketSign=8000`、`SSIDSyncRadio=1` 绕开 `bRadioStatusOn()`、
-`P1905AcdBssCfg.CustomTag=68`、`CmWLANGetAPConfig` 对槽位 0 到 3 都成功、每 BSS 的 `MapAccessAttr`（主 BSS 32）与 `ACLPolicy`
+`P1905AcdBssCfg.CustomTag=68`、`CmWLANGetAPConfig` 对序号 0 到 3 都成功、每 BSS 的 `MapAccessAttr`（主 BSS 32）与 `ACLPolicy`
 （主/访客 1，回程 0））、热更新那条可靠通道 `SSEND(0x2401, {u32 消息号, char name[32], u32 0})` → `multiapd.map.master`
 （消息号 `0x10206` 域/漫游阈值、`0x10205` 主控策略）与控制器地址**只有末字节可配**（`AL MAC` 默认 `02:00:00:00:19:06`；
 `ZTE_MESH_AL_LAST` / UCI `al_last` 改最后一个字节，前五字节是子路由准入检查认的格式，改成别的地址子路由直接不收）——已并入
@@ -67,7 +67,7 @@
 
 - 子路由只处理**它已经认识的**控制器发来的 Multi-AP 消息；在收到控制器的拓扑响应（Supported Service TLV = 控制器）并转
   `DEV_ONLINE` 之前，早到的 `0x8001`/`0x8003`/`0x8004` 被丢弃（日志 `query message 0x... is not from controller[..] ignore`）。
-  控制器只在启动后约 25 到 80 ms 内发一次，不重发。控制器下线后子路由约 1 到 2 分钟才忘记它。【真机】
+  控制器只在启动后约 25 到 80 ms 内发一次，不重发。控制器下线后子路由约 1 到 2 分钟才忘记它。【原厂路由器】
 - 直接 `sendcmd 1 DB set` 写库不会发那条同步消息，daemon 既不重读也不推送；工厂调试通道 `/var/tmp/<进程>_asy` 也没有效果。
   见 [REPLAY_RESULTS](research/REPLAY_RESULTS.md) 第 11 节。
 
@@ -95,10 +95,10 @@
 
 | 控制器 | 子路由 | 结果 |
 |---|---|---|
-| 开 | 开 | 双向严格，需同为 ZTE 且市场码一致。【真机】项目早期的整套准入门槛就是在这个组合下从失败走到成功的 |
-| 开 | 关 | 只有控制器检查子路由（它是 ZTE/8000，通过）。【真机，`mesh.v2` 置 1】子路由在线，识别为 `ZXHN Z506`、`zte:true` |
-| 关 | 开 | 只有子路由检查控制器：需要控制器带 ZTE 身份和相同市场码。【代码】未在真机单独验证 |
-| 关 | 关 | 谁也不检查，任何 1905 设备都能接。【真机，默认配置】 |
+| 开 | 开 | 双向严格，需同为 ZTE 且市场码一致。【原厂路由器】项目早期的整套准入门槛就是在这个组合下从失败走到成功的 |
+| 开 | 关 | 只有控制器检查子路由（它是 ZTE/8000，通过）。【原厂路由器，`mesh.v2` 置 1】子路由在线，识别为 `ZXHN Z506`、`zte:true` |
+| 关 | 开 | 只有子路由检查控制器：需要控制器带 ZTE 身份和相同市场码。【代码】未在中兴原厂路由器单独验证 |
+| 关 | 关 | 谁也不检查，任何 1905 设备都能接。【原厂路由器，默认配置】 |
 
 **我们默认 V2 关闭**（`mesh.v2=0` → 写控制器自己的 `P1905ComCfg.Enable=0`，启动日志 `p1905_v2=0`；`=1` 恢复严格检查）只影响
 控制器**接收**时的检查：对外身份（ZTE / `ZXSLC SR1010`）和市场码（`1` / `8000`）不变，所以子路由开着 V2 时仍接受我们；
@@ -118,16 +118,16 @@ Multi-AP Profile-2，WSC M1 里带 Profile-2 AP 能力 TLV、物理链路上下�
   度量 TLV、清零发 ZTE 私有邻居表 TLV（抓包对照见 [REPLAY_RESULTS](research/REPLAY_RESULTS.md)）；`ChannelSelectResponseReceive`
   置位时只回 ACK。【代码】
 - 协商：每台设备把自己的值放进 ACD 厂商 TLV；子节点收到 M2 或控制器报文时记下**控制器的值**，处理 M2 时已知就用控制器的，否则用
-  本机的。没验证：在真子路由上换成别的值；bit2、bit4 到 bit6 的含义。
+  本机的。没验证：在中兴原厂路由器上换成别的值；bit2、bit4 到 bit6 的含义。
 
 ## 7. CurHop（跳数）
 
 控制器 `EnMasterOnly=1`（SR1010 没有无线电，必须如此）时 `multi_ap_slave_main` 跳过 `slave_init`、`CurHop` 因此停在默认 -2、
-`CfMultiapGetCurHop` 读库偏移 260 失败返 -2、修复是 `multiap-cfg.c` 启动时写 `CurHop=2` 并真机验证子路由读到 2——这些已并入
+`CfMultiapGetCurHop` 读库偏移 260 失败返 -2、修复是 `multiap-cfg.c` 启动时写 `CurHop=2` 并上机验证子路由读到 2——这些已并入
 [REAL_CHILD](REAL_CHILD.md) 第 2 节、[milestones/SCHEMA](milestones/SCHEMA.md) 与 [FEATURE_STATUS](FEATURE_STATUS.md) 的 B16。
 留着子节点侧的那条规则：控制器把自己的 `MultiAPCfg.CurHop` 原样放进厂商私有 TLV（子类型 `0x43`，大端 4 字节，在 Higher Layer
 Response 即 CMDU `0x000e` 里），子节点收到后**有线接入直接采用，无线接入减 1（≤0 则 -1）**；未修复时子路由日志的情况是
-`Get hop -2 from 02:00:00:00:19:06`。 【代码】+【真机】
+`Get hop -2 from 02:00:00:00:19:06`。 【代码】+【原厂路由器】
 
 ## 8. 子路由 Web 的"受控后锁定"
 
@@ -139,7 +139,7 @@ Response 即 CMDU `0x000e` 里），子节点收到后**有线接入直接采用
 **旧版界面（`webmodules` 的 `.lp`）**：高级 SSID 页输入框置灰；基本 SSID 页**只禁用"双频合一"，名称和密码没有锁定代码**；
 `dmenu_modifier.lua` 的 `filterSlave` 作用在 WAN、LAN IPv4/IPv6、DMZ、端口转发、DDNS、UPnP、高级 Wi-Fi 等菜单项。
 
-真机观察与规则一致。**任何控制器都不可能直接让某个页面变只读：它只能让子路由成为 Slave。**
+上机观察与规则一致。**任何控制器都不可能直接让某个页面变只读：它只能让子路由成为 Slave。**
 没查清的一条：更早一次"只锁备用和射频、不锁主 Wi-Fi"是在什么条件下发生的。
 
 ## 9. ACL
@@ -148,7 +148,7 @@ Response 即 CMDU `0x000e` 里），子节点收到后**有线接入直接采用
 那份列表是权威的）、策略值（`WLANCfg.ACLPolicy` 0 关闭 → 驱动 `AccessPolicy=0`、1 拦截名单内 → `2`、2 只放行名单内 → `1`）、
 **Z506 的实际行为**（每条规则不分接口，都出现在 AP1、AP2、AP5、AP6 上，5G 主 SSID 名称带 `_5G`；策略变化会连带改 AP3）、
 **拦截已验证**（一加手机的 MAC 加入 `ban` 后驱动显示 `Policy is 2 : ... rejected`，站点立刻消失，删规则后重新连上；
-**手机私有 MAC 会变**，同一台一加用过两个 MAC，只封旧的无效）、没验证的 `allow` 策略与 5G 驱动读回、槽位含义（0 主 Wi-Fi、
+**手机私有 MAC 会变**，同一台一加用过两个 MAC，只封旧的无效）、没验证的 `allow` 策略与 5G 驱动读回、序号含义（0 主 Wi-Fi、
 1 访客、2 备用、3 回程隐藏）与 AP 到接口（AP1 `wlan0`、AP2 `wlan1`、AP3 `wlan2`、AP4 `wlan3`、AP5 `wlan5g0`、AP6 `wlan5g1`）
 ——已并入 [REAL_CHILD](REAL_CHILD.md) 第 4 节（含末尾的 `WLANCfg` 8 行基线）与 [FEATURE_STATUS](FEATURE_STATUS.md) 的 A8。
 留着三条逆向细节：
@@ -159,7 +159,7 @@ Response 即 CMDU `0x000e` 里），子节点收到后**有线接入直接采用
   [milestones/SCHEMA](milestones/SCHEMA.md)），控制器经 `CmWLANGetAclListValid` → `adevQueryAclCfgListByIf` 读，走数据库视图，
   **不需要无线硬件**。【代码】
 - 驱动是 Ralink 风格：`iwpriv ... set ACLAddEntry=` / `ACLClearAll=1` / `AccessPolicy=`；读回用
-  `iwpriv wlan0 set ACLShowAll=1` 看内核日志（需要带 `dmesg` 的 busybox）。【真机】
+  `iwpriv wlan0 set ACLShowAll=1` 看内核日志（需要带 `dmesg` 的 busybox）。【原厂路由器】
 
 ## 10. 入网时的频段配置、信道、发射功率、带宽
 
@@ -212,11 +212,11 @@ Web 代码在 `/home/httpd/webmodules`（Lua + `.lp`）和 `/home/httpd/public/j
 
 ## 14. 还没有查清的问题
 
-并入 [PLAN](PLAN.md) 第 5 节的真机清单（`VersionMode` 其余位与"兼容模式"文案的对应 = H-08，steering 等终端动作的触发路径 = H-03，
-长稳与控制器异常退出后的恢复 = H-09）与 [REAL_CHILD](REAL_CHILD.md) 第 7 节（一次干净的"控制器关 V2 + 子路由开 V2"的真机验证、
+并入 [PLAN](PLAN.md) 第 5 节的上机清单（`VersionMode` 其余位与"兼容模式"文案的对应 = H-08，steering 等终端动作的触发路径 = H-03，
+长稳与控制器异常退出后的恢复 = H-09）与 [REAL_CHILD](REAL_CHILD.md) 第 7 节（一次干净的"控制器关 V2 + 子路由开 V2"的上机验证、
 `Policy=2` 的限制行为、`allow` 策略、5G 驱动 ACL 读回；`DropNum` 单位与 `A1` 的含义另见本文第 5 节末尾）。更早一次"只锁备用和射频、
 不锁主 Wi-Fi"的原因挂在第 8 节末尾。剩下两条只在本文的：
 
-1. 选举在"干净重启"下自行完成已有一次真机观察；"残留发布登记"（第 3.4 节那几条 `SubScribPublish ... already exist`）的解释
+1. 选举在"干净重启"下自行完成已有一次上机观察；"残留发布登记"（第 3.4 节那几条 `SubScribPublish ... already exist`）的解释
    没有单独证明。
 2. 子路由 SSID 查询（索引 1 到 3）的真实应答（当前答"没有这个 SSID"，不影响 M2 路径）。

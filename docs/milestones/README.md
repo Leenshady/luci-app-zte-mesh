@@ -10,4 +10,4 @@
 | [SCHEMA.md](SCHEMA.md) | `MultiAPCfg` 50 字段的还原（偏移、原厂读写、CM 转换）——**查原厂字段时仍然先读这份** |
 | [POLICIES.md](POLICIES.md) | Master/Domain 策略表的还原——同上 |
 
-之后的服务模式（B.4 起）见 [../SERVICE.md](../SERVICE.md)，真子节点联调见 [../REAL_CHILD.md](../REAL_CHILD.md)。
+之后的服务模式（B.4 起）见 [../SERVICE.md](../SERVICE.md)，中兴原厂路由器联调见 [../REAL_CHILD.md](../REAL_CHILD.md)。
