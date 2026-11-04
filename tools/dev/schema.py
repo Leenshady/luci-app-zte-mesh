@@ -21,7 +21,7 @@ TYPE_LENGTHS = {2: (36, 64), 3: (68, 96), 5: (260, 288), 7: (1028, 1056),
 PATTERN = re.compile(r'^MAP_FIELD\(([A-Z0-9_]+), "([^"]+)", (\d+), ([01]), "([^"]*)"\)$')
 
 # 表描述文件（.def）与 C 源同在 src/
-TABLE_DEFS = Path(__file__).resolve().parent / "src"
+TABLE_DEFS = Path(__file__).resolve().parents[2] / "src"
 
 
 def registry(path=None):

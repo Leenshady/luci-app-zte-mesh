@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SOURCE))
+sys.path.insert(0, str(SOURCE / "tools" / "dev"))
 from schema import (CONSTRUCTORS, POLICY_TABLES, constructor_data, policy_registry,
                     policy_constructor_fields, verify_policy_constructor,
                     verify_policy_registration, emit_policy_definitions)

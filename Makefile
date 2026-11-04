@@ -16,8 +16,8 @@ VENDOR_LIBS = $(shell python3 -c 'import json; m=json.load(open("$(ARTIFACTS)/ma
 
 .PHONY: all test-host database controller
 controller: database $(LIBDIR)/libzte_controller_trace.so $(LIBDIR)/libzte_controller_route.so $(LIBDIR)/libzte_controller_profile.so $(LIBDIR)/libzte_agent_mm.so
-	python3 cm-profile-evidence.py --libcmapi $(LIBDIR)/libcmapi.so --multiapd $(ARTIFACTS)/runtime/bin/multiapd --verify src/cm-profile-layout.inc
-	python3 startup-schema.py --cspd $(ARTIFACTS)/analysis/cspd --libdb $(LIBDIR)/libdb.so --verify src/startup-views.inc
+	python3 tools/dev/cm-profile-evidence.py --libcmapi $(LIBDIR)/libcmapi.so --multiapd $(ARTIFACTS)/runtime/bin/multiapd --verify src/cm-profile-layout.inc
+	python3 tools/dev/startup-schema.py --cspd $(ARTIFACTS)/analysis/cspd --libdb $(LIBDIR)/libdb.so --verify src/startup-views.inc
 all: $(LIBDIR)/libzte_mesh_shim.so $(ARTIFACTS)/exec-check $(ARTIFACTS)/qemu-arm-static
 
 # Factory-style OSS client (diagget pattern): liboss_pub, not the daemon's liboss.
@@ -56,7 +56,7 @@ $(ARTIFACTS)/ns-run: src/ns-run.c src/controller-net.c
 $(ARTIFACTS)/zte-debugcmd: src/zte-debugcmd.c
 	$(ARMCC) -O2 -std=gnu11 -Wall -Wextra -Werror -march=armv7-a -mfloat-abi=soft -static src/zte-debugcmd.c -o $@
 
-# The same launcher for tmpfs lab runs (dev-service-smoke.py and friends unpack the runtime to /tmp/zte-mesh-svc).
+# The same launcher for tmpfs lab runs (tools/dev/dev-service-smoke.py and friends unpack the runtime to /tmp/zte-mesh-svc).
 $(ARTIFACTS)/ns-run-svctest: src/ns-run.c src/controller-net.c
 	$(ROUTERCC) -O2 -std=c11 -static -Wall -Wextra -Werror -DSERVICE_ROOT='"/tmp/zte-mesh-svc/root"' src/ns-run.c src/controller-net.c -o $@
 
