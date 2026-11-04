@@ -120,7 +120,8 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 - `multiapd` 和原厂库是 ARM EABI5 soft-float（`e_flags=0x05000200`），解释器 `/lib/ld-linux.so.3`，glibc 2.26。不能注入 AArch64、
   musl 或 hard-float 的库；preload 库和 ARM32 程序用 `arm-linux-gnueabi-gcc -mfloat-abi=soft` 编，直接链接原厂 glibc，
   `make-runtime.py` 再审计强符号与 GNU 符号版本。
-- 内核要 `CONFIG_COMPAT`（AArch32 用户态）和 SysV IPC（原厂数据库是 SysV 共享内存）。
+- 内核要 `CONFIG_COMPAT`（AArch32 用户态）、SysV IPC（原厂数据库是 SysV 共享内存）与 raw socket（`CONFIG_PACKET`，
+  1905 帧由 `multiapd` 在用户态自己收）。这三条原来是根目录那份 `kernel.fragment`，零引用、没被任何构建吃过，删掉并把话写在这里。
 - 私有根里保留原厂 loader 和 glibc，不碰 OpenWrt 的 `/lib`；原厂进程看不到 MTD、厂商设备和宿主配置。
 - chroot 和 preload 都不是完整的安全边界。沙箱靠命名空间：私有 network/IPC/mount，宿主可写的只有 `/run/zte-mesh`，
   只读字符设备只有内核 urandom。

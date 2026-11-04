@@ -60,6 +60,7 @@ S1 是"能用"，S2 是"能当子路由"，S3 是"不用网线"，S4 是"能运�
 **排给下一批（主机可测）**：**没有了**。剩下的每一条都卡在上机窗口——H-01（无线回程端到端）、H-02（中兴原厂路由器多 BSS）、H-03（踢人/封锁对端照不照做）、H-04（第二台子路由）、H-09（24 小时与真推送的日志占比）、H-11（真型号与角色对照）、H-12（Z506 发不发 `0xd4`）、H-13（一帧列全还是一射频一帧）、H-14 的 ⑥ 与 ⑦ 后半。下一轮的时间应该花在窗口上，不是代码上。
 
 | 15 | 目录整理 B 档（H，插队） | 根目录 17 个 `.py` 进 `tools/dev/`，跟着改 12 个文件：`build.sh` 四条提取/审计命令 + 容器里那条 `smoke.py`、`Makefile` 的 `--verify` 两条、按模块名 import 它们的 8 个（`openwrt/make-runtime.py`、`tests/` 六个、`tools/lab/bootstrap-out.py` 与 `syms.py`）。脚本里 10 处"仓库根 = 脚本目录"改成 `parents[2]`（`schema.py` 的 `TABLE_DEFS`、`bridge_evidence.py` 读 `src/mesh-bridge.h`，以及七个 `repo = …`）。`tests/test_evidence.py` 补上显式插入——它以前是**靠 `python3 -m unittest` 把 cwd 塞进 `sys.path` 才 import 得上的**。**顺带修掉 A 档漏的一处**：`tests/test_profiles.py` 用 `profile_schema.__file__` 的父目录找 `.def`，C 侧进 `src/` 之后那里没有 `wlan_base.def`，本机 13 条用例静悄悄报错（构建机因为 `make` 提前停在 `test_schema` 没暴露），改成取 `profiles.TABLE_DEFS` | 本机 `unittest discover -s tests` 126 条，报错 **46 → 33**（差的正好是那 13 条）；构建机先 `touch src/*.c …` 全量重编 `all database` **rc=0、`warning:`/`error:` 各 0、15 次 gcc**，七个产物哈希与第 9 轮基线**逐字相同**（`zte-meshctl d3b3d5c0…`、`db-engine-probe f488ba48…`、`zte-debugcmd b1dfd50c…`，`ROUTERCC=cc` 现编的 `ns-run f043437c…`／`ns-run-svctest 0e5a4beb…`／`exec-check 53a0dcde…`／`config-bridge-probe dcc9b84f…`）；测试单独跑齐：`test_evidence` 17 过、`test_device_workspace` 14 过、`test_cmapi_tables` 4 过、`test_i18n`／`test_runtime`（0 failure）／`test_frames` 过，shell 四组 130／24／182／173 全过，`test_profiles` 只剩 6 条缺 `cspd`、`test_policies` 5 条、`test_startup` 整组、`test_schema` 4 条（环境事实）；`tools/dev/cm-profile-evidence.py --verify src/cm-profile-layout.inc` 44 处 payload／2496 字节、`bridge_evidence.py` 出图正常，七个脚本 `--help` 全 rc=0 | **不上机，也不触发 CI**：判据是 `git diff --name-only b3ef7f8..HEAD -- openwrt/` 只有 `make-runtime.py`，而它不在任何 apk 里（三个包 `PKG_RELEASE` 18／1／10 不动，`zte-mesh-runtime.tar.gz` 仍是 `a36f9637…`）。剩下的还是 H-14 ⑥ 与 ⑦ 后半、页面「BSS 明细」等 H-13 |
+| 16 | 目录整理余下的三件（H，插队） | 仓库根那份零引用的 `kernel.fragment`（6 行，从 `e0b54cf` 起就在树里）删掉，三条内核要求（`CONFIG_COMPAT`／SysV IPC／raw socket `CONFIG_PACKET`）写进 [ARCHITECTURE](ARCHITECTURE.md) §5 那条约束里；构建机 `ubuntu` 上清掉两处非入库副本——`vendor/e2631`（23 个文件、5.9 MB，E2631 的用户态，`out/` 里没有第二份）与第 15 批挪出去的 `~/stale-root-py/`（17 个移动前的根 `.py`），连根目录 `__pycache__` 里那 7 个旧字节码一起删。**删前先取回唯一的非提取件**：`vendor/e2631/busmap.py` 是手写的（走反汇编统计每个导出函数在哪条内部总线上发消息），仓库没有第二份，已按 sha256 `ef705e3a…` 落在本机 `.local/vendor-e2631-busmap.py`，整包也留了 `.local/vendor-e2631-backup.tar.gz`（`786124a7…`，23 个文件、6 039 409 字节）——都不入库 | 判据是清单不是"能不能编"：远端排除 `out`/`evidence`/`__pycache__` 后 233 个文件、`git ls-files` 229 个，**仓库里缺的文件 0 个**，远端多出的只有 `dist/` 里 4 个陈旧 apk（r5/r6，比现在的 r18/r10 差好几轮）；`kernel.fragment=$([ -f ] && echo present)` 在构建机与仓库同时归零 | 不触发 CI、不装机：`git diff --name-only 06a4b06..HEAD -- openwrt/` 为空，删的是仓库根的非入库引用与构建机副本，四个包一个字节没变。余下的还是 H-14 ⑥ 与 ⑦ 后半、页面「BSS 明细」等 H-13 |
 
 另有一条不用上机、也不要新判据的小账：`openwrt/luci-app-zte-mesh/po/zh_Hans/zte-mesh.po` 还剩 **3 处写"档案"**
 （141、150、174 行，都是页面描述），那是称呼清理漏的一层。改它必须连着升 luci 的 `PKG_RELEASE`（见 §6.3），
@@ -85,6 +86,7 @@ S1 是"能用"，S2 是"能当子路由"，S3 是"不用网线"，S4 是"能运�
 | 13 | 按 BSSID 终端数上列 + 主控跳数的测试环境专用开关 | 做完（两台测试机 `RESULT=PASS`） | H-14 的 ⑥ 与 ⑦ 后半（开关已就位，只差读子节点那一次读取） |
 | 14 | C 侧进 `src/`（目录整理 A 档） | 做完（两台测试机 `RESULT=PASS`，`zte-mesh` 与 launcher 两个包逐字节未变） | 无新增 |
 | 15 | Python 进 `tools/dev/`（目录整理 B 档） | 做完（七个产物哈希与基线逐字相同，包内容没变所以没触发 CI） | 无新增 |
+| 16 | 目录整理余下的三件（`kernel.fragment` + 构建机旧副本） | 做完（远端文件清单比仓库 0 缺失，构建机不再有仓库外的第二份脚本副本） | 无新增 |
 
 最近一次 CI 从临时分支 `ci/batch14` 触发，跑的是 A 档目录整理那一轮（C 侧进 `src/`，见 [journal](journal/2026-11-04.md) 第七、八轮），
 包版本一个没升（`zte-mesh` r18、launcher r1、`luci-app-zte-mesh` 与 i18n r10），两台测试机 `RESULT=PASS`。
@@ -94,6 +96,8 @@ S1 是"能用"，S2 是"能当子路由"，S3 是"不用网线"，S4 是"能运�
 **第 15 批（Python 进 `tools/dev/`）没有触发 CI，也没有装机**：这一批进不了任何包——判据是
 `git diff --name-only <上批 CI 的 commit>..HEAD -- openwrt/` 只有 `make-runtime.py`，而它不在任何 apk 里（`grep` 过三个包的 `Makefile` 与两个 workflow），
 运行包 `zte-mesh-runtime.tar.gz` 的哈希还是 `a36f9637…`。按 §6"攒够几项才跑一次 CI"的节奏，这种改动不值得单开一轮。
+**第 16 批同样不触发 CI、不装机**：`git diff --name-only 06a4b06..HEAD -- openwrt/` 为空——删的是仓库根那个零引用文件与构建机上仓库外的副本，
+四个包的字节一个没动。
 逐项状态、测试条数与证据只在 [FEATURE_STATUS](FEATURE_STATUS.md)（唯一总账）。
 
 ## 4. 主机测试口径
