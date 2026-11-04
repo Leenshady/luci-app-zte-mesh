@@ -37,7 +37,7 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 
 - 向中兴原厂路由器推配置会真实且持久地改变它的设置。每轮前后用 `ZTE_TN_PASS=… sh tools/child/childread.sh` 读回 8 行 `WLANCfg`，与 REAL_CHILD 末尾基线逐行比对。
 - **永远不推占位值**：额外 BSS 的 `enabled/ssid/key` 三项必须给齐，同一块射频上的网络序号必须是 1..k。
-- **不改子路由的模式**（`Mode`、自组网 V2、`VersionMode`、MESH 开关）——那是用户在子路由上自己设的。
+- **不改子路由的模式**（`MultiAPCfg` 的 `Mode`/`VersionMode`/`Enable`（MESH 开关）与 `P1905ComCfg.Enable`（MESH 兼容））——那是用户在子路由上自己设的。
 - 会让用户设备掉线的测试（关主 SSID、ACL 封禁真实终端、信道/功率、改 SSID、定时 `scope=all`）**先征得同意，测完立即还原**。
 - 不要用 `kill multiapd` 逼子路由重新入网；改控制器重启、`zte-meshctl renew-acd <band>` 或重启子路由。
 

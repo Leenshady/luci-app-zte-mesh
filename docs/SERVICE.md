@@ -68,7 +68,7 @@
 | `wifi_5g_suffix` | `wifi.essid_suffix` | 1 到 8 个可打印字符，默认 `-5G`；派生名超 31 字节被拒 |
 | `wifi_*_hidden` / `_security` | `radioN.hidden` / `beacon_type` | `none`=0、`psk2`=3、`psk-mixed`=6、`sae`=10、`sae-mixed`=12；`none` 会让真实网络变成开放网络 |
 | `wifi_*_beacon_interval`、`_channel`、`_tx_power`、`_acl_policy` | `radioN.*` | 范围同 REAL_CHILD 第 3 节（信道按频段白名单，0 = 自动） |
-| `mesh_v2`、`mesh_role`、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 即原厂 MESH 开关（`P1905ComCfg.Enable`）：开 = 只接受市场码相同的中兴原厂路由器；关 = 接受任何子路由（默认） |
+| `mesh_compatible`、`mesh_role`、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_compatible` 即原厂 MESH 开关（页面标签「MESH 兼容」）：开 = 接受任何子路由（默认），关 = 只接受市场码相同的中兴原厂路由器。服务键 `mesh.v2` 问的是反面的问题（`P1905ComCfg.Enable` = 严格的中兴准入），所以**只有 init 写这一行时反一次**，别处不再翻。旧的 UCI 选项 `mesh_v2` 已删除，写了也被忽略 |
 | `backhaul` | **不写进服务配置**：`wlan-sync` 自己读这个 UCI 选项 | 回程模式，`off`（默认）或 `multi_ap`；其余取值 `write_config` 拒绝（`multi-ap` 会被当成 `off`，等于一个"设了却不动"的开关）。按角色写成两端之一，见下面"设备角色"一节 |
 | `extra_slots`、`wifi_2g`、`wifi_5g` | **不写进服务配置**：同上，`wlan-sync` 自己读 | 额外网络开关 + 两块射频的指定（`wifi-device` 段名，如 `radio1`；只在"一个频段有两块射频"时需要）。页面上和 `backhaul` 同一批，只给跑 applier 的两个角色；改任何一项都会重启 applier，见下 |
 | `band_steer*`、`roam*` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
@@ -95,7 +95,7 @@
 
 `wlan-sync` 直接读 UCI 的另外几项同理，一起进签名：**`extra_slots`**（子节点的 plan 里本来就有额外网络的行，这个开关只决定它们该不该写到射频上——关掉它却不重启，子路由会继续广播一个已经不该存在的 guest）与 **`wifi_2g` / `wifi_5g`**（一个频段有多块同类型射频时指定用哪一块，选出来的设备名不在 plan 里）。四项共用 `sync_runs` 这一个判据：不跑 applier 的角色一个都不带，否则一次保存就是一次没有意义的重启（子路由最长一分钟掉出拓扑）。页面上这四项也在一起（`zte-mesh.js` 的 `child` 或 `local` 三块），两个 pin 填的是 `wifi-device` 段名，情况非法在保存前就被拒——写错的设备名会被 `wlan-sync` 忽略并留一行日志，那正是"设了却不动"的另一种情况。
 
-包的默认配置把能取出厂值的都写上，LuCI 显示同样默认值并标注范围：`mesh_v2=0`、`mlo_enable=1`、`wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、信标 100 ms、信道 0、功率 20/23 dBm（子节点最大档 = 出厂值）、`band_steer=1`、引导阈值 -60/-110、漫游阈值 -60/-70、`roam_force=0`、`enabled=1`、`wifi_24g_key=Ztemesh2631!`（清空则服务不启动）。要让子路由保持自己的信道/功率，删掉对应选项。
+包的默认配置把能取出厂值的都写上，LuCI 显示同样默认值并标注范围：`mesh_compatible=1`（也就是 `mesh.v2=0`）、`mlo_enable=1`、`wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、信标 100 ms、信道 0、功率 20/23 dBm（子节点最大档 = 出厂值）、`band_steer=1`、引导阈值 -60/-110、漫游阈值 -60/-70、`roam_force=0`、`enabled=1`、`wifi_24g_key=Ztemesh2631!`（清空则服务不启动）。要让子路由保持自己的信道/功率，删掉对应选项。
 
 其余区段：`zte_mesh_client`（最多 8 条，`mac` 必填且同一地址不许重复，`action` 为 `ban`/`kick`，默认 `ban`；按文件顺序转换成 `ban.mac` / `kick.mac`）、`zte_mesh_bss`（额外网络，`band`/`slot`/`enabled`/`ssid`/`key` 必填，同频段序号必须 1..k）、`zte_mesh_timer`（最多 8 条，`start`/`end` 必填，`days`、`scope` 可选；init 把 `date +%z` 换算成 `timer.utc_offset`，**夏令时切换后要重新保存设置**）、`zte_mesh_acl`（最多 16 条，按文件顺序编号）、`zte_mesh_node`（别名，只给 LuCI 节点表）。
 

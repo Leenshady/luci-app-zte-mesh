@@ -4,13 +4,13 @@ ZXSLC SR1010（又叫中兴星云 MAX）上的原厂 `multiapd`（Controller 角
 ZXHN Z506（又叫中兴小方糖，固件 V1.0.0.2B2.8000，
 `192.168.5.216`，`d4:b7:09:0d:77:30`）联调的结论。协议层深入分析在 [FINDINGS.md](FINDINGS.md)，
 构建/测试/守则在 [DEVELOPMENT.md](DEVELOPMENT.md)，控制器能下发什么在 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)。
-**我们从未改过子路由的模式**：它是用户设的"MESH 开、自组网 V2 关、角色自适应"（选举后 `Mode=1`、`SetRoleEnable=1`）。
+**我们从未改过子路由的模式**：它是用户设的"MESH 开、MESH 兼容关、角色自适应"（选举后 `Mode=1`、`SetRoleEnable=1`）。
 
 ## 1. 状态
 
 在原厂路由器上通过：发现/拓扑/链路指标/Higher Layer（CMDU 0、1、2、3、5、6、7、13、14）、AP-Autoconfig + WSC M1/M2（真 DH、HMAC、
 Key Wrap，子路由 `config M2[0]`）、SSID 与 WPA2 密钥真的广播出来了（用户确认 2.4G/5G 均为 `cc`）、重复入网与 Renew、
-多 BSS 序号 1 到 3、BeaconInterval、信道与功率（均已还原）、ACL 主 SSID、角色选举与 `CurHop`、自组网 V2 两种取值、
+多 BSS 序号 1 到 3、BeaconInterval、信道与功率（均已还原）、ACL 主 SSID、角色选举与 `CurHop`、MESH 兼容两种取值、
 重启子节点与指示灯。细节与"未验证"的部分见第 4 节。
 
 以下各项不生效，原因是 Z506 固件没有对应代码（不是我们没做）：漫游阈值（Z506 不解析 ZTE vendor 策略 TLV）、
@@ -34,7 +34,7 @@ Key Wrap，子路由 `config M2[0]`）、SSID 与 WPA2 密钥真的广播出来�
 | 每 BSS 的 `ACLPolicy` | 见 §4 | 主/访客 1、回程 0，与子路由原值一致 | `wlan-profiles.c` |
 | `VersionMode` | 决定是否发 ZTE 私有厂商 TLV | 控制器用原厂基线 128（bit1 清零才发私有 TLV；bit7 加 Wi-Fi 7 的 `0xdd`/`0xe0`） | 服务配置 `version_mode` |
 | 控制器的 `CurHop` | 子路由日志 `Get hop -2` | 启动时写 `MultiAPCfg.CurHop=2`（等于 `MaxHop`） | `multiap-cfg.c` |
-| 自组网 V2（`P1905ComCfg.Enable`） | 控制器是否严格检查邻居 | **默认 0（关）**，`mesh.v2=1` 开 | 服务配置；对外身份与市场码不受影响 |
+| MESH 兼容（`P1905ComCfg.Enable`，原厂页面项，本仓库旧称"自组网 V2"） | 控制器是否严格检查邻居 | 服务键 `mesh.v2=1` 才是严格检查（默认 0）；页面开关「MESH 兼容」问的是反面的问题，所以**开（接受任何子路由）= `mesh.v2=0`**，只有 init 写这一行时反一次，见 [SERVICE](SERVICE.md) | 服务配置；对外身份与市场码不受影响 |
 
 中兴原厂路由器与 SR1010 的 `multiapd`/`libcmapi.so` **不是同一个构建**（SHA256 不同），M2 由 SR1010 一侧构造：
 控制器行为读 SR1010 的二进制，子路由能否接收读子路由的二进制。
@@ -57,15 +57,18 @@ radio0.beacon_type=0|3|6|10|12  # 可选，默认 3（原厂基线 12）：0 不
 radio1.hidden=0|1
 radio1.beacon_type=0|3|6|10|12
 
-# 可选：自组网 V2（控制器自己的 P1905ComCfg.Enable）。默认 0；改动 = 写库并重启守护进程（不重启服务）：
+# 可选：严格准入（控制器自己的 P1905ComCfg.Enable）。默认 0；改动 = 写库并重启守护进程（不重启服务）：
 # 子节点掉出拓扑约 8 到 58 秒再重新入网（15 次实测；原厂样本 41 秒）
+# 页面上的开关是反的：「MESH 兼容」开 = 本行 0，关 = 本行 1（init 写这行时反相，服务与守护进程只认这个键）
 mesh.v2=0|1
 
-# 可选：设备角色。master = SetRoleEnable 0；auto = SetRoleEnable 1（路由模式下选举结果是 Master，Mode 仍是 2）。
-# 不支持 slave（需要守护进程当 agent）；其它取值整份被拒。键的出现/消失需重启服务；
+# 可选：设备角色。master = SetRoleEnable 0（Mode 2、EnMasterOnly 1）；auto = SetRoleEnable 1（路由模式下选举结果是
+# Master，Mode 仍是 2）；slave = 守护进程当 agent（Mode 1、SetRoleEnable 0、EnMasterOnly 0、CurHop -2 起步，
+# 之后由 CfMultiapSetCurHop 自己填）。其它取值整份被拒。键的出现/消失需重启服务；
 # master→auto 热更新 = 守护进程重启两次（相隔约 3 秒，原厂一样），auto→master 只清 SetRoleEnable、不重启。
-# 不写这个键时库里保持固定值（Mode 2、SetRoleEnable 1）
-mesh.role=master|auto
+# 不写这个键时库里保持固定值（Mode 2、SetRoleEnable 1）。init 只会发 master 或 slave：`mesh_role=auto` 也归成 master，
+# 让本机当 agent 的是 `mesh_role=slave`
+mesh.role=master|auto|slave
 
 # 可选：额外 BSS 序号 K（1 到 3），三项必须同时给出，缺一项整份被拒。同一无线电上必须是 1..k
 # （序号 3 不能没有序号 2：M2 里 BSS 条目按位置对应，中间有空会把序号 3 的设置套到序号 2 上并关掉序号 3）。
