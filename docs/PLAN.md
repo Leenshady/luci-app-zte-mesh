@@ -55,7 +55,13 @@ S1 是"能用"，S2 是"能当子路由"，S3 是"不用网线"，S4 是"能运�
 
 | 13 | A18f · B16b（H） | 按 BSSID 的终端数从悬停改成**一列**（`zte-mesh.js` 节点表 11 格 → 12 格，`_('BSS detail')`／「BSS 明细」一路一行 `BSSID 数`，每行悬停是那一路的年龄；「终端数」那格的悬停退回只说"报了几路"，不再把同一串数字写两遍。**0 终端是一行 `02:…:01 0`，不是 `-`**——`-` 是"从没上报"的情况）。主控 `CurHop` 的测试环境专用开关：**不改 C**，用已有的 `/run/zte-mesh/db-profile`（一行 `MultiAPCfg 0 CurHop 5`）——`profile_apply` 在角色写列之前跑，而主控启动路径根本不写 `CurHop`，所以它活过一次重启；`verify-install.sh` 加 `db_profile_cur_hop=` 与 `master_cur_hop=`（相等才判 PASS，`absent`／`not-master`／`no-cfg-line`／`not-read`／太年轻五种情况不作判定），另加 `max_hop=` 那一条读数。这个文件不在任何页面、UCI 或 apk 里，用户的机器上不存在这条路径。包版本：`luci-app-zte-mesh` r9 → **r10**（含 i18n），`zte-mesh` 与 launcher 不动 | `node tests/test_luci.js`（12 格、两路两行、总数那格不再重复 BSSID、没按 BSSID 的条目时是 `-`）+ `python tests/test_i18n.py`（新增一条 `BSS detail`）；`test_verify_install.sh`（开关进了行 PASS、没进行必须 FAIL、`CUR_HOP_GRACE=0` 的反证、无文件不作判定、子角色 `not-master`、`no-cfg-line` 与 `-98` 只报）；本机 sh 与 owrt busybox ash 同跑 173 条；**装机读回**：两台 `RESULT=PASS`（owrt `pass=13`、ax3600 `pass=14`，`version_luci-app-zte-mesh=0.1.0-r10`、`zte-mesh=0.1.0-r18`、ax3600 上 launcher `0.1.0-r1`），新加的三行读数都在——`max_hop=2`、`db_profile_cur_hop=absent`（没摆开关就不作判定，符合设计），子节点那一趟 `cur_hop=-2` 年龄 12 秒 → 只报告数值、不作判定 | 开关摆好后只差一次窗口去读子节点的 `cur_hop` 与 `max_hop` → H-14 ⑦ 后半；⑥ 仍要改主控 SSID（会掉线，先征得同意）；页面那一列**装上去了但没在浏览器里看过**，主控的 `bss_detail` 当时是空数组——有内容的行还没有真实路由器上的读数 |
 
+| 14 | 目录整理 A 档（H，插队） | C 侧 51 个文件（27 `.c` + 14 `.h` + 10 `.def`/`.inc`）从仓库根进 `src/`，跟着改 23 个：`Makefile` 逐文件列的源码、`tests/*.c` 上跳的 include、`schema.py`／`profile_schema.py`／`bridge_evidence.py` 的表描述路径、`tests/test_runtime.py` 与 `tools/build/runtime.sh` 的仓库侧路径、`build-lab-tools.yml` 里照抄 Makefile 的两条规则。**tar 成员名一个没动**（`ns-run.c`／`controller-net.c`／`enroller.c` 在包里还是这个名字，`zte-mesh-launcher/Makefile:61` 与 `test_runtime.py` 判的就是成员名）。根目录 17 个 `.py`（B 档）与零引用的 `kernel.fragment` 没动 | ubuntu 上编译与基线同绿（`all database` rc=0，日志 `warning`/`error` 各 0；`test-host` 仍停在缺 `out/analysis/cspd` 的 `test_schema`，是环境事实）；**产物哈希与移动前逐条相同**，其中三个 x86 工具要按 `ROUTERCC=cc` 重推才复现——基线里那三份是 11-01 留下的陈旧文件，`out/` 不受版本控制、`make` 只比 mtime，所以**判"改动不该影响产物"不能拿 `out/` 里的历史文件当基线**；CI 从 `ci/batch14` 出包，`zte-mesh` 与 launcher **与上一批逐字节相同**、两个 LuCI 包差在 4 行翻译；两台 `RESULT=PASS`（owrt `pass=13`、ax3600 `pass=14`，版本 r18/r1/r10/r10 不变），ax3600 那趟 `air_matched_plan=yes` + `applier_writes=0` + `sync_changed=0` | 无新增——尾巴还是 H-14 的 ⑥ 与 ⑦ 后半，页面「BSS 明细」有内容的行仍等 H-13 |
+
 **排给下一批（主机可测）**：**没有了**。剩下的每一条都卡在上机窗口——H-01（无线回程端到端）、H-02（中兴原厂路由器多 BSS）、H-03（踢人/封锁对端照不照做）、H-04（第二台子路由）、H-09（24 小时与真推送的日志占比）、H-11（真型号与角色对照）、H-12（Z506 发不发 `0xd4`）、H-13（一帧列全还是一射频一帧）、H-14 的 ⑥ 与 ⑦ 后半。下一轮的时间应该花在窗口上，不是代码上。
+
+另有一条不用上机、也不要新判据的小账：`openwrt/luci-app-zte-mesh/po/zh_Hans/zte-mesh.po` 还剩 **3 处写"档案"**
+（141、150、174 行，都是页面描述），那是称呼清理漏的一层。改它必须连着升 luci 的 `PKG_RELEASE`（见 §6.3），
+所以攒到下一批真动页面时一起做，不为三行字单开一轮 CI。
 
 ### 状态速览
 
@@ -75,8 +81,13 @@ S1 是"能用"，S2 是"能当子路由"，S3 是"不用网线"，S4 是"能运�
 | 11 | 把 H-14 变成一条命令 | 做完 | 判据已读到，不用再单独开窗口 |
 | 12 | 把子节点的跳数读回来 | 做完 | H-14 ⑦ 后半 |
 | 13 | 按 BSSID 终端数上列 + 主控跳数的测试环境专用开关 | 做完（两台测试机 `RESULT=PASS`） | H-14 的 ⑥ 与 ⑦ 后半（开关已就位，只差读子节点那一次读取） |
+| 14 | C 侧进 `src/`（目录整理 A 档） | 做完（两台测试机 `RESULT=PASS`，`zte-mesh` 与 launcher 两个包逐字节未变） | 无新增 |
 
-最近一次 CI 从临时分支 `ci/batch13` 触发，出 **`luci-app-zte-mesh` r10**（`zte-mesh` 仍是 r18、launcher r1），两台测试机 `RESULT=PASS`。
+最近一次 CI 从临时分支 `ci/batch14` 触发，跑的是 A 档目录整理那一轮（C 侧进 `src/`，见 [journal](journal/2026-11-04.md) 第七、八轮），
+包版本一个没升（`zte-mesh` r18、launcher r1、`luci-app-zte-mesh` 与 i18n r10），两台测试机 `RESULT=PASS`。
+这一趟多读到一条证据：**源码从根目录挪进 `src/` 之后，`zte-mesh` 与 `zte-mesh-launcher` 两个 apk 与上一批逐字节相同**——
+"产物与源码位置无关"以前只有主机侧的哈希比对，现在是包级的。两个 LuCI 包不同，差在 4 行中文翻译，
+出处是那次没跑 CI 的称呼清理（见 §6.3 加的那条）。
 逐项状态、测试条数与证据只在 [FEATURE_STATUS](FEATURE_STATUS.md)（唯一总账）。
 
 ## 4. 主机测试口径
@@ -144,6 +155,11 @@ S1 是"能用"，S2 是"能当子路由"，S3 是"不用网线"，S4 是"能运�
 
 `make-runtime.py` / 包 `PKG_RELEASE` 在批末递增一位，让"这台机器上装的是哪一批"能从 `apk list` 读出来；
 **只给这一批改过的包加一**。不做自动版本号。
+
+**改过包里的内容就要升，哪怕那一批不跑 CI**——同一个 `PKG_RELEASE` 在 CI 上只能有一种内容。2026-11-04 的实例：
+`ci/batch14` 出的 `luci-app-zte-mesh-0.1.0-r10.apk` 与 `ci/batch13` 的同名包**不同字节**，差在 `po/zh_Hans/zte-mesh.po`
+的 4 行中文翻译，而那 4 行出自一次没跑 CI、因此没升版本的文档轮。机器上现在装的是新那份（翻译目录里
+「BSS 明细」「广播的是同一个网络」在、旧写法不在）；下一次动页面文案时按 r10 → r11 升，别再让版本号同名两样内容。
 
 ## 7. 本项目的判据纪律
 
