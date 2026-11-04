@@ -1,6 +1,8 @@
 # ZXHN E2633「转正」工具链分析：开 telnet、改型号、刷 boot
 
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+>
+> **2026-11-04 修的是事实不是结论**：§11.6 待办第 3 条（取 `/kmodule/bin/multiapd` 原件）2026-11-01 深夜的固件解包已经拿到，就地标已完成；第 1 条只标注 DB 那半边已由 2026-11-01 的七轮只读命令做完（[E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md)），`dd` 备份那次没有记录所以不写成已做；同节末对 `pktdump` 的期待补了"命令面未在那台核对"。§11.6 表格里"我们取漏了它"是当时的真事，保留不改。
 
 对象：`F:/中兴E2633转正/Telnet/`（7 个文件，91 MB，其中 91 MB 是 Node 运行时）。
 同目录上一级还有 `6B5改_109适配/`（26.8 MB 官方固件改包，已单独记录在
@@ -700,13 +702,23 @@ PAUSE 帧会压住上传、PPPoE 不走硬件转发、JFFS2 清除标记要放�
 | 越南 / U-Boot 口令 | 拿到一个能进 U-Boot 的口令 | **口令没有可靠公开源**；换区开关 + `sendcmd` 语义 + 跨机型混组口述 | 收紧 §10.7 判断；新增 §11.2 一条零成本读 DB 的路 |
 | Zlion-Y 仓库 | "可能有料，值得过一遍" | `multiapd` 有符号、我们取漏了它、21 946 行内核符号表、runtime 包差异 | **推翻两份文档各一条结论**，新增 [MULTIAPD](MULTIAPD.md) |
 
-按性价比排，接下来该做的三件事（都不需要停机窗口）：
+按性价比排，接下来该做的三件事（都不需要停机窗口；第 1、3 条 2026-11-04 就地标注真实状态）：
 
 1. `dd` 备份 `/dev/mtdblock5`，然后 `sendcmd 1 DB p` 把 mesh 相关表全打出来（只读）。
+   **DB 那半边已做**：2026-11-01 在同一台机器上跑了七轮只读命令，22 张表逐列还原，
+   原文在 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md)、全部表名在 [E2631_DB_TABLES](E2631_DB_TABLES.md)——
+   上机前先查这几份文档（字段级还原多数已在 [SCHEMA](../milestones/SCHEMA.md)、[POLICIES](../milestones/POLICIES.md) 里做完），别重打一遍。
+   `dd` 备份那次**没记录**。
 2. `cat /proc/kallsyms | grep -E "1905|multiap"` —— 若开机能读到，就能把
    [MESH_INTEROP](MESH_INTEROP.md) §5.5 那三条从"对方符号表"变成"本机实证"。
-3. 取 `/kmodule/bin/multiapd` 原件（一次 tftp，几 MB），确认它与 SR1010 版差多少。
+3. ~~取 `/kmodule/bin/multiapd` 原件（一次 tftp，几 MB），确认它与 SR1010 版差多少。~~
+   **已完成（2026-11-01 深夜，2026-11-04 记）**：同一批固件解包 `_analysis/kmodule` 里就有——983 141 B、
+   **已 strip**（9 定义 / 225 导入）、21 个 `NEEDED` 全命中 `/kmodule/lib`、调试命令只剩
+   `sendcmd multiapd..master` 外壳；差多少逐项写在 [BLOB_SHIM](BLOB_SHIM.md) §1。
+   **但函数级读不了**：那份 strip 了，按函数名的分析只能用 SR1010 版（[MULTIAPD](MULTIAPD.md) 开头的样本归属已同步更正）。
 
 **仍然要停机的只剩一件**：把 E2631 拉成我们控制器的 slave 看 M2 是否被接受（D6/D7）。
-但它现在的前置条件变好了——`pktdump` 和 `logcat` 的 `AGENT RECV` 日志都能在同一窗口里取证，
-一次停机能拿到的信息比原计划多。
+但它现在的前置条件变好了——`logcat` 的 `AGENT RECV` 日志在同一窗口里就能取证，一次停机能拿到的信息比原计划多。
+**`pktdump` 那条到 2026-11-04 打上问号**：那张 debug 命令表出自**没被 strip** 的 SR1010 版 `.rodata`，
+E2631 原厂那份已 strip、只剩 `sendcmd multiapd..master` 外壳，`pktdump` 在这台上存不存在**没核对过**——
+先按它自己的 `sendcmd` / 帮助输出确认命令面（[MULTIAPD](MULTIAPD.md) §5、[PLAN](../PLAN.md) H-07 已同步）。
