@@ -3,10 +3,16 @@
 
     LAB_HOST=… LAB_USER=… LAB_PASS=… python3 tools/lab/push.py
 
-Packs the repository (minus `out`, `evidence`, `.git`), uploads it
+Packs the repository (minus `out`, `evidence`, `.local`, `.git`), uploads it
 and unpacks over `$LAB_DIR` (default `~/zte-mesh`).  Unpacking over the previous
 tree is deliberate: it keeps `out/` on the VM, which is expensive to rebuild, and
 `make` only cares about source mtimes, which the upload always refreshes.
+
+`.local/` is excluded because it is the machine-local scratch dir that holds the lab
+password table (`lab-env.md`) and one-off CI tokens: `pack()` walks the working tree,
+not `git ls-files`, so without this entry those secrets are copied onto the build VM
+and sit there unread by anything.  Exclusion by directory name only stops new copies --
+an already-uploaded `.local/` stays on the VM until it is removed there.
 
 A Windows checkout with core.autocrlf=true has CRLF in the working tree even
 though the repository stores LF.  Shell scripts, Makefiles and the `.init`
@@ -26,7 +32,7 @@ from pathlib import Path
 import paramiko
 
 REPO = Path(__file__).resolve().parents[2]
-EXCLUDE = {".git", "out", "evidence", "__pycache__"}
+EXCLUDE = {".git", "out", "evidence", ".local", ".workbuddy", "__pycache__"}
 BINARY_SUFFIX = {
     ".gz", ".tar", ".tgz", ".xz", ".zst", ".zip", ".jffs2", ".img",
     ".so", ".o", ".a", ".elf", ".apk", ".bin", ".png", ".jpg", ".jpeg", ".gif", ".pdf",

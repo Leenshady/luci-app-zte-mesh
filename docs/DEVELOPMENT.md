@@ -83,6 +83,9 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 - 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`、`python tests/test_runtime.py`（29 条，守的是"tarball 成员与仓库文件逐字节一致"）、`python tests/test_i18n.py`。
 - 容器把 `/tmp` 挂成 noexec：测试不能执行自己写到 `/tmp` 的脚本（`tests/test_rpcd.sh` 用 shell 函数和 `sh -c`），
   dash 的 `.` 不接受额外参数（先 `set --`）。
+- **判"某次改动不该影响产物"要现编现比**：`out/` 不入库，`make` 又只比 mtime，陈旧产物会静悄悄混进哈希比对。
+  2026-11-04 那次"三个产物与基线不符"就是这个——基线抄的是 11-01 用 `ROUTERCC=cc` 留下的 x86 版，而比对走的是
+  `aarch64` 那条命令行。同一命令行、同一台机器上现编两份来比才算比过；拿 `out/` 里的历史文件当基线不算。
 
 ## 5. 上机测试守则（中兴原厂路由器）
 

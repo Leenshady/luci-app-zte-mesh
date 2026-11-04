@@ -44,6 +44,7 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 
 ```sh
 # 从 Windows/mac 工作区同步（LAB_HOST 用第 2.1 清单里 ubuntu 的地址；三个环境变量都是必填）
+# 它打的是**工作树**，`.gitignore` 对它不起作用——`.local/`（口令表就在这儿）、`out/`、`evidence/` 靠 EXCLUDE 挡
 LAB_HOST=192.168.1.191 LAB_USER=<账号> LAB_PASS=<口令> python3 tools/lab/push.py
 # 首次或删过 out/ 之后：从运行包重建 out/runtime + manifest.json（见第 5 节）
 python3 tools/lab/bootstrap-out.py
@@ -188,6 +189,8 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 | `echo HI` 返回 **127** | dropbear 带 pty 的 exec 会把命令当成登录 shell 的输入。`rssh.py` 默认不开 pty，需要时用 `--pty` |
 | `open_sftp()` 抛 `EOF during negotiation` | AX3600 的固件没有 `openssh-sftp-server`。`rssh.py` 自动退回 `cat` 管道（二进制安全） |
 | 本机 `scp`/参数里的 `/tmp/x` 变成 `C:/Users/.../Temp/x` | **Git Bash 的路径转换**。调用前 `export MSYS_NO_PATHCONV=1`（`MSYS2_ARG_CONV_EXCL='*'` 亦可） |
+| 构建机上冒出一份 `.local/lab-env.md`（测试机口令表）和一个 CI token | `push.py` 打的是**工作树**（`REPO.rglob`）不是 `git ls-files`，所以 `.gitignore` 挡不住它——gitignore 的目录只要不写进 `EXCLUDE` 就整份推过去。2026-11-04 清掉了构建机上那一份，并把 `.local`、`.workbuddy` 加进 `EXCLUDE`。**排除只挡新的推送**，已经推上去的要到机器上删，删完 `find . -name 'lab-env*' -o -name '*token*'` 复核一遍；那个 token 既然在第二台机器上待过就按已泄露处理，口令轮换同理（待办记在 `docs/journal/2026-11-04.md`） |
+| 构建机"能编"却被判定等于仓库 | 覆盖同步（`tar -xzf ... -C ~/zte-mesh`）**不删远端多余文件**：仓库里删掉的文档、临时实验目录（`cmp/`、`dist/`、根目录那些旧的 `.c`）会一直留着。判"这台机器等于仓库"要**比文件清单**（`git ls-files` 对 `find`），不是看 `make` 过不过；同理 `make` 只比 mtime，陈旧产物会混进哈希比对（见 [产物哈希基线](DEVELOPMENT.md) 第 4 节那条） |
 | `ash: syntax error: unexpected word (expecting ")")` 执行 ARM32 程序时；或 `mount: mounting none on /proc/sys/fs/binfmt_misc failed: No such file or directory` | 内核没有 `CONFIG_COMPAT`，execve 返回 ENOEXEC，shell 把二进制当脚本读（AX3600 原厂固件就是这样）；同一条的另一面是内核也没编 `BINFMT_MISC`，透明执行这条路直接没有。两条出路见 [BLOB_SHIM](research/BLOB_SHIM.md) 的 qemu 分支和 `build-firmware.yml`，判定表见第 4.2 节 |
 | `error: ignoring return value of 'write' ... -Werror=unused-result` | `(void)write(...)` 从 GCC 9 起不算"用了返回值"。用 `emit()` 辅助函数真赋值再丢弃，别写 `(void)write` |
 | 装上的 `ns-run` 执行报 `not found`，`ls` 明明在 | 编译机 glibc、目标机 musl，动态链接的 ELF 找不到 `/lib64/ld-linux-x86-64.so.2`，`execve` 返回 ENOENT，shell 就报 `not found`。**加 `-static`**，别被 "not found" 骗成路径或权限问题 |
