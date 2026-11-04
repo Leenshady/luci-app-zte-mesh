@@ -11,8 +11,8 @@
 |---|---|
 | 构建、跑控制器、测试、分支与 `prebuilt/` | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | 装机上手、页面两个开关怎么摆出三种拓扑、卸载与"设了没动静" | [docs/INSTALL.md](docs/INSTALL.md) |
-| 碰实验机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器清单的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
-| 上真子路由 Z506 | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的真机红线 |
+| 碰测试机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器清单的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
+| 上真子路由中兴 Z506（又叫中兴小方糖） | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的真机红线 |
 | 改服务模式、UCI/LuCI 映射 | [docs/SERVICE.md](docs/SERVICE.md) |
 | 查原厂数据库字段 | [docs/milestones/SCHEMA.md](docs/milestones/SCHEMA.md)、[docs/milestones/POLICIES.md](docs/milestones/POLICIES.md)、[docs/research/E2631_DB_SNAPSHOT.md](docs/research/E2631_DB_SNAPSHOT.md) |
 
@@ -21,7 +21,7 @@
 ```sh
 sh build.sh                                          # 提取运行环境、审计、编译、主机测试、离线加载测试
 sh tools/build/container-make.sh test-host           # 只跑主机测试；单个产物：container-make.sh db-engine-probe
-sh tools/build/runtime.sh svctest                    # 实验室 tmpfs 运行包
+sh tools/build/runtime.sh svctest                    # 测试环境 tmpfs 运行包
 sh tools/build/runtime.sh install                    # 重新生成随仓库提交的 openwrt/zte-mesh/zte-mesh-runtime.tar.gz
 python3 dev-service-smoke.py --no-attach --seconds 24 # 路由器上完全私有地跑一次服务（不接 LAN）
 python tests/test_i18n.py                            # 改了界面文案必须跑
@@ -71,6 +71,6 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 
 提交前跑坏链与行尾检查；新文件用 LF（`.gitattributes` 已全局 `text=auto eol=lf`）。
 
-**用词**：不造词，通用缩写保持英文（写 SSID，不写"无线名称"）。`air`→"本机当前广播的 SSID"、`seed`→"SSID 初始配置"、`per-BSS`→"按 BSSID"、`applier` 原样引用；代码标识符与 `verify-install.sh` 的键名不译。对照表在 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 第 9 节。
+**用词**：不造词，通用缩写保持英文（写 SSID，不写"无线名称"）。`air`→"本机当前广播的 SSID"、`seed`→"SSID 初始配置"、`per-BSS`→"按 BSSID"、`applier` 原样引用；代码标识符与 `verify-install.sh` 的键名不译。机器一律称**测试主机 / 测试环境**（不写"实验台/实验室"），机型首次出现写全名：小米 AX3600、中兴 Z506（又叫中兴小方糖）、ZXSLC SR1010（又叫中兴星云 MAX）。对照表在 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 第 9 节。
 
 > `docs/journal/` 原名 `.workbuddy/memory/`，2026-11-02 迁入仓库。工具自带的会话记忆是本机文件，不随 clone 走——能让下一个人看到的只有这个目录。

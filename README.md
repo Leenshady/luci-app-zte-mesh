@@ -4,7 +4,8 @@
 （加入网络，配置由主控下发）；**中兴侧保留原厂固件，不刷机**。做法是把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，
 周围用数据库行、两个 CM 函数替身和一个服务配置文件指挥它——**不重写 mesh 协议**，所以线上帧与原厂一致。
 
-参考实现机：SR1010 刷 OpenWrt/ImmortalWrt（有线网关，无 Wi-Fi）。真子路由：保留原厂固件的 ZXHN Z506。
+参考实现机：ZXSLC SR1010（又叫中兴星云 MAX）刷 OpenWrt/ImmortalWrt，是有线网关、不带 Wi-Fi。真子路由：保留原厂固件的
+中兴 Z506（又叫中兴小方糖，型号写着 ZXHN Z506）。
 
 ## 功能表
 
@@ -98,13 +99,13 @@ python3 tests/test_i18n.py                           # 改了界面文案必须�
 | 路径 | 内容 |
 |---|---|
 | 根目录 `*.c` `*.h` `*.def` `*.inc` | 沙箱启动器、服务、垫片与 preload 库、命令行工具（职责见 [ARCHITECTURE](docs/ARCHITECTURE.md)） |
-| 根目录 `*.py`、`build.sh` | 运行环境提取与审计、证据核对、实验室与设备测试脚本 |
+| 根目录 `*.py`、`build.sh` | 运行环境提取与审计、证据核对、测试环境与设备测试脚本 |
 | `tests/` | 主机测试（C 编解码、Python、shell、LuCI 的 JS） |
 | `openwrt/` | OpenWrt 包：`zte-mesh`、`zte-mesh-launcher`、`luci-app-zte-mesh` |
 | `prebuilt/` | lab 用的预编译件，**不进任何 apk** |
-| `tools/` | 构建容器与打包、抓包重放、子路由 telnet、实验室脚本 |
+| `tools/` | 构建容器与打包、抓包重放、子路由 telnet、测试环境里的脚本 |
 | `docs/` | 文档（下） |
-| `out/`、`evidence/` | 构建产物与实验证据，含原厂二进制，**不入库** |
+| `out/`、`evidence/` | 构建产物与验证证据，含原厂二进制，**不入库** |
 
 C 与 Python 都堆在根目录不是疏忽：`Makefile` 的 40 多条规则、`Dockerfile` 的 `WORKDIR /src`、`tests/` 里
 `sys.path.insert(ROOT)`、`.inc`/`.def` 的同目录 `#include` 全按根目录写死，而且 `feat/child-node` 那条分支要拿去向
@@ -123,7 +124,7 @@ C 与 Python 都堆在根目录不是疏忽：`Makefile` 的 40 多条规则、`
 | [DEVELOPMENT](docs/DEVELOPMENT.md) | 构建、打包、测试基线、真机守则、分支与 `prebuilt/` |
 
 **原理与接口，改代码前读**：[ARCHITECTURE](docs/ARCHITECTURE.md)（结构与源文件职责、固件哈希）、
-[SERVICE](docs/SERVICE.md)（UCI/LuCI/CM 映射与热更新）、[LAB](docs/LAB.md)（实验机清单、ARM32 模拟器判定）、
+[SERVICE](docs/SERVICE.md)（UCI/LuCI/CM 映射与热更新）、[LAB](docs/LAB.md)（测试机清单、ARM32 模拟器判定）、
 [REAL_CHILD](docs/REAL_CHILD.md)（真子路由的配置语法、基线与红线）。
 
 **只读资料，不再随结论更新**：[docs/research/](docs/research/)（原厂逆向与真机取证：DB 快照与表名全集、rootfs、

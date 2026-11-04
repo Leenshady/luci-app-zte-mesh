@@ -4,13 +4,14 @@
 
 ## 1. 机器与连接
 
-**实验台三台的清单（地址、角色、能力差异）只在 [LAB](LAB.md) 第 2.1 节**：`ax3600` 192.168.1.1、`owrt` 192.168.1.20、
-`ubuntu` 192.168.1.191，登机器一律 `python tools/lab/rssh.py`，口令只在本机 `.local/lab-env.md`。旧实验台那张表（2026-10
+**三台测试机的清单（机型、地址、角色、能力差异）只在 [LAB](LAB.md) 第 2.1 节**：`ax3600` 192.168.1.1、`owrt` 192.168.1.20、
+`ubuntu` 192.168.1.191，登机器一律 `python tools/lab/rssh.py`，口令只在本机 `.local/lab-env.md`。别名 `owrt` 是登录用的名字，
+那台机器跑的同样是 ImmortalWrt——`owrt` 只是登录用的别名，不是另一套系统。以前那台测试主机上的旧清单（2026-10
 之前：mac `192.168.167.93` 上的 `/Volumes/code/sr1010-mesh`、开发机 `git push` + `receive.denyCurrentBranch updateInstead`、
-SR1010、Z506、实验室虚拟机）已不再保留，复盘历史证据按 [journal](journal/) 查，本文不再维护第二份机器名单。
+ZXSLC SR1010、中兴 Z506、测试环境里的 ImmortalWrt 虚拟机）已不再保留，复盘历史证据按 [journal](journal/) 查，本文不再维护第二份机器名单。
 这里只留三件别处没有的事：
 
-- **脚本默认值仍指向旧环境**，不清掉就会被当成现役：实验室脚本默认 `--host root@192.168.5.1 --port 22`；子路由 telnet 是
+- **脚本默认值仍指向旧环境**，不清掉就会被当成现役：测试环境里的脚本默认 `--host root@192.168.5.1 --port 22`；子路由 telnet 是
   `192.168.5.216:23`（`tools/child/ztetn.py` 默认值，`--host`/`CHILD=` 可改），口令只从 `ZTE_TN_PASS` 读
   （用户名 `ZTE_TN_USER`，默认 root），**不要写进任何文件**。那台旧 SR1010 没有 python3、没有 `pkill`，只有 BusyBox 和 `tcpdump`。
 - **OpenWrt 构建机**：`ssh -p 2022 192.168.223.19`，树在 `~/workspace/immortalwrt`，只用来编包（第 8 节）。
@@ -20,7 +21,7 @@ SR1010、Z506、实验室虚拟机）已不再保留，复盘历史证据按 [jo
 
 ## 2. 构建
 
-**现役构建机是实验台的 `ubuntu`（192.168.1.191），不用 Docker**：同步 → 编译 → 测试的日常流程在 [LAB](LAB.md) 第 3 节，
+**现役构建机是三台测试机里的 `ubuntu`（192.168.1.191），不用 Docker**：同步 → 编译 → 测试的日常流程在 [LAB](LAB.md) 第 3 节，
 `tools/lab/build.sh` 做的就是把下面这些目标在没有容器的机器上跑一遍。下面这张表是**容器路径**（mac 上的离线镜像
 `sr1010-mesh-shim-builder`，`orbctl start` 先把 Docker 拉起来）——`build.sh` 与 `container-make.sh` 这两个入口还在仓库里，
 复盘历史产物或需要原厂镜像时才走它。
@@ -29,7 +30,7 @@ SR1010、Z506、实验室虚拟机）已不再保留，复盘历史证据按 [jo
 |---|---|
 | `sh build.sh` | 完整流程：从固件提取并审计运行环境（`prepare.py`，需要 `unsquashfs`）、核对表结构证据、建镜像、`make all database controller test-host`、离线加载测试 |
 | `sh tools/build/container-make.sh <目标>...` | 在容器里编指定产物（`db-engine-probe`、`zte-meshctl`、`ns-run`、`libzte_controller_trace.so` 等）或跑 `test-host`、`controller`。会在容器里先删旧产物，保留 make 的退出码 |
-| `sh tools/build/runtime.sh svctest` | 实验室运行包 `out/zte-mesh-svctest.tar.gz`（启动器根是 `/tmp/zte-mesh-svc/root`，路由器上只写 tmpfs） |
+| `sh tools/build/runtime.sh svctest` | 测试环境运行包 `out/zte-mesh-svctest.tar.gz`（启动器根是 `/tmp/zte-mesh-svc/root`，路由器上只写 tmpfs） |
 | `sh tools/build/runtime.sh install` | 包用的运行包 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz`（随仓库提交，根是 `/usr/lib/zte-mesh/root`） |
 
 - 原厂镜像默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，`SR1010_VENDOR_ROOTFS` 可改。重复准备会核对已有文件哈希。
@@ -47,7 +48,7 @@ SR1010、Z506、实验室虚拟机）已不再保留，复盘历史证据按 [jo
 
 三种方式（现役那台 `ubuntu` 上跑服务用 `sudo sh tools/lab/run-service.sh`，见 [LAB](LAB.md) 第 3 节；下面这几条是容器/离线那条路径的入口）：
 
-1. **实验室（不碰子节点）**：`python3 dev-service-smoke.py --no-attach --seconds 24`——路由器私有命名空间里跑服务，
+1. **测试环境（不碰子节点）**：`python3 dev-service-smoke.py --no-attach --seconds 24`——路由器私有命名空间里跑服务，
    验证配置、热更新、守护进程重启，不把线接进 `br-lan`。`dev-config-check.py DIR` 批量喂配置看接受/拒绝，
    `dev-sched-check.py` 用真实时钟测定时窗口和访客限时（约 5 分钟）。
 2. **真子节点**：`python3 tools/capture/mreplay.py --config <0600 配置> --expect-macs <允许的 MAC> --out <证据目录> --seconds N`。
@@ -69,11 +70,11 @@ SR1010、Z506、实验室虚拟机）已不再保留，复盘历史证据按 [jo
   `ssid_pending=`；测试用 `SSID_WAIT=0` 把等待关掉，另有一条用例喂"第三次才出现"的 uci 桩来守这段。同一类"问得太早"
   在跳数那一列也犯过一次（见 [INSTALL](INSTALL.md) 第 3 节的 `cur_hop_age`），所以脚本读时钟的 `date` 也是桩——
   年龄窗口是秒级的，跟着主机墙钟跑就变成"什么时候跑这套就算什么时候"。
-- 没有原厂镜像的机器（实验室虚拟机）也能跑绝大多数：`make test-host` 直接在 `$PWD/out` 上跑，实测除
+- 没有原厂镜像的机器（测试环境里的 ImmortalWrt 虚拟机）也能跑绝大多数：`make test-host` 直接在 `$PWD/out` 上跑，实测除
   `test_schema.py`/`test_policies.py`/`test_startup.py` 三组外全绿——那三组要 `out/analysis/cspd`，而 `cspd` 只从
   哈希钉住的原厂镜像提取（`evidence/` 不入库）。这三组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，
   `container-make.sh` 的 noexec 注意项在这里不适用。
-- LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；PATH 里没有 `node`，实验室两台机也没装）。
+- LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；PATH 里没有 `node`，测试环境那两台机器也没装）。
   实测可用的解释器是这台机器上另一套工具带的独立二进制，直接给绝对路径就能跑：
   `"/c/Users/ZZB001/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe" tests/test_luci.js`（v24.21.0）。
   这个测试只读仓库里的 `zte-mesh.js` 与 `tests/test_init.sh`，不需要 LuCI 运行时，所以不必上开发机。
@@ -87,7 +88,7 @@ SR1010、Z506、实验室虚拟机）已不再保留，复盘历史证据按 [jo
 向真机推配置会真实修改并持久化它的设置。
 
 - **每轮前后读回子节点基线**：`ZTE_TN_PASS=… sh tools/child/childread.sh`，8 行 `WLANCfg` 与 [REAL_CHILD.md](REAL_CHILD.md)
-  末尾的基线逐行比较。改槽位的实验先在实验室验证（`device-controller-smoke.py` 的 `map_teardown` 必须为 0），真机轮询
+  末尾的基线逐行比较。改槽位先在测试环境验证（`device-controller-smoke.py` 的 `map_teardown` 必须为 0），真机轮询
   子节点 `WLANCfg`，一出异常立刻用"全部槽位 + 一次 Renew"恢复。
 - **永远不要向真机推占位值。** 额外 BSS 的 `enabled/ssid/key` 必须三项给齐；同一无线电的槽位必须是 1..k。
 - **不要改子路由的模式**（`Mode`、自组网 V2、`VersionMode`、MESH 开关），这些由用户在子路由上设置。
@@ -122,7 +123,7 @@ SR1010、Z506、实验室虚拟机）已不再保留，复盘历史证据按 [jo
 ## 7. 改了控制器代码之后的检查
 
 1. 本机提交 → 构建机编改动的产物（零警告，`ubuntu` 上 `sh tools/lab/build.sh all database`）→ `test-host` 通过 → `runtime.sh svctest`。
-2. 实验室：`dev-service-smoke.py --no-attach`；涉及配置解析的跑 `dev-config-check.py`；涉及调度的跑 `dev-sched-check.py`。
+2. 测试环境：`dev-service-smoke.py --no-attach`；涉及配置解析的跑 `dev-config-check.py`；涉及调度的跑 `dev-sched-check.py`。
 3. 真子节点（需要时）：`childread.sh` 基线 → `mreplay.py` → 看 `state.json` 节点 `model:"ZXHN Z506"`、`zte:true`、
    `online:true` → `childread.sh` 读回。
 4. 结束：路由器无残留（`/run/zte-mesh`、`/tmp/zte-mesh-svc`、`zmesh0`、`ns-run`、`db-engine-probe`、`tcpdump`）；
@@ -170,19 +171,19 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 
 **版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，日常只有 `main` 一条长期分支（`feat/child-node` 是给上游提 PR 用的）。
 批末的那次 CI 走**一次性分支** `ci/batchN`：`main` 直连 ImmortalWrt feed 不能随便推，所以把这一批推成临时分支再在
-那个 ref 上触发，两台实验机装机读回之后就把临时分支删掉（细节见 [PLAN](PLAN.md) 第 6.1 节）。
+那个 ref 上触发，两台测试机装机读回之后就把临时分支删掉（细节见 [PLAN](PLAN.md) 第 6.1 节）。
 `out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
 
 **取产物**：artifact 下载要认证（匿名 401），本机没有 `gh`，走 `git credential fill` 拿到的 token 拼 API——
 token 只留在 shell 变量里，不回显、不落盘。zip 解开是四个 apk，`sha256sum -c SHA256SUMS.txt` 在机器上核对最省事。
 
 **发布 release**：`Build APK` **只构建，不发布**（2026-11-01 起；以前那个 `release_tag` 输入把"开始构建"和"把这些字节承诺给外面"
-做成同一个按钮，而一批的包要先在两台实验机上装机验过才谈得上发布）。它产出两个 artifact：`zte-mesh-apk`（四个 apk +
+做成同一个按钮，而一批的包要先在两台测试机上装机验过才谈得上发布）。它产出两个 artifact：`zte-mesh-apk`（四个 apk +
 `SHA256SUMS.txt`）和 `build-log`，run summary 里每个文件一行，不下载也能认出这一批是什么。发布是另一次手工动作，用的就是这份产物：
 
 ```sh
 # 1) 下载 zte-mesh-apk 这个 artifact，解开就是 dist/
-# 2) 两台实验机装机验证，核对 sha256sum -c SHA256SUMS.txt
+# 2) 两台测试机装机验证，核对 sha256sum -c SHA256SUMS.txt
 # 3) 成立才发布，tag 打在本次构建的那个提交上
 gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 ```
@@ -208,6 +209,9 @@ gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 | 机器清单、功能总账 | 清单、总账 | 台账 |
 | `pin` 某个频段用哪块射频 | 指定 | 点名 |
 | 一次改动把 SSID 改掉又改回来 | 改两次、改回去 | 翻两次、翻回去 |
+| 这套机器环境 | 测试主机、测试环境 | 实验台、实验室 |
+| `rssh.py` 的那台虚拟机 | 「ImmortalWrt 虚拟机」（`owrt` 只是别名） | 把 `owrt` 当成系统名 |
+| 机型首次出现 | 小米 AX3600、中兴 Z506（又叫中兴小方糖）、ZXSLC SR1010（又叫中兴星云 MAX） | 第一次就只写 `Z506` / `SR1010` |
 
 界面上**所有**给用户看的文字都要走 `_()`，msgid 就是那句英文本身（LuCI 用 msgid 当键，没有别名字符串）。改文案时
 `.po` 里那条旧 msgid 就失效了——它不会报错，只会安静地变回英文，所以有一条测试盯着这件事。
@@ -225,7 +229,7 @@ python tests/test_i18n.py        # 12 项：覆盖率、格式符、菜单标题
 `build-apk.yml` 因此单独编译它，并断言四个 apk 都在。页面从 `/cgi-bin/luci/admin/translations/<lang>` 拿到所有
 `<lang>.lmo` 拼成的 JS，`cbi.js` 的 `_()` 查的就是它——所以"源码里有译文"和"设备上有 lmo"是两件事，缺一件页面就是英文。
 
-手工装到运行中的设备（实验室的路由器是拷文件而不是装包）：
+手工装到运行中的设备（测试环境里的路由器是拷文件而不是装包）：
 
 ```sh
 python tools/lab/po2lmo.py openwrt/luci-app-zte-mesh/po/zh_Hans/zte-mesh.po /tmp/zte-mesh.zh-cn.lmo

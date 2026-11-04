@@ -1,7 +1,7 @@
-# 实验室机器（x86_64 Ubuntu 编译机 + 两台设备）
+# 测试主机（Ubuntu 编译机 + 小米 AX3600 + ImmortalWrt 虚拟机）
 
 在一台普通 x86_64 Ubuntu 上编译并运行这套代码，不需要 mac、不需要路由器、不需要原厂固件镜像。架构与运行原理见 [ARCHITECTURE.md](ARCHITECTURE.md)，真机流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。
-本文只拥有两件事：**第 2.1 节的实验机清单**和**第 4.2 节的 ARM32 模拟器判定表**——别处引用它们，不在别处重复；各套测试的条数基线在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，真机待办在 [PLAN](PLAN.md) 第 5 节。
+本文只拥有两件事：**第 2.1 节的测试机清单**和**第 4.2 节的 ARM32 模拟器判定表**——别处引用它们，不在别处重复；各套测试的条数基线在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，真机待办在 [PLAN](PLAN.md) 第 5 节。
 
 ## 1. 能做什么、不能做什么
 
@@ -22,9 +22,9 @@ cat /proc/sys/fs/binfmt_misc/qemu-arm   # 应有 flags: PF（qemu-user-static �
 # 不需要 Docker：container-make.sh 在这台机器上用不了，一律用 tools/lab/build.sh 代替
 ```
 
-## 2.1 另外两台：真机 AX3600 与 x86_64 的 immortalwrt
+## 2.1 另外两台：小米 AX3600 与 ImmortalWrt 虚拟机（x86_64）
 
-实验台三台机器都在 `192.168.1.0/24`，二层互通（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。这张表是**实验机清单的唯一权威**，[FEATURE_STATUS](FEATURE_STATUS.md)、[DEVELOPMENT](DEVELOPMENT.md)、[INSTALL](INSTALL.md) 都指回这里，不再各写一份机器名单。登实验机一律走 `tools/lab/rssh.py`（密码登录，本机没有 sshpass；**口令只在本机 `.local/lab-env.md`**，已 gitignore，不入库，也不复述进任何文档、日志或命令回显）。
+三台测试机器都在 `192.168.1.0/24`，二层互通（都在同一个 `br-lan` 广播域，1905 帧能互相看见）。这张表是**测试机清单的唯一权威**，[FEATURE_STATUS](FEATURE_STATUS.md)、[DEVELOPMENT](DEVELOPMENT.md)、[INSTALL](INSTALL.md) 都指回这里，不再各写一份机器名单。登测试机一律走 `tools/lab/rssh.py`（密码登录，本机没有 sshpass；**口令只在本机 `.local/lab-env.md`**，已 gitignore，不入库，也不复述进任何文档、日志或命令回显）。表里的 `ax3600` / `owrt` / `ubuntu` 是 `rssh.py` 的别名，敲命令时用的就是它，与机型无关。
 
 ```sh
 export MSYS_NO_PATHCONV=1          # Git Bash 会把 /tmp/x 改写成 Windows 路径
@@ -34,11 +34,11 @@ python tools/lab/rssh.py owrt 'uci show zte_mesh'
 python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 ```
 
-| 机器 | 地址 | 角色 | 关键事实 |
+| 机器（别名 / 机型） | 地址 | 角色 | 关键事实 |
 |---|---|---|---|
-| `ax3600` | 192.168.1.1 | 真机，刷 ImmortalWrt 25.12.2 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）；实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static`。**无线只剩一块射频在候选里**（`radio0.disabled=1` 关掉了 2.4G），所以"一个频段有两块射频、`wlan-sync` 放弃该频段"那条路径在这台上测不出来——"没报错"不等于"已验证" |
-| `owrt` | 192.168.1.20 | 实验主控（master） | x86_64，同一个内核版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**。缺的两个二进制用 `tools/lab/build-launcher.sh` 补（**必须 `-static`**，见第 7 节 musl 那条）；`root/qemu-arm-static` 仍是手工放的 |
-| `ubuntu` | 192.168.1.191 | 编译机 | 本文主角：x86_64 Ubuntu 22.04，`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
+| `ax3600`：小米 AX3600，刷 ImmortalWrt 25.12.2 | 192.168.1.1 | 真机，跑子节点角色 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）；实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static`。**无线只剩一块射频在候选里**（`radio0.disabled=1` 关掉了 2.4G），所以"一个频段有两块射频、`wlan-sync` 放弃该频段"那条路径在这台上测不出来——"没报错"不等于"已验证" |
+| `owrt`：ImmortalWrt 虚拟机（x86_64） | 192.168.1.20 | 测试环境里的主控（master） | 内核与 `ax3600` 同一个版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**。缺的两个二进制用 `tools/lab/build-launcher.sh` 补（**必须 `-static`**，见第 7 节 musl 那条）；`root/qemu-arm-static` 仍是手工放的 |
+| `ubuntu`：x86_64 Ubuntu 22.04 | 192.168.1.191 | 编译机 | 本文主角：`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
 
 ## 3. 日常流程
 
@@ -91,7 +91,7 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 `--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()` 把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。重启后 M1 要十几秒才来（通常两次 topology retry），**不要**因此判断成"它记得自己已配置"。沙箱只给 daemon 一个环境变量（多传一个会让原厂 ld.so 断言），运行时开关一律用 `/run/zte-mesh` 下的 flag 文件（bind mount）：`trace-all` 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行），`mm-off` 关掉 `libzte_agent_mm.so` 的配置管理器替身、让两个 WLAN setter 报告原厂返回值（诊断用）。
 
-**日志的落点只有一个：logd 那圈环**（两台实验机 `system.@system[0].log_size='128'`，单位 KiB）。服务不写会长大的文件——沙箱根只读、`/tmp` 与 `/var/tmp` 是 8 MiB tmpfs、`/run/zte-mesh` 下全是小文件原子替换——所以 `controller-log.c` 管的是**打进环的比例**，不是轮转。分类与预算：
+**日志的落点只有一个：logd 那圈环**（两台测试机 `system.@system[0].log_size='128'`，单位 KiB）。服务不写会长大的文件——沙箱根只读、`/tmp` 与 `/var/tmp` 是 8 MiB tmpfs、`/run/zte-mesh` 下全是小文件原子替换——所以 `controller-log.c` 管的是**打进环的比例**，不是轮转。分类与预算：
 
 | 类别 | 预算 | 打光/采样时说哪一句 |
 |---|---|---|
@@ -149,7 +149,7 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 三条出路，按推荐顺序：
 
 1. **刷带 `CONFIG_COMPAT=y` 的固件**——真机唯一干净的解法：arm64 内核开了 COMPAT 就能原生跑 ARM32，不需要模拟器，`ZTE_MESH_EMULATED_LAB` 也不会被设置（少了两条仿真专用路径）。配置在 `.github/workflows/build-firmware.yml`（qualcommax/ipq807x 目标，CI 自己编内核，因为 ImageBuilder 改不了内核选项）；qemu 这一层本身可以长期跑，所以它是"要不要拿掉"的可选项而不是故障。
-2. **手工放一个模拟器**——实验室和临时验证用，取**与设备同架构**的一份（lab 主机上 `tools/lab/emulate.sh` 做的是同一件事；这份文件不在任何仓库里，也不随包分发）。放好后确认下面两条：
+2. **手工放一个模拟器**——测试环境和临时验证用，取**与设备同架构**的一份（编译机上 `tools/lab/emulate.sh` 做的是同一件事；这份文件不在任何仓库里，也不随包分发）。放好后确认下面两条：
 
    ```sh
    apt-get download qemu-user-static && dpkg-deb -x qemu-user-static_*.deb /tmp/q

@@ -1,6 +1,7 @@
 # 真实子路由联调：已验证能力、配置语法与风险
 
-SR1010 上的原厂 `multiapd`（Controller 角色，私有沙箱内）与一台真实 ZTE 子路由（ZXHN Z506，固件 V1.0.0.2B2.8000，
+ZXSLC SR1010（又叫中兴星云 MAX）上的原厂 `multiapd`（Controller 角色，私有沙箱内）与一台真实子路由中兴 Z506
+（又叫中兴小方糖，型号写着 ZXHN Z506，固件 V1.0.0.2B2.8000，
 `192.168.5.216`，`d4:b7:09:0d:77:30`）联调的结论。协议层深入分析在 [FINDINGS.md](FINDINGS.md)，
 构建/测试/守则在 [DEVELOPMENT.md](DEVELOPMENT.md)，控制器能下发什么在 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)。
 **我们从未改过子路由的模式**：它是用户设的"MESH 开、自组网 V2 关、角色自适应"（选举后 `Mode=1`、`SetRoleEnable=1`）。
@@ -8,7 +9,7 @@ SR1010 上的原厂 `multiapd`（Controller 角色，私有沙箱内）与一台
 ## 1. 状态
 
 真机通过：发现/拓扑/链路指标/Higher Layer（CMDU 0、1、2、3、5、6、7、13、14）、AP-Autoconfig + WSC M1/M2（真 DH、HMAC、
-Key Wrap，子路由 `config M2[0]`）、SSID 与 WPA2 密钥落空口（用户确认 2.4G/5G 均为 `cc`）、重复入网与 Renew、
+Key Wrap，子路由 `config M2[0]`）、SSID 与 WPA2 密钥真的广播出来了（用户确认 2.4G/5G 均为 `cc`）、重复入网与 Renew、
 多 BSS 槽位 1 到 3、BeaconInterval、信道与功率（均已还原）、ACL 主 SSID、角色选举与 `CurHop`、自组网 V2 两种取值、
 重启子节点与指示灯。细节与"未验证"的部分见第 4 节。
 
@@ -24,7 +25,7 @@ Key Wrap，子路由 `config M2[0]`）、SSID 与 WPA2 密钥落空口（用户�
 
 | 门槛 | 现象 | 做法 | 作用范围 |
 |---|---|---|---|
-| 设备身份 | 子路由 `reason=1` 拒绝 | `DevInfo.ManuFacturer/ModelName` 用 SR1010 的公开值（ZTE / `ZXSLC SR1010`），不含序列号 | 仅 `--controller-service`，环境变量 `ZTE_MESH_REAL_MANUFACTURER`/`ZTE_MESH_REAL_MODEL`；实验室仍用占位名 |
+| 设备身份 | 子路由 `reason=1` 拒绝 | `DevInfo.ManuFacturer/ModelName` 用 SR1010 的公开值（ZTE / `ZXSLC SR1010`），不含序列号 | 仅 `--controller-service`，环境变量 `ZTE_MESH_REAL_MANUFACTURER`/`ZTE_MESH_REAL_MODEL`；测试环境仍用占位名 |
 | 市场码 | `reason=2` 拒绝 | `P1905ComCfg.MarketConfEn=1`、`MarketSign` 与子路由一致（`8000`） | `ZTE_MESH_REAL_MARKET_SIGN` |
 | 无线电状态 | M2 带 Tear Down | `MultiAPCfg.SSIDSyncRadio=1`（有线控制器绕过 `bRadioStatusOn()`） | 启动时无条件设置 |
 | BSS 启用标记 | M2 带 Tear Down | `P1905AcdBssCfg.CustomTag=68`（0x44 = bit2+bit6；bit0 不置，启用位每次 Renew 从 `WLANCfg.Enable` 读，CM 适配层补 `Enable` 字节） | 每个 BSS 行 |
@@ -192,7 +193,7 @@ RCPI 220，现在启动时设 -110。热更新手段是原厂 CM 设置函数那
   该文件含明文密钥，不要提交或外传。
 - 短时间连续重配 2.4G，子路由的 2.4G 出现过掉到隐藏的默认 SSID；把 SSID 改成别的再改回即可恢复。
 - `iwconfig` 在刚重启或已关闭的接口上读回的 SSID 不可靠。
-- 代码路径里"实验室"和"真机"必须分开：身份、市场码只在 `--controller-service` 路径通过环境变量开启。
+- 代码路径里"测试环境"和"真机"必须分开：身份、市场码只在 `--controller-service` 路径通过环境变量开启。
 - 不要在未确认语义前改 ACL 策略；不要切换子路由的 Mesh 模式；不要向真机推占位值。
 - 完整坑清单见 DEVELOPMENT 第 6 节。
 

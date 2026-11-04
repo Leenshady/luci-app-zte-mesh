@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""实验室三台机的统一 SSH 通道（密码登录）。
+"""三台测试机的统一 SSH 通道（密码登录）。
 
-`tools/lab/rsh.py` 走 telnet，只服务中兴原厂子路由（Z506 只开 telnet + 明文
-密码）。本文件是另一回事：2026-11-01 起实验台换成 immortalwrt 虚拟机 +
-Ubuntu 虚拟机 + 小米 AX3600（刷 immortalwrt）三台，全部是 OpenSSH + 密码。
+`tools/lab/rsh.py` 走 telnet，只服务中兴原厂子路由（中兴 Z506 只开 telnet + 明文
+密码）。本文件是另一回事：2026-11-01 起测试环境换成 ImmortalWrt 虚拟机 +
+Ubuntu 虚拟机 + 小米 AX3600（刷 ImmortalWrt）三台，全部是 OpenSSH + 密码。
 本机（Windows）没有 sshpass、没有 rsync，`ssh` 又不能喂密码，所以用 paramiko
 当一个可脚本化的 scp/ssh。
 
@@ -39,9 +39,9 @@ except ImportError:  # 只有 3.13 那个解释器没有，miniconda 的有
 
 # 别名 -> (地址, 用户, 密码, 说明)
 HOSTS = {
-    "ax3600": ("192.168.1.1", "root", "root", "小米 AX3600 / immortalwrt / ipq807x aarch64"),
-    "owrt": ("192.168.1.20", "root", "root", "VM 里的 immortalwrt（实验台主控机）"),
-    "ubuntu": ("192.168.1.191", "zzb", "123", "VM 里的 Ubuntu（编译机）"),
+    "ax3600": ("192.168.1.1", "root", "root", "小米 AX3600 / ImmortalWrt / ipq807x aarch64"),
+    "owrt": ("192.168.1.20", "root", "root", "ImmortalWrt 虚拟机（测试环境里的主控）"),
+    "ubuntu": ("192.168.1.191", "zzb", "123", "Ubuntu 虚拟机（编译机）"),
 }
 
 CONNECT_TIMEOUT = 15
@@ -51,7 +51,7 @@ CMD_TIMEOUT = 300
 def connect(alias: str) -> paramiko.SSHClient:
     host, user, pwd, _ = HOSTS[alias]
     cli = paramiko.SSHClient()
-    # 实验台机器随时重刷，host key 每次都会变；这里信任并记录，不做 pin。
+    # 测试机随时重刷，host key 每次都会变；这里信任并记录，不做 pin。
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     cli.connect(
         host,
@@ -174,7 +174,7 @@ def get(alias: str, remote: str, local: str) -> int:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         add_help=True,
-        description="实验台三台机的 SSH/scp（密码登录）",
+        description="三台测试机的 SSH/scp（密码登录）",
         epilog="命令部分不归 argparse 管：第一个非选项 token 起，后面整串原样交给远端 shell。",
     )
     ap.add_argument("host", nargs="?", choices=sorted(HOSTS) + ["list"], help="别名，或 list")
