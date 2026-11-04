@@ -1,6 +1,8 @@
 # multiapd：原厂 mesh 的 1905 协议实体（2026-11-01）
 
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+>
+> **2026-11-04 修的是事实不是结论**：开头「样本归属」里"E2631 那份取漏了、大小未知"当天深夜就已作废，§5 命令表补了适用边界。改动处都带日期标注。
 
 `cspd` 是 stripped，3 MB 全是匿名函数，我们只能靠字符串和总线号猜。**`multiapd` 没被 strip**：
 6 835 个符号、2 184 个具名函数，1905 的 TLV、拓扑、M1/M2、角色选举全在里面，函数名直白到能当
@@ -8,8 +10,12 @@
 
 **先说清样本归属**：本文剖析的 `multiapd` 来自 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz`
 （`root/bin/multiapd`，988 140 B，`sha256 a0ba6bee…6280a`），上游是 **SR1010 / ZX279133**；
-**不是** E2631 原厂 `/kmodule/bin/multiapd`（那份我们取漏了，大小未知）。两者同为 ARM32 EABI、
-同族代码，但版本与裁剪未知——凡涉及「E2631 到底怎么做」的结论都带这个前提。
+**不是** E2631 原厂 `/kmodule/bin/multiapd`。当天那份还写着"取漏了、大小未知"，**同日深夜已从固件解包
+（`_analysis/kmodule`）取到**：983 141 B、**已 strip**（9 个定义 / 225 个导入）、21 个 `NEEDED` 全命中
+`/kmodule/lib`、调试命令只剩 `sendcmd multiapd..master` 外壳——逐项对照在 [BLOB_SHIM](BLOB_SHIM.md) §1。
+两者同为 ARM32 EABI、同族代码，但是**不同构建、不同 libc**（原厂那份 uClibc 0.9.33.2，runtime 这份 glibc 2.26）。
+所以：**本文按函数名的分析只属于 SR1010 版**，E2631 那份能读的只有导入表；凡涉及「E2631 到底怎么做」
+仍然要上机验，这条前提不因拿到二进制而撤销。
 
 ## 1. 身份与为什么值得单独写
 
@@ -341,6 +347,11 @@ Acd Role is Client. / Acd Role is Server. / Acd Role is undefined.
 ## 5. 调试接口：一张现成的命令表
 
 `.rodata` `0x0a9f8a`–`0x0aa3ac` 连续排着一整张 debug 命令表（每条都有 `[name]: 说明`）：
+
+> **这张表属于 SR1010 版。** E2631 原厂那份被 strip，字符串里只剩 `sendcmd multiapd..master ...`
+> 这一层外壳（[BLOB_SHIM](BLOB_SHIM.md) §1），所以下面每一条在 E2631 上**存在与否未经核对**——
+> 上那台机器取 1905 帧之前，先用它自己的 `sendcmd` / 帮助输出确认命令面，别按这张表直接下命令
+> （[PLAN](../PLAN.md) H-07 的手段就依赖 `pktdump`）。
 
 | 命令 | 说明 | 对我们的用处 |
 |---|---|---|

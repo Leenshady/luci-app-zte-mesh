@@ -1,6 +1,8 @@
 # 中兴 E2631（AX3000）的 mesh 栈：结构、能力面、与 SR1010 的差异（2026-11-01）
 
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+>
+> **2026-11-04 修的是事实不是结论**：第 1 节样本表里 `multiapd`"大小未取"、第 1 节末对对照样本架构的 `AArch64` 标注、第 8 节"取 multiapd 原件"那条待办、第 9 节"版本与裁剪未知"都已作废。改动处都带日期标注。
 
 一台开了 telnet 的市售 ZTE AX3000（`/tmp/sysinfo/model` = `E2631`，hostname `Z500_w9bZ`）把
 `/kmodule` 整个拿出来做静态比对。和上一份编程器固件的关系见第 7 节：同型号、同芯片，
@@ -19,7 +21,7 @@
 | libc | `uClibc-0.9.33.2`（不是 glibc） |
 | 根文件系统 | `/dev/mtdblock8`，**JFFS2 明文**，17 MiB，**100% 占满** |
 | mesh 进程 | `cspd`，PID 597，`/kmodule/bin/cspd`，3,045,829 B |
-| mesh 进程（**首次取漏**） | `multiapd`，PID 1293，`/kmodule/bin/multiapd`，**大小未取**；`VSZ 45344 / RSS 8260` KiB |
+| mesh 进程（**首次取漏**） | `multiapd`，PID 1293，`/kmodule/bin/multiapd`，**983 141 B**（2026-11-04 补：同一批固件解包 `_analysis/kmodule` 深夜取到，本文当时写"大小未取"）；`VSZ 45344 / RSS 8260` KiB；**已 strip**（9 定义 / 225 导入），剖析见 [BLOB_SHIM](BLOB_SHIM.md) §1 |
 | 库所在 | `/kmodule` = `/dev/loop0` 挂载的 12.6 MiB 镜像 |
 
 取出来的是 22 个文件（`cspd` + 6 个 mesh 库 + 15 个支撑库），走 tftp 上传到测试机：
@@ -32,8 +34,14 @@ meshstack.tgz  sha256 f6508f456af1655ff5aae15629c360f259b225838dae3f53a933d3c6cd
   lib/libieee1905cfapi.so   8d532eb20145704dc20fb442f94afd22fc55753d537ab7e20a508d0b63c2ec87
 ```
 
-对照样本是 SR1010 的原厂库（`out/runtime/lib/`，AArch64 + glibc）。**两边同名库成套存在**，
+对照样本是 SR1010 的原厂库（`out/runtime/lib/`，glibc）。**两边同名库成套存在**，
 所以可以做跨机型 diff，这是这次最重要的收获。
+
+> **2026-11-04 实测核（改一处写错的事实）**：这里原写 `AArch64 + glibc`。`out/runtime/lib` 的 28 个条目
+> 逐个读 ELF 头，**全是 ELF32 / `e_machine=0x28`（ARM EABI）/ `e_flags=0x05000200`（soft-float）**，
+> 解释器 `ld-linux.so.3` —— 和 [ARCHITECTURE](../ARCHITECTURE.md) 第 5 节"不能注入 AArch64、musl 或
+> hard-float 的库"一致。也就是说**两台机器的用户态是同一个架构**，跨机型 diff 没有架构屏障，
+> 真正的差别在 libc（glibc 2.26 对 uClibc 0.9.33.2）与构建版本。
 
 ## 2. 运行结构：cspd 不是唯一的 mesh 进程（2026-11-01 修订）
 
@@ -231,8 +239,8 @@ dump 里那个 22.25 MiB 的密文 rootfs 在这台上**依然解不开**（密�
 
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
-| **取 `/kmodule/bin/multiapd` 原件** | 我们剖析的那份是 SR1010 版；E2631 原厂那份大小与行为都可能不同，而 M2 是否被接受取决于它 | 一次 tftp，几 MB，**不用停机** |
-| **在 multiapd 里开 `pktdump 1`** | 它自带 1905 抓包，存到 `/var/tmp/<pid>_<proc>`——设备没有 tcpdump，这条比 static 编 `spark` 便宜一个量级，见 [MULTIAPD](MULTIAPD.md) §5 | 找到进 debug CLI 的口（stdin 还是消息） |
+| ~~取 `/kmodule/bin/multiapd` 原件~~ **已完成（2026-11-01 深夜，2026-11-04 记）** | 同一批固件解包 `_analysis/kmodule` 里就有：983 141 B。差多少已量出来——已 strip、21 个 `NEEDED` 全命中 `/kmodule/lib`、225 个导入里 220 个由随包库导出（闭包性与垫片覆盖面的判据只需要导入表，见 [BLOB_SHIM](BLOB_SHIM.md) §1/§2）。**没做到的**：strip ⇒ 函数级读不了，那份分析仍只能用 SR1010 版；"M2 是否被接受"取决于运行时行为，仍然要么拿真机要么看线上帧 | 已在本地 `_analysis/kmodule`，**不需要停机窗口** |
+| **在 multiapd 里开 `pktdump 1`** | 它自带 1905 抓包，存到 `/var/tmp/<pid>_<proc>`——设备没有 tcpdump，这条比 static 编 `spark` 便宜一个量级，见 [MULTIAPD](MULTIAPD.md) §5。**注意**：那张命令表出自未 strip 的 SR1010 版，E2631 这份只剩 `sendcmd multiapd..master` 外壳，命令面在不在要先确认 | 找到进 debug CLI 的口（stdin 还是消息） |
 | 把它拉成我们控制器的 slave，看 M2 是否被接受 | 第二个中兴原厂路由器样本；E2631 的 `MarketSign`/`VersionMode` 可能和 Z506 的 `8000` 不同 | 改它 Wi-Fi（会断网），需停机窗口 |
 | 抓 `0x893a` 看有没有 Steering / Assoc Control | 第 4 节的接收路径是否真被触发，只有线上证据算数 | 先用 `pktdump`；退路才是 static 编 `spark`（armv7l musl）+ 限时 promisc |
 | 本地触发 BTM：`/proc/wlan_cfg/map/btm_kick` | 不用控制器就能验证 BTM 通路是否存在 | 只写一个 `/proc`，可回退；内核侧确有 `wlan_multiap_btm_kick_write`，见 [MESH_INTEROP](MESH_INTEROP.md) §5.5 |
@@ -242,8 +250,10 @@ dump 里那个 22.25 MiB 的密文 rootfs 在这台上**依然解不开**（密�
 
 - **没有反汇编 `cspd` 本体**（3 MB、已 strip）。第 4 节的结论来自导出符号、字符串和 6 个小库的反汇编。
 - 第 2.1 节剖析的 `multiapd` 是 **SR1010（ZX279133）版**（`sha256 a0ba6bee…`，同期 runtime 包内），
-  不是 E2631 原厂 `/kmodule/bin/multiapd`。同为 ARM32 EABI、同族代码，但**版本与裁剪未知**，
-  凡涉及「E2631 到底怎么做」的结论都必须标这个前提。
+  不是 E2631 原厂 `/kmodule/bin/multiapd`。同为 ARM32 EABI soft-float、同族代码，但**不同构建、不同 libc**
+  （2026-11-04 更新：这里原先写"版本与裁剪未知"——原件已在手，差多少见 [BLOB_SHIM](BLOB_SHIM.md) §1）。
+  前提换成了另一条：**E2631 那份被 strip，函数名全无**，所以按函数名的结论只能来自 SR1010 版；
+  凡涉及「E2631 到底怎么做」仍然要上机验，拿到二进制不等于验过运行时行为。
 - 「字符串存在」只证明代码路径编进去了，**不证明当前配置是开的**。
 - 两台设备固件差近两年（Z506 是 Wi-Fi 5 老货，E2631 是 Wi-Fi 6），行为差异不能全归给协议版本。
 - 只有 30 个符号同名，跨机型比对必须逐条人工判语义，机器 diff 只能用来**找候选**。
