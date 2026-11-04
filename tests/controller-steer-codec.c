@@ -13,8 +13,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../controller-1905.h"
-#include "../controller-steer.h"
+#include "../src/controller-1905.h"
+#include "../src/controller-steer.h"
 
 static unsigned int checks;
 #define CHECK(x) do { checks++; if (!(x)) { fprintf(stderr, "steer codec failure line %d\n", __LINE__); exit(1); } } while (0)

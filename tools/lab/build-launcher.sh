@@ -52,7 +52,7 @@ remote "$BUILD_HOST" "
 set -e
 cd $SRC
 mkdir -p $REMOTE_WORK
-gcc -std=c11 -O2 -Wall -static -o $REMOTE_WORK/ns-run ns-run.c controller-net.c
+gcc -std=c11 -O2 -Wall -static -o $REMOTE_WORK/ns-run src/ns-run.c src/controller-net.c
 gcc -std=c11 -O2 -Wall -static -Wno-unused-function -o $REMOTE_WORK/mesh-search tools/lab/enroller.c
 ls -l $REMOTE_WORK/ns-run $REMOTE_WORK/mesh-search
 "
@@ -97,4 +97,4 @@ echo "-- 节点："; head -c 200 /run/zte-mesh/state.json 2>/dev/null; echo
 
 say ""
 say "完成。这两个文件不在任何包里，apk upgrade 不会删它们，但也不会更新它们——"
-say "仓库里改了 ns-run.c 之后要重跑本脚本。"
+say "仓库里改了 src/ns-run.c 之后要重跑本脚本。"

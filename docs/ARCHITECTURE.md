@@ -54,6 +54,10 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 
 ## 3. 源文件
 
+下表里的 `.c`/`.h`/`.def`/`.inc` 都在 `src/`；取证与构建脚本（`prepare.py`、`schema.py`、`cm-profile-evidence.py` 等）
+在仓库根目录；装机的 shell 与页面在 `openwrt/zte-mesh/files/`，随包分发的 `ns-run.c`/`controller-net.c`/`enroller.c`
+用的是 tar 成员名，和 `src/` 这个目录名无关。
+
 | 文件 | 运行位置 | 职责 |
 |---|---|---|
 | `ns-run.c`、`controller-net.c` | 路由器，AArch64 静态 | 沙箱启动器：命名空间、私有根、私有网桥和到宿主的 veth |

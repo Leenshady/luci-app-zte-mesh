@@ -69,7 +69,7 @@ ARMCC="arm-linux-gnueabi-gcc -D_TIME_BITS=32" sh tools/lab/build.sh database   #
 ROUTERCC=aarch64-linux-gnu-gcc sh tools/lab/build.sh ns-run                   # ns-run 是路由器的 aarch64
 python3 openwrt/repack-runtime.py \
   --replace root/bin/db-engine-probe=out/db-engine-probe ns-run=out/ns-run \
-            controller-net.c=controller-net.c enroller.c=tools/lab/enroller.c
+            controller-net.c=src/controller-net.c enroller.c=tools/lab/enroller.c
 python3 tests/test_runtime.py                                                 # 守卫里含"成员与仓库文件逐字节相同"（条数基线见 DEVELOPMENT 第 4 节）
 ```
 

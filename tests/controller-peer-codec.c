@@ -21,9 +21,9 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
-#include "../controller-1905.h"
-#include "../controller-peer.h"
-#include "../controller-steer.h"
+#include "../src/controller-1905.h"
+#include "../src/controller-peer.h"
+#include "../src/controller-steer.h"
 
 static unsigned int checks;
 #define CHECK(x) do { checks++; if (!(x)) { fprintf(stderr, "peer codec failure line %d\n", __LINE__); exit(1); } } while (0)

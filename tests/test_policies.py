@@ -12,8 +12,8 @@ from schema import (CONSTRUCTORS, POLICY_TABLES, constructor_data, policy_regist
 
 ARTIFACTS = Path(sys.argv[1]) if len(sys.argv) == 2 else SOURCE / "out"
 CSPD = ARTIFACTS / "analysis/cspd"
-MASTER = (SOURCE / "multiap_master.def").read_text()
-DOMAIN = (SOURCE / "multiap_domain.def").read_text()
+MASTER = (SOURCE / "src" / "multiap_master.def").read_text()
+DOMAIN = (SOURCE / "src" / "multiap_domain.def").read_text()
 
 
 class PolicyLayoutTests(unittest.TestCase):

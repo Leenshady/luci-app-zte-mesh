@@ -284,7 +284,7 @@ SR1010 构建是 119 个函数 / 27 张表 —— 少的两张正是它没有的
 | 层 | 状态 | 出处 |
 |---|---|---|
 | 表级（谁读写哪张表） | ✅ **本轮做出**：34 个 `Wlan*Db*` + 29 张表 + 4 个写入口 | 本文 §3.3 |
-| `WLANCfg` 列级 | ✅ **已有**：`CmWLANGetAPConfig` 的 **44 条 payload copy**，覆盖 `ESSID`/`ESSIDHideEnable`/`ACLPolicy`/`BeaconType`/`WEP*`/`WPA*`/`11i*`/`WPA3*`/`Vlan*`/`McastVlan*`/`GuestSsid`/`GuestOffTime`/`DownRateKbps`/**`MapAccessAttr`**/`ForceWiFi5`/`ForceWiFi6` | [`cm-profile-layout.inc`](../../cm-profile-layout.inc)，证据脚本 [`cm-profile-evidence.py`](../../cm-profile-evidence.py)（`--verify` 可复算） |
+| `WLANCfg` 列级 | ✅ **已有**：`CmWLANGetAPConfig` 的 **44 条 payload copy**，覆盖 `ESSID`/`ESSIDHideEnable`/`ACLPolicy`/`BeaconType`/`WEP*`/`WPA*`/`11i*`/`WPA3*`/`Vlan*`/`McastVlan*`/`GuestSsid`/`GuestOffTime`/`DownRateKbps`/**`MapAccessAttr`**/`ForceWiFi5`/`ForceWiFi6` | [`cm-profile-layout.inc`](../../src/cm-profile-layout.inc)，证据脚本 [`cm-profile-evidence.py`](../../cm-profile-evidence.py)（`--verify` 可复算） |
 | `WLANBase` 列级（信道/带宽/功率） | ❌ 缺 | `CmWLANGetBaseConfig` 尚未取证 |
 | 写方向（Set 的结构体） | ⚠️ 未单独取证，但 Get/Set 成对、布局通常同构 | 由 `CmWLANSetAPConfig` 的 `WlanCfgDbWrite` 反推 |
 

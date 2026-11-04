@@ -34,8 +34,8 @@ def text(path):
 
 # member name in the archive -> the file it must be a copy of
 SOURCES = {
-    "ns-run.c": REPO / "ns-run.c",
-    "controller-net.c": REPO / "controller-net.c",
+    "ns-run.c": REPO / "src" / "ns-run.c",
+    "controller-net.c": REPO / "src" / "controller-net.c",
     "enroller.c": REPO / "tools/lab/enroller.c",
 }
 

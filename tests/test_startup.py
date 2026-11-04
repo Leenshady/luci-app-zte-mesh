@@ -64,7 +64,7 @@ class StartupMetadata(unittest.TestCase):
             self.assertEqual(at, table["size"])
 
     def test_generated_registry(self):
-        self.assertEqual(startup.declaration(self.tables), (SOURCE / "startup-views.inc").read_text())
+        self.assertEqual(startup.declaration(self.tables), (SOURCE / "src" / "startup-views.inc").read_text())
 
 
 if __name__ == "__main__":

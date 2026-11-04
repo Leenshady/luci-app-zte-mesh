@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../controller-actions.h"
+#include "../src/controller-actions.h"
 
 static unsigned int checks;
 #define CHECK(x) do { checks++; if (!(x)) { fprintf(stderr, "actions failure line %d\n", __LINE__); exit(1); } } while (0)

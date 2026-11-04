@@ -97,7 +97,7 @@ python3 tests/test_i18n.py                           # 改了界面文案必须�
 
 | 路径 | 内容 |
 |---|---|
-| 根目录 `*.c` `*.h` `*.def` `*.inc` | 沙箱启动器、服务、垫片与 preload 库、命令行工具（职责见 [ARCHITECTURE](docs/ARCHITECTURE.md)） |
+| `src/` | C 侧：沙箱启动器、服务、垫片与 preload 库、命令行工具，以及原厂表结构的 `.def`/`.inc`（职责见 [ARCHITECTURE](docs/ARCHITECTURE.md)） |
 | 根目录 `*.py`、`build.sh` | 运行环境提取与审计、证据核对、测试环境与设备测试脚本 |
 | `tests/` | 主机测试（C 编解码、Python、shell、LuCI 的 JS） |
 | `openwrt/` | OpenWrt 包：`zte-mesh`、`zte-mesh-launcher`、`luci-app-zte-mesh` |
@@ -106,10 +106,9 @@ python3 tests/test_i18n.py                           # 改了界面文案必须�
 | `docs/` | 文档（下） |
 | `out/`、`evidence/` | 构建产物与验证证据，含原厂二进制，**不入库** |
 
-C 与 Python 都堆在根目录不是疏忽：`Makefile` 的 40 多条规则、`Dockerfile` 的 `WORKDIR /src`、`tests/` 里
-`sys.path.insert(ROOT)`、`.inc`/`.def` 的同目录 `#include` 全按根目录写死，而且 `feat/child-node` 那条分支要拿去向
-上游提 PR——挪目录换来的是"看着整齐"，代价是一次 196 处引用的改动和一个没法审的 diff。要动它的唯一理由是能说出
-这 40 条规则因此少了几条。
+C 侧在 2026-11-04 挪进了 `src/`：`Makefile` 逐文件列源、`tests/*.c` 的 `../` 包含前缀、`.def`/`.inc` 的同目录包含
+都要跟着改，一共 74 个跟踪文件；随包分发的 `ns-run.c`/`controller-net.c` 用的是 tar 成员名，成员名一个没动。
+Python 还留在根目录——`tests/` 用 `sys.path.insert(ROOT)` 按根目录找它们，挪它们要改的是同一批引用，收益只有"看着整齐"。
 
 ## 文档
 

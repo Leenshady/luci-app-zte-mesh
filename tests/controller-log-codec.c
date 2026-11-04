@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../controller-log.h"
+#include "../src/controller-log.h"
 
 static unsigned int checks;
 #define CHECK(x) do { checks++; if (!(x)) { fprintf(stderr, "log gate failure line %d\n", __LINE__); exit(1); } } while (0)

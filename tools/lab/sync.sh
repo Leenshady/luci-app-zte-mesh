@@ -1,7 +1,7 @@
 #!/bin/sh
 # Push a handful of edited files to the lab VM with LF line endings.
 #
-#   sh tools/lab/sync.sh controller-packet.h controller-packet.c controller-wsc.c
+#   sh tools/lab/sync.sh src/controller-packet.h src/controller-packet.c src/controller-wsc.c
 #
 # tools/lab/push.py needs paramiko; this needs only the OpenSSH client that already
 # has a key for the VM. Paths are relative to the repository root and are recreated
