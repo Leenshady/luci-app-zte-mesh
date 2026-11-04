@@ -10,6 +10,31 @@ passed as files that stay outside the repository. Unless noted, run them on the 
 | `container-make.sh TARGET...` | Runs make targets in the offline builder container (`sr1010-mesh-shim-builder`): artifacts relative to `out/` (deleted inside the container first, see docs/DEVELOPMENT.md section 2) or `all`, `database`, `controller`, `test-host`. Keeps make's exit status. |
 | `runtime.sh install\|svctest` | Builds the matching launcher and packs `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` (OpenWrt package, committed; root `/usr/lib/zte-mesh/root`) or `out/zte-mesh-svctest.tar.gz` (tmpfs lab runs, root `/tmp/zte-mesh-svc/root`). |
 
+## dev/ (the build- and test-time Python, moved off the repository root on 2026-11-04)
+
+Imported by module name from `openwrt/make-runtime.py`, `tests/` and `tools/lab/`, so they stay in one directory:
+`sys.path` gets `tools/dev`, and a script run as `python3 tools/dev/x.py` finds its siblings on its own.
+
+| Script | What it does |
+|---|---|
+| `prepare.py` | Builds `out/` from the pinned factory JFFS2 (never from loose ELFs): extracts `multiapd`, walks its `DT_NEEDED` closure, records a hash per file in `out/manifest.json`. `--analysis-cspd` additionally extracts `cspd` to `out/analysis/cspd` (0600, not part of the runtime). |
+| `jffs2.py` | Reads one regular file out of a little-endian JFFS2 evidence image — deliberately not a general unpacker; bad CRCs and holes are errors. |
+| `vendor_elf.py` | Bounded ELF metadata reader for the vendor ARM32 runtime (no execution), plus the GNU symbol-version audit `make-runtime.py` reruns on the finished archive. |
+| `smoke.py` | Audits the built shim, lists the factory libraries, then stops at the DB boundary. Called from `build.sh` inside the builder container (`python3 tools/dev/smoke.py --output /artifacts`). |
+| `schema.py` | Public `MultiAPCfg` registry plus hash-pinned, data-only constructor verification of `cspd`. `TABLE_DEFS` points at `src/*.def`. |
+| `profile_schema.py` | The same for WLAN/identity metadata (`WLANBase`/`WLANCfg`/`WLANSSID`/`WLANPSK`/`DevInfo`); source default values are never read. |
+| `startup-schema.py` | Metadata for the views that actually block bootstrap/configuration (`--cspd --libdb --verify src/startup-views.inc`). |
+| `cm-profile-evidence.py` | Recovers the read-only CM AP profile copy (2496 bytes, not the 2312-byte `WLANCfg` view) from pinned ARM machine instructions; `Makefile:19` runs it with `--verify src/cm-profile-layout.inc`. |
+| `bridge_evidence.py` | Checks the bridge's one mode against the public WLAN enum tables in `src/mesh-bridge.h`, pinned `libcfapi.so` included. |
+| `dev-service-smoke.py` | Runs the long-running controller service on the router entirely in tmpfs; `--no-attach` keeps the wire out of `br-lan`, `--expect-macs` is the station guard when it is attached. |
+| `dev-config-check.py DIR` | Feeds every file of `DIR` to that private service as `/run/zte-mesh/config` and reports accepted/rejected. |
+| `dev-sched-check.py` | Times the schedule windows and the guest access countdown against the real wall clock (~5 minutes). |
+| `device-smoke.py` | Deploys a checksummed `/tmp`-only probe over SSH and checks native ARM32 execution; never starts a controller. |
+| `device-db-smoke.py` | Real vendor DB server/client experiment inside private namespaces (`ns-run` isolation, no host-IPC fallback). |
+| `device-bridge-smoke.py` | Native ARM64 → private ARM32 DB bridge tests with public fixture inputs. |
+| `device-controller-smoke.py` | Bounded real `multiapd` startup in private fixture DB/net/mount namespaces (includes CMDU 10); also re-runs the two `--verify` evidence scripts. |
+| `device_workspace.py` | Bounded `/tmp` staging with guaranteed cleanup attempts; never sweeps old paths. Shared by the four `device-*.py`. |
+
 ## capture/ (vendor study and real-child replay)
 
 | Script | What it does |
@@ -46,7 +71,7 @@ passed as files that stay outside the repository. Unless noted, run them on the 
 | Script | What it does |
 |---|---|
 | `rsh.py` | Runs a command on the lab VM over SSH (`LAB_HOST`/`LAB_USER`/`LAB_PASS`, or `LAB_KEY`); `--stdin` forwards standard input, which is how `sudo -S` gets its password without putting it in the command line. |
-| `push.py` | Packs the working tree (minus `out`, `evidence`, `.git`), uploads it and unpacks over `~/zte-mesh`. Normalises CRLF to LF: a Windows checkout has CRLF in the working tree and the shell tests fail on the target otherwise. |
+| `push.py` | Packs the working tree (minus `.git`, `out`, `evidence`, `.local`, `.workbuddy`, `__pycache__`), uploads it and unpacks over `~/zte-mesh`. Normalises CRLF to LF: a Windows checkout has CRLF in the working tree and the shell tests fail on the target otherwise. The exclusion list is what keeps `.local/lab-env.md` (the lab password table) out of the lab VM — `.gitignore` does not apply to a working-tree walk. Unpacking never deletes, so a file removed here survives there. |
 | `bootstrap-out.py` | Rebuilds `out/runtime` + `out/manifest.json` from `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` (hash-checked against its `SHA256SUMS` and `prepare.MULTIAPD_SHA256`), for a machine that has no factory JFFS2. The manifest is marked `source=runtime-bundle`, so `prepare.py` still refuses it and packaging cannot silently use it. |
 | `build.sh` | `make` wrapper for Ubuntu: adds `-U_FORTIFY_SOURCE` (Ubuntu's gcc defines it by default, Debian's does not) so `-Werror` builds match the audited build. Defaults `ROUTERCC=aarch64-linux-gnu-gcc`; pass `ROUTERCC=cc` for router-side tools that must run on the VM. |
 | `mkroot.sh` | Assembles the tmpfs lab root `/tmp/zte-mesh-svc/root` from a built `out/` (same layout as `make-runtime.py`, which refuses a synthetic `out/`). |

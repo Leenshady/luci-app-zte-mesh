@@ -29,7 +29,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 
 | 命令 | 做什么 |
 |---|---|
-| `sh build.sh` | 完整流程：从固件提取并审计运行环境（`prepare.py`，需要 `unsquashfs`）、核对表结构证据、建镜像、`make all database controller test-host`、离线加载测试 |
+| `sh build.sh` | 完整流程：从固件提取并审计运行环境（`tools/dev/prepare.py`，需要 `unsquashfs`）、核对表结构证据、建镜像、`make all database controller test-host`、离线加载测试 |
 | `sh tools/build/container-make.sh <目标>...` | 在容器里编指定产物（`db-engine-probe`、`zte-meshctl`、`ns-run`、`libzte_controller_trace.so` 等）或跑 `test-host`、`controller`。会在容器里先删旧产物，保留 make 的退出码 |
 | `sh tools/build/runtime.sh svctest` | 测试环境运行包 `out/zte-mesh-svctest.tar.gz`（启动器根是 `/tmp/zte-mesh-svc/root`，路由器上只写 tmpfs） |
 | `sh tools/build/runtime.sh install` | 包用的运行包 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz`（随仓库提交，根是 `/usr/lib/zte-mesh/root`） |
@@ -49,9 +49,9 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 
 三种方式（现役那台 `ubuntu` 上跑服务用 `sudo sh tools/lab/run-service.sh`，见 [LAB](LAB.md) 第 3 节；下面这几条是容器/离线那条路径的入口）：
 
-1. **测试环境（不碰子节点）**：`python3 dev-service-smoke.py --no-attach --seconds 24`——路由器私有命名空间里跑服务，
-   验证配置、热更新、守护进程重启，不把线接进 `br-lan`。`dev-config-check.py DIR` 批量喂配置看接受/拒绝，
-   `dev-sched-check.py` 用真实时钟测定时窗口和访客限时（约 5 分钟）。
+1. **测试环境（不碰子节点）**：`python3 tools/dev/dev-service-smoke.py --no-attach --seconds 24`——路由器私有命名空间里跑服务，
+   验证配置、热更新、守护进程重启，不把线接进 `br-lan`。`tools/dev/dev-config-check.py DIR` 批量喂配置看接受/拒绝，
+   `tools/dev/dev-sched-check.py` 用真实时钟测定时窗口和访客限时（约 5 分钟）。
 2. **中兴原厂路由器当子节点**：`python3 tools/capture/mreplay.py --config <0600 配置> --expect-macs <允许的 MAC> --out <证据目录> --seconds N`。
    接进 `br-lan`，触发子节点重新入网（默认把子节点端口 down/up），抓两侧的包、服务日志和 `state.json`；`--swap 秒:文件` 中途换配置，
    `--action '秒:reboot <mac>'` 或 `'秒:light <mac> 0|1'` 发节点动作，`--al-last` 每次换一个控制器 AL MAC。
@@ -71,10 +71,11 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
   `ssid_pending=`；测试用 `SSID_WAIT=0` 把等待关掉，另有一条用例喂"第三次才出现"的 uci 桩来守这段。同一类"问得太早"
   在跳数那一列也犯过一次（见 [INSTALL](INSTALL.md) 第 3 节的 `cur_hop_age`），所以脚本读时钟的 `date` 也是桩——
   年龄窗口是秒级的，跟着主机墙钟跑就变成"什么时候跑这套就算什么时候"。
-- 没有原厂镜像的机器（测试环境里的 ImmortalWrt 虚拟机）也能跑绝大多数：`make test-host` 直接在 `$PWD/out` 上跑，实测除
-  `test_schema.py`/`test_policies.py`/`test_startup.py` 三组外全绿——那三组要 `out/analysis/cspd`，而 `cspd` 只从
-  哈希钉住的原厂镜像提取（`evidence/` 不入库）。这三组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，
-  `container-make.sh` 的 noexec 注意项在这里不适用。
+- 没有原厂镜像的机器（构建机 `ubuntu`、测试环境的 ImmortalWrt 虚拟机）也能跑绝大多数：`make test-host` 直接在 `$PWD/out`
+  上跑。要 `out/analysis/cspd` 的只有 `cspd` 证据那几组——`test_schema.py` 4 条、`test_policies.py` 5 条、
+  `test_profiles.py` 6 条、`test_startup.py` 整组卡在 `setUpClass`（`cspd` 只从哈希钉住的原厂镜像提取，`evidence/`
+  不入库），所以 `make test-host` 会停在 `test_schema` 就退出；要看这四组之后的结果就单独跑，别拿"make 停在第几行"当回归。
+  这几组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，`container-make.sh` 的 noexec 注意项在这里不适用。
 - LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；PATH 里没有 `node`，测试环境那两台机器也没装）。
   实测可用的解释器是这台机器上另一套工具带的独立二进制，直接给绝对路径就能跑：
   `"<本机那个 node.exe 的绝对路径>" tests/test_luci.js`（v24.21.0）。
@@ -92,7 +93,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 向中兴原厂路由器推配置会真实修改并持久化它的设置。在 OpenWrt 路由器上推配置同样会持久改动它的配置，只是能用 `uci` 直接改回来。
 
 - **每轮前后读回子节点基线**：`ZTE_TN_PASS=… sh tools/child/childread.sh`，8 行 `WLANCfg` 与 [REAL_CHILD.md](REAL_CHILD.md)
-  末尾的基线逐行比较。改网络序号先在测试环境验证（`device-controller-smoke.py` 的 `map_teardown` 必须为 0），再上中兴原厂路由器轮询
+  末尾的基线逐行比较。改网络序号先在测试环境验证（`tools/dev/device-controller-smoke.py` 的 `map_teardown` 必须为 0），再上中兴原厂路由器轮询
   子节点 `WLANCfg`，一出异常立刻用"全部序号 + 一次 Renew"恢复。
 - **永远不要向中兴原厂路由器推占位值。** 额外 BSS 的 `enabled/ssid/key` 必须三项给齐；同一块射频上的网络序号必须是 1..k。
 - **不要改子路由的模式**（`Mode`、自组网 V2、`VersionMode`、MESH 开关），这些由用户在子路由上设置。
@@ -127,7 +128,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 ## 7. 改了控制器代码之后的检查
 
 1. 本机提交 → 构建机编改动的产物（零警告，`ubuntu` 上 `sh tools/lab/build.sh all database`）→ `test-host` 通过 → `runtime.sh svctest`。
-2. 测试环境：`dev-service-smoke.py --no-attach`；涉及配置解析的跑 `dev-config-check.py`；涉及调度的跑 `dev-sched-check.py`。
+2. 测试环境：`tools/dev/dev-service-smoke.py --no-attach`；涉及配置解析的跑 `tools/dev/dev-config-check.py`；涉及调度的跑 `tools/dev/dev-sched-check.py`。
 3. 中兴原厂路由器（需要时）：`childread.sh` 基线 → `mreplay.py` → 看 `state.json` 节点 `model:"ZXHN Z506"`、`zte:true`、
    `online:true` → `childread.sh` 读回。
 4. 结束：路由器无残留（`/run/zte-mesh`、`/tmp/zte-mesh-svc`、`zmesh0`、`ns-run`、`db-engine-probe`、`tcpdump`）；

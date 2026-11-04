@@ -98,17 +98,18 @@ python3 tests/test_i18n.py                           # 改了界面文案必须�
 | 路径 | 内容 |
 |---|---|
 | `src/` | C 侧：沙箱启动器、服务、垫片与 preload 库、命令行工具，以及原厂表结构的 `.def`/`.inc`（职责见 [ARCHITECTURE](docs/ARCHITECTURE.md)） |
-| 根目录 `*.py`、`build.sh` | 运行环境提取与审计、证据核对、测试环境与设备测试脚本 |
+| `build.sh`、`Makefile`、`Dockerfile*` | 构建入口：提取并审计运行环境、交叉编译、跑主机测试 |
 | `tests/` | 主机测试（C 编解码、Python、shell、LuCI 的 JS） |
 | `openwrt/` | OpenWrt 包：`zte-mesh`、`zte-mesh-launcher`、`luci-app-zte-mesh` |
 | `prebuilt/` | lab 用的预编译件，**不进任何 apk** |
-| `tools/` | 构建容器与打包、抓包重放、子路由 telnet、测试环境里的脚本 |
+| `tools/` | `tools/dev/` 是构建与测试用的 17 个 Python 脚本，另有构建容器与打包、抓包重放、子路由 telnet、测试环境里的脚本 |
 | `docs/` | 文档（下） |
 | `out/`、`evidence/` | 构建产物与验证证据，含原厂二进制，**不入库** |
 
 C 侧在 2026-11-04 挪进了 `src/`：`Makefile` 逐文件列源、`tests/*.c` 的 `../` 包含前缀、`.def`/`.inc` 的同目录包含
 都要跟着改，一共动了 74 个跟踪文件（51 个挪、23 个改）；随包分发的 `ns-run.c`/`controller-net.c` 用的是 tar 成员名，成员名一个没动。
-Python 还留在根目录——`tests/` 用 `sys.path.insert(ROOT)` 按根目录找它们，挪它们要改的是同一批引用，收益只有"看着整齐"。
+Python 同日挪进 `tools/dev/`：`tests/`、`openwrt/make-runtime.py`、`tools/lab/` 按模块名 import 它们，改的是同一批
+`sys.path.insert` 加上 `build.sh`／`Makefile` 的调用路径；根目录只剩构建入口。
 
 ## 文档
 
@@ -130,7 +131,7 @@ Python 还留在根目录——`tests/` 用 `sys.path.insert(ROOT)` 按根目录
 （早期里程碑的验收记录）、[FINDINGS](docs/FINDINGS.md) 与
 [CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md)（角色选举触发位、网页锁定公式、`sendcmd` 报文格式、
 Z506 的能力矩阵）、[机型对照](<docs/ZTE router model.md>)、[docs/journal/](docs/journal/)（开发日志，过程叙事只在
-这里）。原厂固件镜像不在仓库里：`prepare.py` 默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，可用
+这里）。原厂固件镜像不在仓库里：`tools/dev/prepare.py` 默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，可用
 `SR1010_VENDOR_ROOTFS` 指定。
 
 ## 约定

@@ -23,7 +23,7 @@ sh build.sh                                          # 提取运行环境、审�
 sh tools/build/container-make.sh test-host           # 只跑主机测试；单个产物：container-make.sh db-engine-probe
 sh tools/build/runtime.sh svctest                    # 测试环境 tmpfs 运行包
 sh tools/build/runtime.sh install                    # 重新生成随仓库提交的 openwrt/zte-mesh/zte-mesh-runtime.tar.gz
-python3 dev-service-smoke.py --no-attach --seconds 24 # 路由器上完全私有地跑一次服务（不接 LAN）
+python3 tools/dev/dev-service-smoke.py --no-attach --seconds 24 # 路由器上完全私有地跑一次服务（不接 LAN）
 python tests/test_i18n.py                            # 改了界面文案必须跑
 ```
 

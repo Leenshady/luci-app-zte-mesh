@@ -55,7 +55,7 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 ## 3. 源文件
 
 下表里的 `.c`/`.h`/`.def`/`.inc` 都在 `src/`；取证与构建脚本（`prepare.py`、`schema.py`、`cm-profile-evidence.py` 等）
-在仓库根目录；装机的 shell 与页面在 `openwrt/zte-mesh/files/`，随包分发的 `ns-run.c`/`controller-net.c`/`enroller.c`
+在 `tools/dev/`；装机的 shell 与页面在 `openwrt/zte-mesh/files/`，随包分发的 `ns-run.c`/`controller-net.c`/`enroller.c`
 用的是 tar 成员名，和 `src/` 这个目录名无关。
 
 | 文件 | 运行位置 | 职责 |
@@ -79,7 +79,7 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 
 ## 4. 固件来源
 
-运行环境只从一个固定的原厂镜像提取，`prepare.py` 校验哈希；换镜像要重新调查并更新固定值，没有跳过校验的选项。
+运行环境只从一个固定的原厂镜像提取，`tools/dev/prepare.py` 校验哈希；换镜像要重新调查并更新固定值，没有跳过校验的选项。
 
 ```text
 zx279133/vendor-reference/2b5/rootfs.jffs2
@@ -100,7 +100,7 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 | `lib/libmultiapcmapi.so` | 59544 | `bf47d0b05d059aa85bb92fbc7e2f1e4502832eb35d3bf394ed44f2db9854be75` |
 
 - `zx279133/vendor-reference/2b5/cspd`（3,106,388 字节，`eb7062b9…`）是**另一个版本**，来源不明，地址和 ABI 不能套到镜像里的
-  程序上。表结构还原以镜像内的 `cspd` 为准（`prepare.py --analysis-cspd` 提取到 `out/analysis/cspd`，0600，不进运行环境）。
+  程序上。表结构还原以镜像内的 `cspd` 为准（`tools/dev/prepare.py --analysis-cspd` 提取到 `out/analysis/cspd`，0600，不进运行环境）。
 - 中兴原厂路由器 Z506 的 `multiapd`/`libcmapi.so` 与 SR1010 的也不是同一个构建：控制器行为读 SR1010 的二进制，子路由能否接收读
   子路由自己的。
 

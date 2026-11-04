@@ -101,7 +101,7 @@
 
 重载：`reload_service` 只在"需要重启服务"的东西变了才重启——`version_mode` 变了，或策略键（`mesh.role`、`wifi.dual_band_sync`、`band_steer.*`、`roam.*`、`mlo.enable`）出现/消失（init 把键名存进 `/run/zte-mesh/restart.sig` 比较）；这些键**值**变了不重启，走热更新。签名里另有两类是**按值**记的：`role=`、`local=`（`mesh_role` / `apply_local` 改的是 procd 实例集合）和 applier 自己的四个输入 `backhaul=` / `extra_slots=` / `pin2g=` / `pin5g=`（`wlan-sync` 只对 plan 的内容起作用，改这些必须重启它才看得见；不跑 applier 的角色不带）。`zte_mesh_client` 与 `ban_minutes` **不在** restart.sig 里：服务每秒重读这份配置，状态机自己比对新旧规则——新规则立刻发，删掉的规则补发一条"放行"再丢弃，所以加/删一条封禁不需要重启。
 
-守这些映射的测试都不需要 OpenWrt：`tests/test_init.sh`（busybox ash + UCI 桩）、`node tests/test_luci.js`（表单跑一遍，核对每个 init 读的选项都有表单项）、`dev-config-check.py DIR`（把 init 生成的配置交给真服务，报告接受/拒绝）；**条数基线只写在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节**，这里不重复数字。
+守这些映射的测试都不需要 OpenWrt：`tests/test_init.sh`（busybox ash + UCI 桩）、`node tests/test_luci.js`（表单跑一遍，核对每个 init 读的选项都有表单项）、`tools/dev/dev-config-check.py DIR`（把 init 生成的配置交给真服务，报告接受/拒绝）；**条数基线只写在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节**，这里不重复数字。
 
 对已有配置的影响：随包模板新增 `option wifi_dual_band_sync '1'`（conffile，已有配置不改）——**没有这一行、又留空 `wifi_5g_ssid` 的旧配置以前拒绝启动，现在会派生 `<2.4G 名称>-5G` 并启动，也就是会改子节点真实的 5G 名称。** 另外 `radio1.ssid/key` 变成可选；init 归一化布尔值并拒绝不可打印字符；带序号的 ACL 规则以前被整份拒绝，现在接受（旧 bug：检查在序号表填好之前执行），但**没有在中兴原厂路由器当子节点时试过序号上的 ACL**。
 
@@ -110,7 +110,7 @@
 - **节点动作**：宿主往 `/run/zte-mesh/actions/<id>.act`（0600，文件名只用 `[A-Za-z0-9_-]`）写一行 `reboot <mac>` 或 `light <mac> 0|1`；服务每秒取走（读完即删，启动时先清遗留），只对在线且已识别为中兴设备的节点执行（`topology_ready` 之后）。结果进 `state.json` 的 `actions`（最新在前，最多 8 条；`status` 0 已发出、-2 格式错、-3 无此节点、-4 守护进程没就绪）。rpcd `luci.zte-mesh reboot_node {mac}` / `light_node {mac,on}` 写请求并最多等 8 秒（-5 = 服务没运行）。
 - `state.json` 的节点多了 `light`（-1 未知）、`light_age`、`stations`（-1 未知）；`sched` 有 `rules`、`off_all`、`off_guest`、`access`（各访客倒计时）。`light` 来自 trace 库对子节点帧的摘要（`/run/zte-mesh/peers/`，启动时清空）。`stations` 优先取**按 BSSID 的终端数之和**：`0x94` 每一路落一个 `peers/<MAC>.<BSSID>.sta`，服务把 30 秒内还活着的那几路加起来（读不到才退回 `<MAC>.metrics` 摘要里的总数——摘要只有最后一帧的数，子节点按射频分别上报时会在两路之间来回换），这时 `metrics_age` 也跟着改成其中最老一路的年龄。这些条目同时以 `bss_detail: [{bssid, stations, age}]` 进 `state.json`（按 BSSID 排序，最多 16 行；总数不受这个上限影响），页面上那一格仍是总数，按 BSSID 的明细是它右边的一列：一路一行 `BSSID 数`，每行悬停是那一路上报的年龄（没有按 BSSID 的条目时那格是 `-`，与"报了 0 个终端"的 `0` 不同）。每 AP 下的终端**列表**（是谁）没有：帧里只有数目。
 - **封禁与踢终端**（`controller-actions.c`）：`ban` 是"持续规则"——首次即发 `0x8016`，之后每 120 秒重发一次（子节点重启后不会忘记），到 `ban.minutes` 或规则被删时补发一条"放行"；`kick` 是"点一下"——`0x8014` 每 5 秒一次、最多 3 次，收到 `0x8015`/`0x8017` 回报即结案，超时标 `failed`。`state.json` 的 `clients[]` 每项 `{mac, action, state, left, attempts}`：`state` 是 `pending`/`sent`/`done`/`failed`/`expired`，`left` 是剩余秒（-1 = 不会到期，`expired` 时也是 -1），计时用服务内部那个单调时钟（`action_table.now`），不是墙钟。定时封禁到期后这一行**留着**并变成 `expired`：删掉的话，下一秒读同一份配置就会把它重新建出来，客户端会被"封禁 / 放行 / 封禁"地循环；改页面上的时长会重新计时并重新封。动作发给**每个在线子节点**，`0x8014` 的目标 BSSID 用广播（还没有"终端挂在哪个 BSS"的表）。
-- **调度器和访客限时**：配置里的 `enabled` 是"用户的设置"，有效值 = 设置 减去 定时窗口和已到期的限时；日志 `sched off_all=… off_guest=…`、`access_expired`。`MAX_CONFIG` = 8192 字节。守护进程每次启动都按"重启"计（`ZTE_MESH_START_COUNT`），所以服务单独重启时已入网的子节点会在约 40 到 60 秒内重新入网。守这段的测试（`tests/test_rpcd.sh`、`dev-sched-check.py`，测试环境约 5 分钟真实时钟）条数见 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节。
+- **调度器和访客限时**：配置里的 `enabled` 是"用户的设置"，有效值 = 设置 减去 定时窗口和已到期的限时；日志 `sched off_all=… off_guest=…`、`access_expired`。`MAX_CONFIG` = 8192 字节。守护进程每次启动都按"重启"计（`ZTE_MESH_START_COUNT`），所以服务单独重启时已入网的子节点会在约 40 到 60 秒内重新入网。守这段的测试（`tests/test_rpcd.sh`、`tools/dev/dev-sched-check.py`，测试环境约 5 分钟真实时钟）条数见 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节。
 
 ## 还没在真实路由器上验的
 
@@ -118,4 +118,4 @@
 
 ## 复现
 
-构建与跑服务的命令归 [DEVELOPMENT](DEVELOPMENT.md) 第 2、3 节（`sh build.sh`、`tools/build/runtime.sh svctest` 的 tmpfs 运行包、`dev-service-smoke.py --no-attach` 完全私有地跑服务含 `mesh.v2` 重启步骤，接 LAN 要 `--expect-macs`；x86_64 主机用 `Dockerfile.cross` 加 `make ROUTERCC=aarch64-linux-gnu-gcc` 交叉构建）。本文这套映射的测试环境入口是 `python3 device-controller-smoke.py`——真实 `multiapd` 在私有命名空间里初始化，含 CMDU 10。
+构建与跑服务的命令归 [DEVELOPMENT](DEVELOPMENT.md) 第 2、3 节（`sh build.sh`、`tools/build/runtime.sh svctest` 的 tmpfs 运行包、`tools/dev/dev-service-smoke.py --no-attach` 完全私有地跑服务含 `mesh.v2` 重启步骤，接 LAN 要 `--expect-macs`；x86_64 主机用 `Dockerfile.cross` 加 `make ROUTERCC=aarch64-linux-gnu-gcc` 交叉构建）。本文这套映射的测试环境入口是 `python3 tools/dev/device-controller-smoke.py`——真实 `multiapd` 在私有命名空间里初始化，含 CMDU 10。

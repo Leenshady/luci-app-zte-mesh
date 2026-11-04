@@ -175,7 +175,7 @@ RCPI 220，现在启动时设 -110。热更新手段是原厂 CM 设置函数那
 
 ## 5. 联调流程
 
-1. 准备：确认局域网里除子路由和控制器外没有未登记的终端（`dev-service-smoke.py` 读网桥转发表，不在 `--expect-macs` 里的
+1. 准备：确认局域网里除子路由和控制器外没有未登记的终端（`tools/dev/dev-service-smoke.py` 读网桥转发表，不在 `--expect-macs` 里的
    MAC 拒绝接入；手机连着子路由 Wi-Fi 时也在表里，断开后要等老化约 5 分钟）。放行未知 MAC 必须由用户明确同意
    （长期名单见 DEVELOPMENT 第 5 节）。
 2. 运行：见 DEVELOPMENT 第 3 节；原厂路由器上始终加 `--no-change`。
