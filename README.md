@@ -1,18 +1,17 @@
 # luci-app-zte-mesh：让 OpenWrt 路由器与中兴路由器组网
 
-给 OpenWrt / ImmortalWrt 做的中兴组网插件。OpenWrt 侧既能当**主控**（把 Wi-Fi 档案下发给中兴子路由），也能当**子节点**
+给 OpenWrt / ImmortalWrt 做的中兴组网插件。OpenWrt 侧既能当**主控**（把 Wi-Fi 配置下发给子路由），也能当**子节点**
 （加入网络，配置由主控下发）；**中兴侧保留原厂固件，不刷机**。做法是把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，
 周围用数据库行、两个 CM 函数替身和一个服务配置文件指挥它——**不重写 mesh 协议**，所以线上帧与原厂一致。
 
-参考实现机：ZXSLC SR1010（又叫中兴星云 MAX）刷 OpenWrt/ImmortalWrt，是有线网关、不带 Wi-Fi。真子路由：保留原厂固件的
-中兴 Z506（又叫中兴小方糖，型号写着 ZXHN Z506）。
+参考实现机：ZXSLC SR1010（又叫中兴星云 MAX）刷 OpenWrt/ImmortalWrt，是有线网关、不带 Wi-Fi。中兴原厂路由器：ZXHN Z506（又叫中兴小方糖），保留原厂固件不刷机。
 
 ## 功能表
 
-状态只有三种：**✅ 已实现并验证** / **◐ 已实现，还没在真机上验** / **⬜ 没做**。逐项状态与证据在
-[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)，等真机的项在 [docs/PLAN.md](docs/PLAN.md) 第 5 节。
+状态只有三种：**✅ 已实现并验证** / **◐ 已实现，还没在真实路由器上验** / **⬜ 没做**。逐项状态与证据在
+[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)，等上机的项在 [docs/PLAN.md](docs/PLAN.md) 第 5 节。
 
-### 本机当主控（给中兴子路由下发 Wi-Fi）
+### 本机当主控（给中兴原厂路由器下发 Wi-Fi）
 
 | 功能 | |
 |---|---|
@@ -20,7 +19,7 @@
 | 自动发现新子路由并接纳（约 5 分钟一轮，不用手工配对） | ✅ |
 | 多台子路由同时在线 | ◐ |
 | 改完配置热更新下发，不重启服务 | ✅ |
-| 多 BSS（访客 / 备用 / 隐藏回程，槽位 1–3）名称、密码、开关 | ✅ |
+| 多网络（访客 / 备用 / 隐藏回程，网络序号 1–3）的名称、密码、开关 | ✅ |
 | 信道与发射功率 | ✅ |
 | 终端黑白名单，可按每个网络单独设"关 / 拦 / 只放行" | ✅ |
 | BeaconInterval | ✅ |
@@ -39,13 +38,13 @@
 | 功能 | |
 |---|---|
 | 网线插主控 LAN 口就入网，本机不用填任何 Wi-Fi 参数 | ✅ |
-| 收主控下发的名称 / 密码 / 加密并落到本机无线，只写真变化 | ✅ |
+| 收主控下发的名称 / 密码 / 加密并写进本机无线配置，只在确实有改动时才写文件 | ✅ |
 | 入网时先沿用本机正在广播的名字，重启服务**不再把本机广播的 SSID 改两次**（不掉线） | ✅ |
 | 应用结果回传页面（成功 / 失败 / 改了哪些频段） | ◐ |
-| 额外网络（访客等）槽位落到本机 | ◐ |
-| 接另一台 OpenWrt 当中控（有线回程） | ✅ |
-| 接中兴原厂主控（ZTE 当主路由，本机当子节点） | ◐ |
-| 无线回程（4 地址回程 STA）：配置面已生成，端到端无真机数据 | ◐ |
+| 额外网络（访客等）按序号写到本机射频 | ◐ |
+| 接另一台 OpenWrt 路由器当主控（有线回程） | ✅ |
+| 接中兴原厂路由器当主控（本机当子节点） | ◐ |
+| 无线回程（4 地址回程 STA）：配置面已生成，端到端没有真实路由器上的数据 | ◐ |
 
 ### 页面、安装与运行环境
 
@@ -66,9 +65,9 @@
 
 | 组合 | 作用 |
 |---|---|
-| `mesh_role=master` + `apply_local=0`（默认） | 只当主控，把档案下发给子路由，**本机无线一个字节都不动** |
+| `mesh_role=master` + `apply_local=0`（默认） | 只当主控，把配置下发给子路由，**本机无线一个字节都不动** |
 | `mesh_role=master` + `apply_local=1` | 主控且自己发 Wi-Fi（原厂页面里的"主路由"）；旧值 `main`/`auto` 仍被读，等于这一组合 |
-| `mesh_role=slave` | 本机当子节点，档案由主控下发；`backhaul=multi_ap` 时回程落成客户端段，需要完整 `wpad` |
+| `mesh_role=slave` | 本机当子节点，配置由主控下发；`backhaul=multi_ap` 时回程写成客户端段，需要完整 `wpad` |
 
 ## 上手
 
@@ -119,15 +118,15 @@ C 与 Python 都堆在根目录不是疏忽：`Makefile` 的 40 多条规则、`
 | 文档 | 内容 |
 |---|---|
 | [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：逐项状态与判据 |
-| [PLAN](docs/PLAN.md) | **唯一排期**：分批做什么、主机可测与需真机分开、真机清单 H-01…H-14 |
+| [PLAN](docs/PLAN.md) | **唯一排期**：分批做什么、主机可测与需上机分开、上机清单 H-01…H-14 |
 | [INSTALL](docs/INSTALL.md) | 用户手册：装包、页面、三种拓扑、验收、卸载 |
-| [DEVELOPMENT](docs/DEVELOPMENT.md) | 构建、打包、测试基线、真机守则、分支与 `prebuilt/` |
+| [DEVELOPMENT](docs/DEVELOPMENT.md) | 构建、打包、测试基线、上机守则、分支与 `prebuilt/` |
 
 **原理与接口，改代码前读**：[ARCHITECTURE](docs/ARCHITECTURE.md)（结构与源文件职责、固件哈希）、
 [SERVICE](docs/SERVICE.md)（UCI/LuCI/CM 映射与热更新）、[LAB](docs/LAB.md)（测试机清单、ARM32 模拟器判定）、
-[REAL_CHILD](docs/REAL_CHILD.md)（真子路由的配置语法、基线与红线）。
+[REAL_CHILD](docs/REAL_CHILD.md)（中兴原厂路由器的配置语法、基线与红线）。
 
-**只读资料，不再随结论更新**：[docs/research/](docs/research/)（原厂逆向与真机取证：DB 快照与表名全集、rootfs、
+**只读资料，不再随结论更新**：[docs/research/](docs/research/)（原厂逆向与上机取证：DB 快照与表名全集、rootfs、
 1905 抓包与逐字段核对、`multiapd` 与厂商栈、垫片可行性、agent 探测、重放结果）、[docs/milestones/](docs/milestones/)
 （早期里程碑的验收记录）、[FINDINGS](docs/FINDINGS.md) 与
 [CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md)（角色选举触发位、网页锁定公式、`sendcmd` 报文格式、

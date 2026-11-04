@@ -1,13 +1,13 @@
 # 测试主机（Ubuntu 编译机 + 小米 AX3600 + ImmortalWrt 虚拟机）
 
-在一台普通 x86_64 Ubuntu 上编译并运行这套代码，不需要 mac、不需要路由器、不需要原厂固件镜像。架构与运行原理见 [ARCHITECTURE.md](ARCHITECTURE.md)，真机流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。
-本文只拥有两件事：**第 2.1 节的测试机清单**和**第 4.2 节的 ARM32 模拟器判定表**——别处引用它们，不在别处重复；各套测试的条数基线在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，真机待办在 [PLAN](PLAN.md) 第 5 节。
+在一台普通 x86_64 Ubuntu 上编译并运行这套代码，不需要 mac、不需要路由器、不需要原厂固件镜像。架构与运行原理见 [ARCHITECTURE.md](ARCHITECTURE.md)，上机流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+本文只拥有两件事：**第 2.1 节的测试机清单**和**第 4.2 节的 ARM32 模拟器判定表**——别处引用它们，不在别处重复；各套测试的条数基线在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，上机待办在 [PLAN](PLAN.md) 第 5 节。
 
 ## 1. 能做什么、不能做什么
 
 **能做**：交叉编译全部产物（`arm-linux-gnueabi-gcc` 编 ARM32 soft-float，`aarch64-linux-gnu-gcc` 编路由器侧静态工具）、跑 ARM32 程序（内核对 ARM ELF 走 `binfmt_misc` → `qemu-arm-static`，`F` 标志让它跨 chroot 也有效）、跑服务（`ns-run` 的私有 IPC/网络/挂载命名空间在普通 VM 里正常工作，能完成整个启动序列）、跑主机测试（只有 4 个步骤缺 `out/analysis/cspd`，见第 6 节；各套测试的条数基线见 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节）。
 
-**不能做**：生成可发布的运行包（`make-runtime.py` 会调 `prepare.verify_existing()`，用 `rootfs_sha256` 卡住，合成出来的 `out/` 一定被拒——有意的门槛）、跑 `test_schema` / `test_policies` / `test_profiles` / `test_startup`（要 `out/analysis/cspd`，只有原厂 JFFS2 里有）、真机/真子路由联调（没有网桥、没有 1905 对端，也没有 `192.168.5.x`）。
+**不能做**：生成可发布的运行包（`make-runtime.py` 会调 `prepare.verify_existing()`，用 `rootfs_sha256` 卡住，合成出来的 `out/` 一定被拒——有意的门槛）、跑 `test_schema` / `test_policies` / `test_profiles` / `test_startup`（要 `out/analysis/cspd`，只有原厂 JFFS2 里有）、上真实路由器联调（OpenWrt 路由器与中兴原厂路由器；没有网桥、没有 1905 对端，也没有 `192.168.5.x`）。
 
 ## 2. 一次性准备
 
@@ -36,7 +36,7 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 
 | 机器（别名 / 机型） | 地址 | 角色 | 关键事实 |
 |---|---|---|---|
-| `ax3600`：小米 AX3600，刷 ImmortalWrt 25.12.2 | 192.168.1.1 | 真机，跑子节点角色 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）；实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static`。**无线只剩一块射频在候选里**（`radio0.disabled=1` 关掉了 2.4G），所以"一个频段有两块射频、`wlan-sync` 放弃该频段"那条路径在这台上测不出来——"没报错"不等于"已验证" |
+| `ax3600`：小米 AX3600，刷 ImmortalWrt 25.12.2 | 192.168.1.1 | OpenWrt 路由器（物理机），跑子节点角色 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）；实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static`。**无线只剩一块射频在候选里**（`radio0.disabled=1` 关掉了 2.4G），所以"一个频段有两块射频、`wlan-sync` 放弃该频段"那条路径在这台上测不出来——"没报错"不等于"已验证" |
 | `owrt`：ImmortalWrt 虚拟机（x86_64） | 192.168.1.20 | 测试环境里的主控（master） | 内核与 `ax3600` 同一个版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**。缺的两个二进制用 `tools/lab/build-launcher.sh` 补（**必须 `-static`**，见第 7 节 musl 那条）；`root/qemu-arm-static` 仍是手工放的 |
 | `ubuntu`：x86_64 Ubuntu 22.04 | 192.168.1.191 | 编译机 | 本文主角：`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
 
@@ -87,7 +87,7 @@ arm-linux-gnueabi-nm -u out/db-engine-probe | grep -E '__time64|__clock_gettime6
 sudo sh tools/lab/run-service.sh --agent --seconds 120
 ```
 
-`--agent` 换成 `db-engine-probe --agent-startup`：daemon 以 `Mode=1 / SetRoleEnable=0 / EnMasterOnly=0` 启动，探针这一侧扮演合成主控，走完 Discovery → Topology Query → Search → Search Response → M1 → M2。关注前缀：`ZTE_AGENT_WIRE`（帧收发）、`ZTE_AGENT_WLAN`/`ZTE_AGENT_PSK`（库读回）、`ZTE_TRACE_VALUE`（M2 有没有落地 `cfgChg`、落到哪个 BSS、M2 多长、同步完成没有——四条一次性的证据行）、`ZTE_TRACE_POLL`（daemon 每隔几秒重复的状态行，受下面的采样预算管）。
+`--agent` 换成 `db-engine-probe --agent-startup`：daemon 以 `Mode=1 / SetRoleEnable=0 / EnMasterOnly=0` 启动，探针这一侧扮演合成主控，走完 Discovery → Topology Query → Search → Search Response → M1 → M2。关注前缀：`ZTE_AGENT_WIRE`（帧收发）、`ZTE_AGENT_WLAN`/`ZTE_AGENT_PSK`（库读回）、`ZTE_TRACE_VALUE`（M2 有没有触发 `cfgChg`、写到哪个 BSS、M2 多长、同步完成没有——四条一次性的证据行）、`ZTE_TRACE_POLL`（daemon 每隔几秒重复的状态行，受下面的采样预算管）。
 
 `--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()` 把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。重启后 M1 要十几秒才来（通常两次 topology retry），**不要**因此判断成"它记得自己已配置"。沙箱只给 daemon 一个环境变量（多传一个会让原厂 ld.so 断言），运行时开关一律用 `/run/zte-mesh` 下的 flag 文件（bind mount）：`trace-all` 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行），`mm-off` 关掉 `libzte_agent_mm.so` 的配置管理器替身、让两个 WLAN setter 报告原厂返回值（诊断用）。
 
@@ -106,19 +106,19 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 `libzte_agent_mm.so` 已在 `spawn_daemon()` 的 `LD_PRELOAD` 里：它只接管 `CmWLANSetAPConfig` / `CmWLANSetPsk`，并且**先把刚写的行读回来比对**，库里已是调用方要的值才把 -3 报成 0（`ZTE_AGENT_MM ... row_applied=1`）。两处读库的坑：`WLANPSK` 必须按实例 id 用 `dbAPIGetView("WLANPSK","DEV.WIFI.AP1.PSK1",…)` 读（密钥在行内偏移 260），用 `dbGetValComm()` 按行号读永远是空值；`CmWLANSetAPConfig` 写库发生在 `cm_wlan_send_cmapi_set_msg` **之前**，所以没有 cspd 时库已经变了、返回值仍是 -3，两者要分开看。
 
-## 4. 与真机构建的四处差异，都是环境导致的，不是代码退化
+## 4. 与在真实路由器上构建的四处差异，都是环境导致的，不是代码退化
 
 | 差异 | 为什么 | 在哪里 |
 |---|---|---|
 | `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0` | Ubuntu 的 gcc 默认定义它，把 `controller-profile.c:64` 忽略 `write()` 返回值变成 `-Werror` 错误（Debian 不会）；也避免 `memcpy` 走 `__memcpy_chk` | `tools/lab/build.sh` |
 | `ROUTERCC=cc` | `ns-run`、`exec-check`、`config-bridge-probe` 是 AArch64 静态程序，x86 上跑不了。**打包前必须用 aarch64 重编** | 命令行参数 |
-| `ZTE_MESH_EMULATED_LAB=1` 下的两处仿真 | 只在这个变量存在时生效，真机路径不受影响，也不改变权限模型（`ns-run` 本来就要 root 才走到这里）。`shim.c`：qemu 的 `shmat()` 对**固定地址**一律返 `EINVAL`（`NULL` 可以、`fixed`+`SHM_REMAP` 可以、`fixed` 不行），而原厂数据库把段挂在 `0x60000000` 并直接解引用返回值 → 段错误，预载库在 `EINVAL` 时补一次 `SHM_REMAP`。`ns-run.c`：放开 `RLIMIT_AS` 并把它传给 guest（qemu 要预留整个 32 位客户机地址空间 + 翻译缓冲，128 MB 上限必然失败） | `ns-run.c`、`shim.c` |
+| `ZTE_MESH_EMULATED_LAB=1` 下的两处仿真 | 只在这个变量存在时生效，真实路由器上的路径不受影响，也不改变权限模型（`ns-run` 本来就要 root 才走到这里）。`shim.c`：qemu 的 `shmat()` 对**固定地址**一律返 `EINVAL`（`NULL` 可以、`fixed`+`SHM_REMAP` 可以、`fixed` 不行），而原厂数据库把段挂在 `0x60000000` 并直接解引用返回值 → 段错误，预载库在 `EINVAL` 时补一次 `SHM_REMAP`。`ns-run.c`：放开 `RLIMIT_AS` 并把它传给 guest（qemu 要预留整个 32 位客户机地址空间 + 翻译缓冲，128 MB 上限必然失败） | `ns-run.c`、`shim.c` |
 
 ### 4.1 装在设备上时这两个开关由 init 决定
 
 不需要手工 export：`start_service()` 先看 `uname -m`，arm64 上再判断内核能否原生跑 ARM32；只有确实跑不了、且私有根里存在 `qemu-arm-static` 时才把这两个变量传给 `ns-run`。`zte_mesh.main.emulator` 可指定路径，`=none` 强制走原生（刷过 `CONFIG_COMPAT=y` 固件之后就是这个状态）。
 
-同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节（页面"控制器地址末字节"，两位十六进制），默认取 LAN 网桥 MAC 的末字节（`02:00:00:00:19:XX`）；写错格式会记一行日志并回落到派生值。两台设备**必须**不同，否则 1905 栈会把对端当自己（[AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
+同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节（页面"控制器地址末字节"，两位十六进制），默认取 LAN 网桥 MAC 的末字节（`02:00:00:00:19:XX`）；写错格式会记一行日志并改用派生值。两台设备**必须**不同，否则 1905 栈会把对端当自己（[AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
 
 看"线上到底有没有帧"用 `tools/lab/spark.c`：
 
@@ -148,7 +148,7 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
 三条出路，按推荐顺序：
 
-1. **刷带 `CONFIG_COMPAT=y` 的固件**——真机唯一干净的解法：arm64 内核开了 COMPAT 就能原生跑 ARM32，不需要模拟器，`ZTE_MESH_EMULATED_LAB` 也不会被设置（少了两条仿真专用路径）。配置在 `.github/workflows/build-firmware.yml`（qualcommax/ipq807x 目标，CI 自己编内核，因为 ImageBuilder 改不了内核选项）；qemu 这一层本身可以长期跑，所以它是"要不要拿掉"的可选项而不是故障。
+1. **刷带 `CONFIG_COMPAT=y` 的固件**——真实路由器上唯一干净的解法：arm64 内核开了 COMPAT 就能原生跑 ARM32，不需要模拟器，`ZTE_MESH_EMULATED_LAB` 也不会被设置（少了两条仿真专用路径）。配置在 `.github/workflows/build-firmware.yml`（qualcommax/ipq807x 目标，CI 自己编内核，因为 ImageBuilder 改不了内核选项）；qemu 这一层本身可以长期跑，所以它是"要不要拿掉"的可选项而不是故障。
 2. **手工放一个模拟器**——测试环境和临时验证用，取**与设备同架构**的一份（编译机上 `tools/lab/emulate.sh` 做的是同一件事；这份文件不在任何仓库里，也不随包分发）。放好后确认下面两条：
 
    ```sh

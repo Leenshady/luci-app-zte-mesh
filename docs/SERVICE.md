@@ -1,6 +1,6 @@
 # B.4：长期运行的 Controller 服务模式、节点清单与配置下发
 
-本文只管 **UCI / CM / 热更新的映射**：哪个选项翻成哪个服务键、哪类变化走通知、哪类要重启、状态里多出哪些字段。状态与"做没做"见 [FEATURE_STATUS](FEATURE_STATUS.md)，真机待办与排期见 [PLAN](PLAN.md) 第 5 节，构建与测试命令加各套测试的条数基线见 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，原理与源文件职责见 [ARCHITECTURE](ARCHITECTURE.md)。
+本文只管 **UCI / CM / 热更新的映射**：哪个选项翻成哪个服务键、哪类变化走通知、哪类要重启、状态里多出哪些字段。状态与"做没做"见 [FEATURE_STATUS](FEATURE_STATUS.md)，上机待办与排期见 [PLAN](PLAN.md) 第 5 节，构建与测试命令加各套测试的条数基线见 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节，原理与源文件职责见 [ARCHITECTURE](ARCHITECTURE.md)。
 
 ## 已成立的事实
 
@@ -30,7 +30,7 @@
 
 服务里的实现：`zte-meshctl notify-master <id>...`（只允许 `0x10205`/`0x10206`/`0x10208`，可多个、同进程按序发；原厂网页路径两条通知间隔 12 ms）；`mesh-policies.c` 的 `mesh_policies_live_*()` 在池锁下写全部 8 个 `MULTIAPDOMAIN` 行或 Master 行 0。Domain 字段变 → `0x10206`，Master 字段变 → `0x10205`，两者都变按原厂顺序先 06 再 05；启动时不发。
 
-热更新范围：已有槽位的 ssid/key/hidden/beacon_type、主 SSID 的 `hidden`/`beacon_type`、`mlo.enable`、`beacon_interval`、信道/功率、ACL、`wifi.dual_band_sync`、`roam.*`、`band_steer.*`、`roam.force`、槽位 `enabled`；WLAN 类变化**只 Renew 变化了的频段**。键的出现/消失（无→有、有→无）要重启服务（`policy_keys_changed`）。
+热更新范围：已有序号 K 的 ssid/key/hidden/beacon_type、主 SSID 的 `hidden`/`beacon_type`、`mlo.enable`、`beacon_interval`、信道/功率、ACL、`wifi.dual_band_sync`、`roam.*`、`band_steer.*`、`roam.force`、序号的 `enabled`；WLAN 类变化**只 Renew 变化了的频段**。键的出现/消失（无→有、有→无）要重启服务（`policy_keys_changed`）。
 
 ## 守护进程重启：mesh 级变化
 
@@ -40,14 +40,14 @@
 
 - 重启后清掉推送记录，`0200fe`、信道/功率要等 `P1905DevNum >= 2` 再计 15 秒：新进程起来时库里 `Active` 是旧进程留下的 1，抖动期推出去的消息会被丢弃。
 - 原厂重启后第一对 Renew 由 ACD 的 3 秒定时器触发：`acdsCheckMultiapdRestart` 向 `cspd` 取启动次数（`SSEND(0xa96e)`）。shim 里没有 cspd，`controller-route.c` 拦截那一条，按 `ZTE_MESH_START_COUNT` 回答（首次开机为 1，冷启动行为不变）；守护进程每次启动都按"重启"计，所以服务单独重启时已入网的子节点会在约 40 到 60 秒内重新入网。**不要自己发 ACD 事件 2**：守护进程收到第一个 1905 帧时会自己发，提前发会浪费一次性的 `g_AcdsRenewStat`。
-- 真机（15 次重启）：子节点掉出拓扑、`TopoResponse` 不带 `1905Nbr`、8 到 58 秒后重新入网；`PolicyConfigReq` 的 `60[2]` 跟着 `mesh.v2` 变。新进程要收到子节点的下一帧才往外发，所以重新入网跟着子节点的周期帧走。
-- 仍要重启服务的：`version_mode`，以及 `roam.*` / `band_steer.*` / `roam.force` 这些键的**出现或消失**（`policy_keys_changed`）。增减槽位不重启服务，但会重启守护进程（ACD 只在启动时按 `P1905AcdBssCfg` 建每 BSS 列表）；已有槽位的 `enabled` 是热更新（每次 Renew 从 `WLANCfg` 读回）。
+- 真实路由器（15 次重启）：子节点掉出拓扑、`TopoResponse` 不带 `1905Nbr`、8 到 58 秒后重新入网；`PolicyConfigReq` 的 `60[2]` 跟着 `mesh.v2` 变。新进程要收到子节点的下一帧才往外发，所以重新入网跟着子节点的周期帧走。
+- 仍要重启服务的：`version_mode`，以及 `roam.*` / `band_steer.*` / `roam.force` 这些键的**出现或消失**（`policy_keys_changed`）。增删序号不重启服务，但会重启守护进程（ACD 只在启动时按 `P1905AcdBssCfg` 建每 BSS 列表）；已有序号的 `enabled` 是热更新（每次 Renew 从 `WLANCfg` 读回）。
 
 ## 设备角色与 CurHop
 
 原厂"自适应" = `Mode 0` + `SetRoleEnable 1` → 守护进程重启；cspd 的 `cooperator_mgr` 判定路由模式 → ACD 的 `_autoSetRole(2)` 写 `Mode 2`、`SetRoleEnable 1`，再要求第二次重启（约 3 秒后）。
 
-- 可选键 `mesh.role=master|auto|slave`（UCI 侧的新取值见"设备角色"）：`master`/`auto` 写 `Mode 2` 和 `SetRoleEnable`（0/1）；`slave` 写 `Mode 1 / SetRoleEnable 0 / EnMasterOnly 0 / CurHop -2`，并在运行时把主控下发的 Wi-Fi 配置发布成 `/run/zte-mesh/wlan-plan`（`agent-sync.c`），由沙箱外的 `wlan-sync` 落到 `/etc/config/wireless`。
+- 可选键 `mesh.role=master|auto|slave`（UCI 侧的新取值见"设备角色"）：`master`/`auto` 写 `Mode 2` 和 `SetRoleEnable`（0/1）；`slave` 写 `Mode 1 / SetRoleEnable 0 / EnMasterOnly 0 / CurHop -2`，并在运行时把主控下发的 Wi-Fi 配置发布成 `/run/zte-mesh/wlan-plan`（`agent-sync.c`），由沙箱外的 `wlan-sync` 写进 `/etc/config/wireless`。
 - plan 有两个生产者，按角色互斥：子路由由服务写；`main`（主路由）由 init 的 `write_config` 直接写（`write_local_plan`，格式同）；仅主控不写，还会删掉旧文件。`wlan-sync` 不关心是谁写的。
 - 热更新 `master→auto`：写 `SetRoleEnable 1`、`Mode 0`，重启守护进程；约 3 秒后写 `Mode 2` 再重启一次——**第二步是监督进程替 cspd 的 `cooperator_mgr` 做的模拟**（守护进程自己不会把 Mode 写回 2）。`auto→master` 只清 `SetRoleEnable`，不重启。
 - `CurHop` 恒为 2：`EnMasterOnly=1` 让原厂会把它重置成 -2 的 `slave_init` 跳过；线上 `HigherLayerResponse` 子 TLV `0x43` 与原厂一致（原厂的 -2 只是库里几秒的瞬态）。
@@ -68,9 +68,9 @@
 | `wifi_5g_suffix` | `wifi.essid_suffix` | 1 到 8 个可打印字符，默认 `-5G`；派生名超 31 字节被拒 |
 | `wifi_*_hidden` / `_security` | `radioN.hidden` / `beacon_type` | `none`=0、`psk2`=3、`psk-mixed`=6、`sae`=10、`sae-mixed`=12；`none` 会让真实网络变成开放网络 |
 | `wifi_*_beacon_interval`、`_channel`、`_tx_power`、`_acl_policy` | `radioN.*` | 范围同 REAL_CHILD 第 3 节（信道按频段白名单，0 = 自动） |
-| `mesh_v2`、`mesh_role`、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 即原厂 MESH 开关（`P1905ComCfg.Enable`）：开 = 只接受市场码相同的中兴子路由；关 = 接受任何子路由（默认） |
-| `backhaul` | **不写进服务配置**：`wlan-sync` 自己读这个 UCI 选项 | 回程模式，`off`（默认）或 `multi_ap`；其余取值 `write_config` 拒绝（`multi-ap` 会被当成 `off`，等于一个"设了却不动"的开关）。按角色落成两端之一，见下面"设备角色"一节 |
-| `extra_slots`、`wifi_2g`、`wifi_5g` | **不写进服务配置**：同上，`wlan-sync` 自己读 | 槽位开关 + 两块射频的指定（`wifi-device` 段名，如 `radio1`；只在"一个频段有两块射频"时需要）。页面上和 `backhaul` 同一批，只给跑 applier 的两个角色；改任何一项都会重启 applier，见下 |
+| `mesh_v2`、`mesh_role`、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_v2` 即原厂 MESH 开关（`P1905ComCfg.Enable`）：开 = 只接受市场码相同的中兴原厂路由器；关 = 接受任何子路由（默认） |
+| `backhaul` | **不写进服务配置**：`wlan-sync` 自己读这个 UCI 选项 | 回程模式，`off`（默认）或 `multi_ap`；其余取值 `write_config` 拒绝（`multi-ap` 会被当成 `off`，等于一个"设了却不动"的开关）。按角色写成两端之一，见下面"设备角色"一节 |
+| `extra_slots`、`wifi_2g`、`wifi_5g` | **不写进服务配置**：同上，`wlan-sync` 自己读 | 额外网络开关 + 两块射频的指定（`wifi-device` 段名，如 `radio1`；只在"一个频段有两块射频"时需要）。页面上和 `backhaul` 同一批，只给跑 applier 的两个角色；改任何一项都会重启 applier，见下 |
 | `band_steer*`、`roam*` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
 | `ban_minutes` | `ban.minutes` | 0..1440 分钟，0 = 直到删除记录；对所有封禁生效，是"从第一次下发算起"的绝对时长 |
 
@@ -79,31 +79,31 @@
 原厂那台"主路由"既当主控又自己发 Wi-Fi；SR1010 这类刷 OpenWrt 的机器大多是有线网关、没有无线。以前用一个三值选项
 表达，现在拆成两个各管一件事的开关——`mesh.role` 只有 `master`/`slave` 两个值发给服务：
 
-| `mesh_role` | `apply_local` | 下发档案 | 应用到本机 `/etc/config/wireless` | 写 `mesh.role` |
+| `mesh_role` | `apply_local` | 下发配置 | 应用到本机 `/etc/config/wireless` | 写 `mesh.role` |
 |---|---|---|---|---|
 | `master`（默认，未设置也等于它） | `0`（默认） | 是 | **不动** | `master` |
 | `master` | `1` | 是 | **是**（plan 由 `write_config` 写） | `master` |
 | `slave` | 不起作用 | 否 | 是（plan 由服务从 M2 读出来写） | `slave` |
 
-`main` 和 `auto` 是"主控且自己广播"的旧名字，**仍被读**，等于 `master` + `apply_local=1`（显式写了 `apply_local` 时以选项为准）；daemon 一侧不再收到 `auto`——那是原厂"自适应"三件套（`SetRoleEnable=1` + `Mode 0`，三秒后才由 `role_settle_at` 写成 `Mode 2`），沙箱里没有 cspd、这场选举没有对手，而真正的风险是一台真中兴子路由在那三秒里当选主控、拓扑反过来。C 侧的 `CONTROLLER_ROLE_AUTO` 分支与 3 秒结算留着不删：`/run/zte-mesh/config` 是升级前写的旧文件时它仍把角色定在 master，而新写的配置永远走 `master` 那条（`SetRoleEnable=0`、`Mode 2`，从第一帧就是主控）。
+`main` 和 `auto` 是"主控且自己广播"的旧名字，**仍被读**，等于 `master` + `apply_local=1`（显式写了 `apply_local` 时以选项为准）；daemon 一侧不再收到 `auto`——那是原厂"自适应"三件套（`SetRoleEnable=1` + `Mode 0`，三秒后才由 `role_settle_at` 写成 `Mode 2`），沙箱里没有 cspd、这场选举没有对手，而真正的风险是一台中兴原厂路由器在那三秒里当选主控、拓扑反过来。C 侧的 `CONTROLLER_ROLE_AUTO` 分支与 3 秒结算留着不删：`/run/zte-mesh/config` 是升级前写的旧文件时它仍把角色定在 master，而新写的配置永远走 `master` 那条（`SetRoleEnable=0`、`Mode 2`，从第一帧就是主控）。
 
 `apply_local=0` 的主控会删掉 `wlan-plan`、**不启动** `wlan-sync` 实例，射频存在时日志会明说"本机无线不动"。`mesh_role` 与 `apply_local` 的取值现在都进 `restart.sig`：它们改的是 procd 实例集合（`search`、`wlan-sync`），只记键名看不出差别，以前必须手动重启才会生效。
 
-第三个开关 `backhaul`（`off` / `multi_ap`，别的取值 `write_config` 直接拒——`multi-ap` 这种带连字符的写法会被 `wlan-sync` 当成 `off`，页面上一切正常、射频上什么也没建）也归 `wlan-sync` 管，但它落不落得下取决于上面两个：plan 里 `MapAccessAttr & 64` 的那一行**按角色落成两端的某一段**——`mesh_role=slave` 是客户端（`zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` + `wds 1`），`master` + `apply_local=1` 是回程 BSS（`zte_backhaul_<band>`，`multi_ap 2`，主 SSID 标 `multi_ap 1`）；`master` + `apply_local=0` 什么都不生成，所以 `start_service` 对这一组合明说一句，别让人以为"回程没生效"。4 地址为什么在客户端要写 `wds` 而不是只写 `multi_ap`，见 [research/AGENT_PROBE](research/AGENT_PROBE.md) §15。换角色时上一端的段会被回收，不会留下一个"页面看着正常、实际不通"的半条回程。
+第三个开关 `backhaul`（`off` / `multi_ap`，别的取值 `write_config` 直接拒——`multi-ap` 这种带连字符的写法会被 `wlan-sync` 当成 `off`，页面上一切正常、射频上什么也没建）也归 `wlan-sync` 管，但它落不落得下取决于上面两个：plan 里 `MapAccessAttr & 64` 的那一行**按角色写成两端的某一段**——`mesh_role=slave` 是客户端（`zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` + `wds 1`），`master` + `apply_local=1` 是回程 BSS（`zte_backhaul_<band>`，`multi_ap 2`，主 SSID 标 `multi_ap 1`）；`master` + `apply_local=0` 什么都不生成，所以 `start_service` 对这一组合明说一句，别让人以为"回程没生效"。4 地址为什么在客户端要写 `wds` 而不是只写 `multi_ap`，见 [research/AGENT_PROBE](research/AGENT_PROBE.md) §15。换角色时上一端的段会被回收，不会留下一个"页面看着正常、实际不通"的半条回程。
 
-它的取值也进 `restart.sig`，理由和上面两个相反：它不改实例集合，也不改 plan（plan 里那一行一直都在），只改 `wlan-sync` 拿到同一份 plan 时**写什么**——而那个 watcher 只对 plan 的内容起作用（`stamp()` 比的是文件摘要），所以 `off → multi_ap` 保存后若不重启 `wlan-sync`，就要等下一次别的原因引起的重启才生效。签名里只有"跑着 applier 的两个角色"带这个值（`sync_runs`，与 procd 那段用同一个判据）：`apply_local=0` 的主控不应用任何档案，为一个不起作用的值重启服务是白重启。
+它的取值也进 `restart.sig`，理由和上面两个相反：它不改实例集合，也不改 plan（plan 里那一行一直都在），只改 `wlan-sync` 拿到同一份 plan 时**写什么**——而那个 watcher 只对 plan 的内容起作用（`stamp()` 比的是文件摘要），所以 `off → multi_ap` 保存后若不重启 `wlan-sync`，就要等下一次别的原因引起的重启才生效。签名里只有"跑着 applier 的两个角色"带这个值（`sync_runs`，与 procd 那段用同一个判据）：`apply_local=0` 的主控不把任何配置应用到本机，为一个不起作用的值重启服务是白重启。
 
-`wlan-sync` 直接读 UCI 的另外几项同理，一起进签名：**`extra_slots`**（子节点的 plan 里本来就有槽位行，这个开关只决定它们该不该落到射频上——关掉它却不重启，子路由会继续广播一个已经不该存在的 guest）与 **`wifi_2g` / `wifi_5g`**（一个频段有多块同类型射频时指定用哪一块，选出来的设备名不在 plan 里）。四项共用 `sync_runs` 这一个判据：不跑 applier 的角色一个都不带，否则一次保存就是一次没有意义的重启（子路由最长一分钟掉出拓扑）。页面上这四项也在一起（`zte-mesh.js` 的 `child` 或 `local` 三块），两个 pin 填的是 `wifi-device` 段名，情况非法在保存前就被拒——写错的设备名会被 `wlan-sync` 忽略并留一行日志，那正是"设了却不动"的另一种情况。
+`wlan-sync` 直接读 UCI 的另外几项同理，一起进签名：**`extra_slots`**（子节点的 plan 里本来就有额外网络的行，这个开关只决定它们该不该写到射频上——关掉它却不重启，子路由会继续广播一个已经不该存在的 guest）与 **`wifi_2g` / `wifi_5g`**（一个频段有多块同类型射频时指定用哪一块，选出来的设备名不在 plan 里）。四项共用 `sync_runs` 这一个判据：不跑 applier 的角色一个都不带，否则一次保存就是一次没有意义的重启（子路由最长一分钟掉出拓扑）。页面上这四项也在一起（`zte-mesh.js` 的 `child` 或 `local` 三块），两个 pin 填的是 `wifi-device` 段名，情况非法在保存前就被拒——写错的设备名会被 `wlan-sync` 忽略并留一行日志，那正是"设了却不动"的另一种情况。
 
 包的默认配置把能取出厂值的都写上，LuCI 显示同样默认值并标注范围：`mesh_v2=0`、`mlo_enable=1`、`wifi_dual_band_sync=1`、`wifi_5g_suffix=-5G`、`wifi_24g_ssid=ImmortalWrt`、安全方式 2.4G `sae-mixed` / 5G `psk-mixed`、信标 100 ms、信道 0、功率 20/23 dBm（子节点最大档 = 出厂值）、`band_steer=1`、引导阈值 -60/-110、漫游阈值 -60/-70、`roam_force=0`、`enabled=1`、`wifi_24g_key=Ztemesh2631!`（清空则服务不启动）。要让子路由保持自己的信道/功率，删掉对应选项。
 
-其余区段：`zte_mesh_client`（最多 8 条，`mac` 必填且同一地址不许重复，`action` 为 `ban`/`kick`，默认 `ban`；按文件顺序转换成 `ban.mac` / `kick.mac`）、`zte_mesh_bss`（额外槽位，`band`/`slot`/`enabled`/`ssid`/`key` 必填，同频段槽位必须 1..k）、`zte_mesh_timer`（最多 8 条，`start`/`end` 必填，`days`、`scope` 可选；init 把 `date +%z` 换算成 `timer.utc_offset`，**夏令时切换后要重新保存设置**）、`zte_mesh_acl`（最多 16 条，按文件顺序编号）、`zte_mesh_node`（别名，只给 LuCI 节点表）。
+其余区段：`zte_mesh_client`（最多 8 条，`mac` 必填且同一地址不许重复，`action` 为 `ban`/`kick`，默认 `ban`；按文件顺序转换成 `ban.mac` / `kick.mac`）、`zte_mesh_bss`（额外网络，`band`/`slot`/`enabled`/`ssid`/`key` 必填，同频段序号必须 1..k）、`zte_mesh_timer`（最多 8 条，`start`/`end` 必填，`days`、`scope` 可选；init 把 `date +%z` 换算成 `timer.utc_offset`，**夏令时切换后要重新保存设置**）、`zte_mesh_acl`（最多 16 条，按文件顺序编号）、`zte_mesh_node`（别名，只给 LuCI 节点表）。
 
 重载：`reload_service` 只在"需要重启服务"的东西变了才重启——`version_mode` 变了，或策略键（`mesh.role`、`wifi.dual_band_sync`、`band_steer.*`、`roam.*`、`mlo.enable`）出现/消失（init 把键名存进 `/run/zte-mesh/restart.sig` 比较）；这些键**值**变了不重启，走热更新。签名里另有两类是**按值**记的：`role=`、`local=`（`mesh_role` / `apply_local` 改的是 procd 实例集合）和 applier 自己的四个输入 `backhaul=` / `extra_slots=` / `pin2g=` / `pin5g=`（`wlan-sync` 只对 plan 的内容起作用，改这些必须重启它才看得见；不跑 applier 的角色不带）。`zte_mesh_client` 与 `ban_minutes` **不在** restart.sig 里：服务每秒重读这份配置，状态机自己比对新旧规则——新规则立刻发，删掉的规则补发一条"放行"再丢弃，所以加/删一条封禁不需要重启。
 
 守这些映射的测试都不需要 OpenWrt：`tests/test_init.sh`（busybox ash + UCI 桩）、`node tests/test_luci.js`（表单跑一遍，核对每个 init 读的选项都有表单项）、`dev-config-check.py DIR`（把 init 生成的配置交给真服务，报告接受/拒绝）；**条数基线只写在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节**，这里不重复数字。
 
-对已有配置的影响：随包模板新增 `option wifi_dual_band_sync '1'`（conffile，已有配置不改）——**没有这一行、又留空 `wifi_5g_ssid` 的旧配置以前拒绝启动，现在会派生 `<2.4G 名称>-5G` 并启动，也就是会改子节点真实的 5G 名称。** 另外 `radio1.ssid/key` 变成可选；init 归一化布尔值并拒绝不可打印字符；带槽位的 ACL 规则以前被整份拒绝，现在接受（旧 bug：检查在槽位表填好之前执行），但**没有在真子节点上试过槽位上的 ACL**。
+对已有配置的影响：随包模板新增 `option wifi_dual_band_sync '1'`（conffile，已有配置不改）——**没有这一行、又留空 `wifi_5g_ssid` 的旧配置以前拒绝启动，现在会派生 `<2.4G 名称>-5G` 并启动，也就是会改子节点真实的 5G 名称。** 另外 `radio1.ssid/key` 变成可选；init 归一化布尔值并拒绝不可打印字符；带序号的 ACL 规则以前被整份拒绝，现在接受（旧 bug：检查在序号表填好之前执行），但**没有在中兴原厂路由器当子节点时试过序号上的 ACL**。
 
 ## 节点管理、拓扑摘要、定时与访客限时
 
@@ -112,9 +112,9 @@
 - **封禁与踢终端**（`controller-actions.c`）：`ban` 是"持续规则"——首次即发 `0x8016`，之后每 120 秒重发一次（子节点重启后不会忘记），到 `ban.minutes` 或规则被删时补发一条"放行"；`kick` 是"点一下"——`0x8014` 每 5 秒一次、最多 3 次，收到 `0x8015`/`0x8017` 回报即结案，超时标 `failed`。`state.json` 的 `clients[]` 每项 `{mac, action, state, left, attempts}`：`state` 是 `pending`/`sent`/`done`/`failed`/`expired`，`left` 是剩余秒（-1 = 不会到期，`expired` 时也是 -1），计时用服务内部那个单调时钟（`action_table.now`），不是墙钟。定时封禁到期后这一行**留着**并变成 `expired`：删掉的话，下一秒读同一份配置就会把它重新建出来，客户端会被"封禁 / 放行 / 封禁"地循环；改页面上的时长会重新计时并重新封。动作发给**每个在线子节点**，`0x8014` 的目标 BSSID 用广播（还没有"终端挂在哪个 BSS"的表）。
 - **调度器和访客限时**：配置里的 `enabled` 是"用户的设置"，有效值 = 设置 减去 定时窗口和已到期的限时；日志 `sched off_all=… off_guest=…`、`access_expired`。`MAX_CONFIG` = 8192 字节。守护进程每次启动都按"重启"计（`ZTE_MESH_START_COUNT`），所以服务单独重启时已入网的子节点会在约 40 到 60 秒内重新入网。守这段的测试（`tests/test_rpcd.sh`、`dev-sched-check.py`，测试环境约 5 分钟真实时钟）条数见 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节。
 
-## 还没在真机验的
+## 还没在真实路由器上验的
 
-本文不维护那份清单：逐条的验法、前置与判据在 [PLAN](PLAN.md) 第 5 节，能力与"做没做"在 [FEATURE_STATUS](FEATURE_STATUS.md)。下面这些说法**都不等于已验证**——装包后接真子路由与角色改成 `master`（H-11；真子节点测试一直用 tmpfs 运行包，程序相同）、封禁/踢终端对端是否照做以及 `0x8014` 用广播 BSSID 能否被接受（H-03，主机侧只验过字节、状态机、配置链）、无线回程端到端（H-01）、槽位落成多个 BSS（H-02）、终端数与 RSSI 的真值来源（H-05）、软件版本显示到页面与按 BSSID 终端数（H-12、H-13，主机侧做完）、长时间稳定性（H-09）、多个子节点（H-04）。拓扑页还缺回程 RSSI、树状图与每个 AP 下的终端列表；访客限速在 1905 里没有字段（能力面见 [CONTROLLER_CAPABILITIES](CONTROLLER_CAPABILITIES.md)）。PLAN 之外还有四条没有编号的缺口：LuCI 页面在浏览器里的效果、关主 SSID 的路径（`radioN.enabled=0`、主 SSID 的 `hidden` 热更新、定时 `scope=all`——会断开用户的 Wi-Fi）、子节点开着 V2 而控制器关着的组合、原厂为什么不发 `BeaconMetricsQuery`。
+本文不维护那份清单：逐条的验法、前置与判据在 [PLAN](PLAN.md) 第 5 节，能力与"做没做"在 [FEATURE_STATUS](FEATURE_STATUS.md)。下面这些说法**都不等于已验证**——装包后接中兴原厂路由器与角色改成 `master`（H-11；中兴原厂路由器的测试一直用 tmpfs 运行包，程序相同）、封禁/踢终端对端是否照做以及 `0x8014` 用广播 BSSID 能否被接受（H-03，主机侧只验过字节、状态机、配置链）、无线回程端到端（H-01）、额外网络写成多个 BSS（H-02）、终端数与 RSSI 的真值来源（H-05）、软件版本显示到页面与按 BSSID 终端数（H-12、H-13，主机侧做完）、长时间稳定性（H-09）、多个子节点（H-04）。拓扑页还缺回程 RSSI、树状图与每个 AP 下的终端列表；访客限速在 1905 里没有字段（能力面见 [CONTROLLER_CAPABILITIES](CONTROLLER_CAPABILITIES.md)）。PLAN 之外还有四条没有编号的缺口：LuCI 页面在浏览器里的效果、关主 SSID 的路径（`radioN.enabled=0`、主 SSID 的 `hidden` 热更新、定时 `scope=all`——会断开用户的 Wi-Fi）、子节点开着 V2 而控制器关着的组合、原厂为什么不发 `BeaconMetricsQuery`。
 
 ## 复现
 

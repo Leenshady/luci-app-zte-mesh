@@ -1,4 +1,4 @@
-# 开发、构建、测试与真机联调
+# 开发、构建、测试与上机联调
 
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，服务配置语法见 [REAL_CHILD.md](REAL_CHILD.md) 第 3 节，脚本见 [tools/README.md](../tools/README.md)。
 
@@ -8,7 +8,7 @@
 `ubuntu` 192.168.1.191，登机器一律 `python tools/lab/rssh.py`，口令只在本机 `.local/lab-env.md`。别名 `owrt` 是登录用的名字，
 那台机器跑的同样是 ImmortalWrt——`owrt` 只是登录用的别名，不是另一套系统。以前那台测试主机上的旧清单（2026-10
 之前：mac `192.168.167.93` 上的 `/Volumes/code/sr1010-mesh`、开发机 `git push` + `receive.denyCurrentBranch updateInstead`、
-ZXSLC SR1010、中兴 Z506、测试环境里的 ImmortalWrt 虚拟机）已不再保留，复盘历史证据按 [journal](journal/) 查，本文不再维护第二份机器名单。
+ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再保留，复盘历史证据按 [journal](journal/) 查，本文不再维护第二份机器名单。
 这里只留三件别处没有的事：
 
 - **脚本默认值仍指向旧环境**，不清掉就会被当成现役：测试环境里的脚本默认 `--host root@192.168.5.1 --port 22`；子路由 telnet 是
@@ -51,7 +51,7 @@ ZXSLC SR1010、中兴 Z506、测试环境里的 ImmortalWrt 虚拟机）已不�
 1. **测试环境（不碰子节点）**：`python3 dev-service-smoke.py --no-attach --seconds 24`——路由器私有命名空间里跑服务，
    验证配置、热更新、守护进程重启，不把线接进 `br-lan`。`dev-config-check.py DIR` 批量喂配置看接受/拒绝，
    `dev-sched-check.py` 用真实时钟测定时窗口和访客限时（约 5 分钟）。
-2. **真子节点**：`python3 tools/capture/mreplay.py --config <0600 配置> --expect-macs <允许的 MAC> --out <证据目录> --seconds N`。
+2. **中兴原厂路由器当子节点**：`python3 tools/capture/mreplay.py --config <0600 配置> --expect-macs <允许的 MAC> --out <证据目录> --seconds N`。
    接进 `br-lan`，触发子节点重新入网（默认把子节点端口 down/up），抓两侧的包、服务日志和 `state.json`；`--swap 秒:文件` 中途换配置，
    `--action '秒:reboot <mac>'` 或 `'秒:light <mac> 0|1'` 发节点动作，`--al-last` 每次换一个控制器 AL MAC。
 3. **已安装的包**：`uci set zte_mesh.main.enabled=1` 等，`/etc/init.d/zte-mesh start`；状态 `ubus call luci.zte-mesh status`。
@@ -66,7 +66,7 @@ ZXSLC SR1010、中兴 Z506、测试环境里的 ImmortalWrt 虚拟机）已不�
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
   启动视图、init 130 条、rpcd 24 条、装机验收 173 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
-  装机验收脚本在设备上会**等 SSID 落地**（`SSID_WAIT` 默认 60 秒、每 `SSID_POLL`=3 秒看一次），等不到才判 FAIL 并列出
+  装机验收脚本在设备上会**等主控的 SSID 在本机生效**（`SSID_WAIT` 默认 60 秒、每 `SSID_POLL`=3 秒看一次），等不到才判 FAIL 并列出
   `ssid_pending=`；测试用 `SSID_WAIT=0` 把等待关掉，另有一条用例喂"第三次才出现"的 uci 桩来守这段。同一类"问得太早"
   在跳数那一列也犯过一次（见 [INSTALL](INSTALL.md) 第 3 节的 `cur_hop_age`），所以脚本读时钟的 `date` 也是桩——
   年龄窗口是秒级的，跟着主机墙钟跑就变成"什么时候跑这套就算什么时候"。
@@ -83,14 +83,14 @@ ZXSLC SR1010、中兴 Z506、测试环境里的 ImmortalWrt 虚拟机）已不�
 - 容器把 `/tmp` 挂成 noexec：测试不能执行自己写到 `/tmp` 的脚本（`tests/test_rpcd.sh` 用 shell 函数和 `sh -c`），
   dash 的 `.` 不接受额外参数（先 `set --`）。
 
-## 5. 真机测试守则
+## 5. 上机测试守则（中兴原厂路由器）
 
-向真机推配置会真实修改并持久化它的设置。
+向中兴原厂路由器推配置会真实修改并持久化它的设置。在 OpenWrt 路由器上推配置同样会持久改动它的配置，只是能用 `uci` 直接改回来。
 
 - **每轮前后读回子节点基线**：`ZTE_TN_PASS=… sh tools/child/childread.sh`，8 行 `WLANCfg` 与 [REAL_CHILD.md](REAL_CHILD.md)
-  末尾的基线逐行比较。改槽位先在测试环境验证（`device-controller-smoke.py` 的 `map_teardown` 必须为 0），真机轮询
-  子节点 `WLANCfg`，一出异常立刻用"全部槽位 + 一次 Renew"恢复。
-- **永远不要向真机推占位值。** 额外 BSS 的 `enabled/ssid/key` 必须三项给齐；同一无线电的槽位必须是 1..k。
+  末尾的基线逐行比较。改网络序号先在测试环境验证（`device-controller-smoke.py` 的 `map_teardown` 必须为 0），再上中兴原厂路由器轮询
+  子节点 `WLANCfg`，一出异常立刻用"全部序号 + 一次 Renew"恢复。
+- **永远不要向中兴原厂路由器推占位值。** 额外 BSS 的 `enabled/ssid/key` 必须三项给齐；同一块射频上的网络序号必须是 1..k。
 - **不要改子路由的模式**（`Mode`、自组网 V2、`VersionMode`、MESH 开关），这些由用户在子路由上设置。
 - **接入保护**：网桥转发表里出现不在 `--expect-macs` 里的 MAC 就拒绝接入。长期放行：控制器 `d0:11:e5:c5:cb:4a`、
   子路由 `d4:b7:09:0d:77:30`、一加 `32:83:90:d9:0f:62`、iPhone `aa:8b:bc:9f:1f:c7`、Mac `aa:c9:63:3e:7e:70`、
@@ -124,7 +124,7 @@ ZXSLC SR1010、中兴 Z506、测试环境里的 ImmortalWrt 虚拟机）已不�
 
 1. 本机提交 → 构建机编改动的产物（零警告，`ubuntu` 上 `sh tools/lab/build.sh all database`）→ `test-host` 通过 → `runtime.sh svctest`。
 2. 测试环境：`dev-service-smoke.py --no-attach`；涉及配置解析的跑 `dev-config-check.py`；涉及调度的跑 `dev-sched-check.py`。
-3. 真子节点（需要时）：`childread.sh` 基线 → `mreplay.py` → 看 `state.json` 节点 `model:"ZXHN Z506"`、`zte:true`、
+3. 中兴原厂路由器（需要时）：`childread.sh` 基线 → `mreplay.py` → 看 `state.json` 节点 `model:"ZXHN Z506"`、`zte:true`、
    `online:true` → `childread.sh` 读回。
 4. 结束：路由器无残留（`/run/zte-mesh`、`/tmp/zte-mesh-svc`、`zmesh0`、`ns-run`、`db-engine-probe`、`tcpdump`）；
    mac 上含密钥的配置已删。
@@ -166,7 +166,7 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 | workflow | 产物 | 说明 |
 |---|---|---|
 | `build-apk.yml` | `zte-mesh-apk`（四个 apk） | `ubuntu-latest` 交叉编译 `zte/zx279133`，断言四个包都在。产物**未签名**，装的时候要 `--allow-untrusted` |
-| `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 真机摆脱模拟器的唯一干净解法 |
+| `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 路由器摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 
 **版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，日常只有 `main` 一条长期分支（`feat/child-node` 是给上游提 PR 用的）。
@@ -209,9 +209,14 @@ gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 | 机器清单、功能总账 | 清单、总账 | 台账 |
 | `pin` 某个频段用哪块射频 | 指定 | 点名 |
 | 一次改动把 SSID 改掉又改回来 | 改两次、改回去 | 翻两次、翻回去 |
-| 这套机器环境 | 测试主机、测试环境 | 实验台、实验室 |
-| `rssh.py` 的那台虚拟机 | 「ImmortalWrt 虚拟机」（`owrt` 只是别名） | 把 `owrt` 当成系统名 |
-| 机型首次出现 | 小米 AX3600、中兴 Z506（又叫中兴小方糖）、ZXSLC SR1010（又叫中兴星云 MAX） | 第一次就只写 `Z506` / `SR1010` |
+| 主控下发的那份 Wi-Fi 设置 | Wi-Fi 配置、配置参数 | 档案 |
+| 每频段那 4 行网络（0 主 Wi-Fi、1 访客、2 备用 SSID、3 隐藏回程）的行号 | 网络序号 | 槽位、slot（代码里的 `slot`/`extra_slots` 照旧） |
+| 把配置写进 `/etc/config/wireless` 并让它生效 | 写进本机无线配置、应用、生效 | 落到、落地、落成 |
+| 内容有改动才写文件 | 只在确实有改动时写入 | 只写真变化 |
+| 一台真实的设备 | **OpenWrt 路由器** 或 **中兴原厂路由器**（按实际那台写）；泛指"得上真实路由器才能验"写 **上机** | 真机、真子路由、真中兴主控 |
+| 机器与环境 | 测试主机、测试环境、测试机 | 实验台、实验室、实验机 |
+| 那台 ImmortalWrt 虚拟机 | 「ImmortalWrt 虚拟机」（`owrt` 只是 `rssh.py` 的别名） | 把 `owrt` 当成系统名 |
+| 机型 | `ZXHN Z506`（又叫中兴小方糖）、`ZXSLC SR1010`（又叫中兴星云 MAX）、小米 AX3600 | "中兴 Z506"、第一次出现只写 `Z506` / `SR1010` |
 
 界面上**所有**给用户看的文字都要走 `_()`，msgid 就是那句英文本身（LuCI 用 msgid 当键，没有别名字符串）。改文案时
 `.po` 里那条旧 msgid 就失效了——它不会报错，只会安静地变回英文，所以有一条测试盯着这件事。
@@ -224,7 +229,7 @@ python tests/test_i18n.py        # 12 项：覆盖率、格式符、菜单标题
 编成 lmo 后每条 msgid 都能按哈希查到译文。加新文案的流程：写 `_('...')` → 把同一句英文抄进
 `openwrt/luci-app-zte-mesh/po/zh_Hans/zte-mesh.po` 并翻译 → 跑上面的测试。
 
-**它怎么到设备上**：`luci.mk` 把 `po/<lang>/` 编成独立的包 `luci-i18n-<app>-<lang>`，文件落到
+**它怎么到设备上**：`luci.mk` 把 `po/<lang>/` 编成独立的包 `luci-i18n-<app>-<lang>`，文件写到
 `/usr/lib/lua/luci/i18n/zte-mesh.zh-cn.lmo`；`zh_Hans` 经 `LUCI_LC_ALIAS` 映射成 `zh-cn`。装应用包**不会**带上它——
 `build-apk.yml` 因此单独编译它，并断言四个 apk 都在。页面从 `/cgi-bin/luci/admin/translations/<lang>` 拿到所有
 `<lang>.lmo` 拼成的 JS，`cbi.js` 的 `_()` 查的就是它——所以"源码里有译文"和"设备上有 lmo"是两件事，缺一件页面就是英文。
@@ -268,4 +273,4 @@ cp /tmp/zte-mesh.zh-cn.lmo /usr/lib/lua/luci/i18n/     # 不需要重启服务�
 而那个 workflow 每次触发都会把产物提交回分支，不能落在 `main` 上。代价是 `main` 落后 47 个提交、apk CI 一直编的是旧代码，
 且 lab-tools 侧的文件逐渐比 `main` 旧。现在 CI 全手动、直链改指 `main`，两个前提都没了，所以分支已合并、只剩 `main`。
 下次需要"只有某台机器用"的产物，先问它能不能用现编的方式解决，不要再开长期分支。批末 CI 那个 `ci/batchN`
-不算在内——它不落地任何产物，装机读完就删。
+不算在内——它不生成任何产物，装机读完就删。

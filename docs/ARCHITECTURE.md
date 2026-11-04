@@ -5,10 +5,10 @@
 原厂 mesh 的核心是用户态 `multiapd`：IEEE 1905、Multi-AP（EasyMesh）控制逻辑加中兴私有扩展。它不是 802.11s 或 batman-adv，
 OpenWrt 的 `mesh_id`、usteer、DAWN 都换不来与原厂子节点的互通。
 
-本项目不重写协议，而是把原厂 SR1010 固件里同一版本的 `multiapd` 和它的 27 个库搬到 OpenWrt 上，在私有命名空间里当控制器运行，
+本项目不重写协议，而是把原厂 ZXSLC SR1010 固件里同一版本的 `multiapd` 和它的 27 个库搬到 OpenWrt 上，在私有命名空间里当控制器运行，
 用"垫片"提供它依赖的环境，再用一个配置文件间接指挥它。线上的报文几乎全部由原厂守护进程自己构造；服务自己构造的只有信道选择
 请求（CMDU `0x8006`）。实测与原厂主控对比（[REPLAY_RESULTS](research/REPLAY_RESULTS.md)）：M2、`PolicyConfigReq`、Renew 和
-槽位消息除 MID 外逐字节相同；已知差别是 `MetricRptPolicy` 里无线电的顺序（不固定）、`CombinedInfraMetrics` 私有 TLV 的内容
+额外网络那几条消息除 MID 外逐字节相同；已知差别是 `MetricRptPolicy` 里无线电的顺序（不固定）、`CombinedInfraMetrics` 私有 TLV 的内容
 （取决于邻居状态）、`0200fe` 消息（原厂入网时 3 条，我们上线约 15 秒后 1 条）。
 
 ## 2. 运行时结构
@@ -97,7 +97,7 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 
 - `zx279133/vendor-reference/2b5/cspd`（3,106,388 字节，`eb7062b9…`）是**另一个版本**，来源不明，地址和 ABI 不能套到镜像里的
   程序上。表结构还原以镜像内的 `cspd` 为准（`prepare.py --analysis-cspd` 提取到 `out/analysis/cspd`，0600，不进运行环境）。
-- 真子路由 Z506 的 `multiapd`/`libcmapi.so` 与 SR1010 的也不是同一个构建：控制器行为读 SR1010 的二进制，子路由能否接收读
+- 中兴原厂路由器 Z506 的 `multiapd`/`libcmapi.so` 与 SR1010 的也不是同一个构建：控制器行为读 SR1010 的二进制，子路由能否接收读
   子路由自己的。
 
 `multiapd` 保留了大量符号（IDA 识别 2628 个函数）。定位协议入口时用到的地址（链接地址，属于上表哈希的 `multiapd`）：

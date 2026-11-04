@@ -12,7 +12,7 @@
 | 构建、跑控制器、测试、分支与 `prebuilt/` | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | 装机上手、页面两个开关怎么摆出三种拓扑、卸载与"设了没动静" | [docs/INSTALL.md](docs/INSTALL.md) |
 | 碰测试机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器清单的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
-| 上真子路由中兴 Z506（又叫中兴小方糖） | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的真机红线 |
+| 上中兴原厂路由器（ZXHN Z506，又叫中兴小方糖） | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的上机红线 |
 | 改服务模式、UCI/LuCI 映射 | [docs/SERVICE.md](docs/SERVICE.md) |
 | 查原厂数据库字段 | [docs/milestones/SCHEMA.md](docs/milestones/SCHEMA.md)、[docs/milestones/POLICIES.md](docs/milestones/POLICIES.md)、[docs/research/E2631_DB_SNAPSHOT.md](docs/research/E2631_DB_SNAPSHOT.md) |
 
@@ -29,14 +29,14 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 
 `tests/` 里 C 编解码、Python、shell、LuCI JS 各管一段，改哪层跑哪层的测试；CI（`.github/workflows/build-apk.yml`、`build-lab-tools.yml`）**全手动触发**——push 不会跑构建。
 
-节奏按 [docs/PLAN.md](docs/PLAN.md) 第 2 节与第 6 节：**攒够几项（一批 3–5 项）才触发一次 CI，装一次机验证**，不是每完成一项就跑；本机每改一项就把能跑的测试跑绿。需要真机的项**不阻塞**，登记到 PLAN 第 5 节（H-xx）后继续做主机可测的项。
+节奏按 [docs/PLAN.md](docs/PLAN.md) 第 2 节与第 6 节：**攒够几项（一批 3–5 项）才触发一次 CI，装一次机验证**，不是每完成一项就跑；本机每改一项就把能跑的测试跑绿。需要上机的项**不阻塞**，登记到 PLAN 第 5 节（H-xx）后继续做主机可测的项。
 
 ## 红线
 
-**真机**（细则见 DEVELOPMENT 第 5 节）
+**上机**（分两种：OpenWrt 路由器、中兴原厂路由器；细则见 DEVELOPMENT 第 5 节）
 
-- 向真机推配置会真实且持久地改变设备设置。每轮前后用 `ZTE_TN_PASS=… sh tools/child/childread.sh` 读回 8 行 `WLANCfg`，与 REAL_CHILD 末尾基线逐行比对。
-- **永远不推占位值**：额外 BSS 的 `enabled/ssid/key` 三项必须给齐，同一无线电槽位必须是 1..k。
+- 向中兴原厂路由器推配置会真实且持久地改变它的设置。每轮前后用 `ZTE_TN_PASS=… sh tools/child/childread.sh` 读回 8 行 `WLANCfg`，与 REAL_CHILD 末尾基线逐行比对。
+- **永远不推占位值**：额外 BSS 的 `enabled/ssid/key` 三项必须给齐，同一块射频上的网络序号必须是 1..k。
 - **不改子路由的模式**（`Mode`、自组网 V2、`VersionMode`、MESH 开关）——那是用户在子路由上自己设的。
 - 会让用户设备掉线的测试（关主 SSID、ACL 封禁真实终端、信道/功率、改 SSID、定时 `scope=all`）**先征得同意，测完立即还原**。
 - 不要用 `kill multiapd` 逼子路由重新入网；改控制器重启、`zte-meshctl renew-acd <band>` 或重启子路由。
@@ -71,6 +71,9 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 
 提交前跑坏链与行尾检查；新文件用 LF（`.gitattributes` 已全局 `text=auto eol=lf`）。
 
-**用词**：不造词，通用缩写保持英文（写 SSID，不写"无线名称"）。`air`→"本机当前广播的 SSID"、`seed`→"SSID 初始配置"、`per-BSS`→"按 BSSID"、`applier` 原样引用；代码标识符与 `verify-install.sh` 的键名不译。机器一律称**测试主机 / 测试环境**（不写"实验台/实验室"），机型首次出现写全名：小米 AX3600、中兴 Z506（又叫中兴小方糖）、ZXSLC SR1010（又叫中兴星云 MAX）。对照表在 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 第 9 节。
+**用词**：不造词，通用缩写保持英文（写 SSID，不写"无线名称"）。`air`→"本机当前广播的 SSID"、`seed`→"SSID 初始配置"、`per-BSS`→"按 BSSID"、`applier` 原样引用；代码标识符与 `verify-install.sh` 的键名不译。
+不写"档案"（写**配置**或**参数**）、不写"槽位"（写**网络序号**）、不写"落到／落地／落成"（写**写进、应用、生效**）、不写"真变化"（写**实际改动**）。
+真机分两种，按实际那台写：**OpenWrt 路由器**或**中兴原厂路由器**；泛指"得上真实路由器才能验"写**上机**。机型写 `ZXHN Z506`（又叫中兴小方糖）、`ZXSLC SR1010`（又叫中兴星云 MAX）、小米 AX3600。
+机器一律称**测试主机 / 测试环境**（不写"实验台/实验室"）。对照表在 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 第 9 节。
 
 > `docs/journal/` 原名 `.workbuddy/memory/`，2026-11-02 迁入仓库。工具自带的会话记忆是本机文件，不随 clone 走——能让下一个人看到的只有这个目录。
