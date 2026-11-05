@@ -14,7 +14,7 @@
 |---|---|---|
 | **这台机器能不能直接跑 32 位 ARM 程序** | `uname -m` 是 `aarch64` 且固件带 `CONFIG_COMPAT=y` → 能。`x86_64` 或没有 compat 的 arm64 → 不能，要么自己把 `qemu-arm-static` 放进私有根 `/usr/lib/zte-mesh/root`，要么把 `zte_mesh.main.emulator` 设成**这台机器上的任意绝对路径**（比如 `/usr/bin/qemu-arm-static`）——服务会先比 sha256，不同才拷一份进私有根的 `usr/bin/`，拷不进去就不起并说清原因 | 控制器实例每 5 秒以 `execv errno=8` 退出，页面显示没跑起来。模拟器**不在任何包里**，判定表与三条出路见 [LAB](LAB.md) 第 4.2 节。多数固件不导出 `/proc/config.gz`（两台测试机都没有），所以这一条别看配置文件，看服务起来没起来、日志有没有 `errno=8` |
 | **无线回程要完整 `wpad`** | `apk info wpad`（`wpad-openssl` 这类变体也算，它 provides `wpad`）。25.12 起的 ImmortalWrt 用 apk，**机器上没有 `opkg` 这个命令**，`opkg list-installed \| grep wpad` 只在老 release 上有意义；`wpad-basic` 不够 | 只有开 `backhaul`（第 5、6 节）才受影响；`wlan-sync` 会把原因写进日志与页面状态行，不会静默失败 |
-| **flash 够不够** | `zte-mesh` 这个 apk 现在同时带运行环境和三个 CPU 的各一份启动器（合并前那两份产物是 3.9 MB + 1.2 MB，合成一个约 5.1 MB）；LuCI 与中文包是 KB 量级。更早批次的文档写过"约 4.1 MB / 4.9 MB"，**以本机 `apk info -s zte-mesh` 的读数为准**——旧读数 8 007 KiB 只覆盖运行环境那一半，合并后要重新读。**要跑模拟器的那台机器上，占地方的是你自己放的那份 `qemu-arm-static`（10.7 MB），不是包** | 换 `wpad` 变体也可能挤爆小 flash |
+| **flash 够不够** | `zte-mesh` 这个 apk 现在同时带运行环境和三个 CPU 的各一份启动器：合并后的 `zte-mesh-0.1.0-r22.apk` 是 **5 101 814 字节**（合并前那两份产物 3.9 MB + 1.2 MB，两份相加 5 104 550，所以合成一个还小了 2 736 字节）；LuCI 与中文包是 KB 量级。设备上以 `apk info -s zte-mesh` 为准——**装 r22 后两台测试机都读 10 MiB**（合并前 `zte-mesh` r21 单独是 8 034 KiB；更早文档里那个 8 007 KiB 只覆盖运行环境那一半，别拿它当合并后的数）。**要跑模拟器的那台机器上，占地方的是你自己放的那份 `qemu-arm-static`（10.7 MB），不是包** | 换 `wpad` 变体也可能挤爆小 flash |
 
 ## 2. 装包
 
@@ -42,6 +42,7 @@ ssh root@<这台路由器的IP> 'apk add --allow-untrusted /tmp/zte-apk/zte-mesh
 - 装与升级**不会覆盖**你改过的 `/etc/config/zte_mesh`（它是 conffile），但页面存过一次之后本地这份就和包里默认那份不同，于是**每次装都会在旁边留下一个 `/etc/config/zte_mesh.apk-new`**（8 KB 出厂默认配置）——它是 apk 的"这里有冲突"记号，不是备份也不是垃圾；想清掉就按第 8 节那条 `zte_mesh*` 的 glob 一起删。
 - **架构不匹配导致整串 `apk add` 装不上，这一种失败从 2026-11-05 起没有了**：带启动器的那个包（现在就是 `zte-mesh`）是 `all`，什么机器都收，包里有 aarch64 / armv7 / x86_64 三份二进制。以前它是 `aarch64_cortex-a53`，在 x86_64 虚拟机上 `ERROR: unable to select packages: ... uninstallable` 会把另外三个 `all` 的包一起带走（apk 求解是全有或全无），只能把启动器从命令里拿掉再装。**代价是那句拒绝搬到了运行时**：这台机器的 CPU 不在包里时，入口脚本会说出它站在哪台机器上和包里带的那几档——`zte-mesh ns-run: no build for this machine (uname -m says mips64). The launcher on this box carries: aarch64 armv7 x86_64`，`zte-mesh.init` 起实例前先问一次 `--launcher-check`，于是日志里是这一句，而不是 procd 每 5 秒重开一个 127。**这一趟也意味着手工编的 `ns-run` 会被覆盖**：`/usr/libexec/zte-mesh/ns-run` 现在是包里的入口脚本，自己编的那份要放进 `arch/<cpu>/`（见第 8 节）。只装 `zte-mesh` 以外的包 = 页面能打开、控制器起不来（`ns-run` 现在也在 `zte-mesh` 里，缺它等于没装这个包）：三个包是"一套"，不是可选菜单。
 - **三个包放在同一条 `apk add` 里**（就是上面那行命令）。启动器和运行环境现在同一个 apk、同一次事务，`zte-mesh` 的 post-upgrade 重启服务时问到的入口脚本就是这一批的那份。以前分批装会留下一个空档：2026-11-05 在 `owrt` 上 `05:54:30` 先装 `zte-mesh` r21、`05:54:34` 才装 launcher r2，中间那次重启问到的是这台手工放着的旧 ELF，它不认识 `--launcher-check`、只打 usage 并回 64，日志于是记了一句假的 `zte-mesh-launcher has no build for x86_64: usage: ns-run …`（这台并不缺构建）。**架构不匹配只由 127 表达**，其余非零另有说明，所以那句假诊断的成因已经消掉两层：包合并了，init 也不再拿任何非零当架构拒绝。
+- **这台机器上还装着合并前的 `zte-mesh-launcher`：先删它，再装合并后的 `zte-mesh`**。2026-11-05 在 `owrt` 上把这一条读了一遍，`/usr/libexec/zte-mesh/{ns-run,mesh-search,arch/**}` 那八个文件同时被两个包声称拥有，`apk add` 的答复是**逐条拒覆盖**——八行 `ERROR: zte-mesh-0.1.0-r22: trying to overwrite usr/libexec/zte-mesh/ns-run owned by zte-mesh-launcher-0.1.0-r2.`（两个名字 × 三档），**退出码 1**；可它同一趟把 `zte-mesh` 记成已安装、跑了 `post-upgrade`、也装上了新脚本。这台机器当场还能跑（旧那份入口脚本内容一样），但 `apk info -L zte-mesh` 只列 4 个 `libexec` 成员，入口和六份二进制仍归 launcher。**这种状态再去 `apk del zte-mesh-launcher`，入口就被它带走了**：`ls /usr/libexec/zte-mesh/` 只剩 `arch`、`attach`、`sta-collect`、`wlan-sync` 四项，两个入口名字都不在，`--launcher-check` 回 **127**（ash 那句 `not found`），而 `apk add` 那个 apk 文件是**空操作**（包已经"装着"）、`--force-overwrite` 也一样。恢复只有把三个包一起 `apk del` 再装——单删 `zte-mesh` 会被拒（`not removed due to: zte-mesh: luci-app-zte-mesh / luci-i18n-zte-mesh-zh-cn`，那两个包依赖它）。**顺序反过来就全都干净**：`apk del zte-mesh-launcher`（rc=0，`OK: 41.8 MiB in 224 packages`）→ `apk add --allow-untrusted /tmp/zte-apk/zte-mesh-0.1.0-r22.apk`（`Upgrading zte-mesh (0.1.0-r21 -> 0.1.0-r22)`、rc=0）→ `apk info -L zte-mesh` 列 **12** 个 `libexec` 成员，两个入口名字和 `arch/{aarch64,armv7,x86_64}/` 六份二进制都归这个包了（`ax3600` 走的就是这条，`RESULT=PASS` 19 查 0 败）。
 
 **编进固件**（长期用这台机器当控制器时更省事）：把本仓库当 feed 加进 ImmortalWrt 树，`./scripts/feeds update zte_mesh && ./scripts/feeds install -a -p zte_mesh`，`.config` 里勾上 `CONFIG_PACKAGE_{zte-mesh,luci-app-zte-mesh,luci-i18n-zte-mesh-zh-cn}=m`。feed 登记与编译命令见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节。这样出来的启动器只带**这棵树正在构建的那一档 CPU**（构建树里只有目标机的工具链；另外两档要宿主的 `gcc-aarch64-linux-gnu` / `gcc-arm-linux-gnueabihf` 在场，CI 那次就是这么装的）。这不是问题——apk 装到哪台机器都收，包不带的档位由入口脚本在运行时说清楚，`ZTE_MESH_ARCHES` / `ZTE_MESH_REQUIRE_ARCHES` 可以分别限定"编哪几档"和"缺了哪档就报错"。
 
@@ -138,11 +139,12 @@ apk del luci-app-zte-mesh zte-mesh     # 再把装过的包名补进这条：luc
 ```
 
 - **一条 `apk del` 里只要有一个包名不在这台机器上，整条就失败**（`ERROR: No such package: luci-i18n-zte-mesh-zh-cn`、`rc=1`，
-  一个包都没被删——没装中文包的机器上就是这样）：按实际装过的分开删，或先 `apk info -e | grep zte` 看清楚。
-- **升级前就装着 `zte-mesh-launcher` 的那台机器（合并前的两台都是）要读一回才能下结论**：`/usr/libexec/zte-mesh/{ns-run,mesh-search,arch/**}`
-  这些文件现在同时被两个包声称拥有，`apk del zte-mesh` 会不会把 launcher 那份入口脚本一起带走、`apk add` 新版时冲突怎么报，
-  是 apk 求解器的行为而不是我们的——装机读回因此加了一行只报不判的 `legacy_launcher_package=`（这台还留着 launcher 包就报它的版本号，没有就报 `absent`）。
-  读数登记在 [PLAN](PLAN.md) 第 5 节。
+  一个包都没被删——没装中文包的机器上就是这样）：按实际装过的分开删，或先 `apk list --installed | grep zte` 看清楚（**`apk info -e` 在 `apk-tools 3.0.5` 上回 0 行**，两台测试机 2026-11-05 都读了，别拿它当"这台没装东西"）。
+- **升级前就装着 `zte-mesh-launcher` 的那台机器：先 `apk del zte-mesh-launcher`，再装合并后的 `zte-mesh`**。
+  这一条 2026-11-05 在两台测试机上各读了一次，两种顺序的结果都写在第 2 节那一条里。反过来做（先装合并包、再删 launcher）会把两半留在不干净的状态：
+  合并包记成已安装却只拥有 4 个 `libexec` 成员，删 launcher 时把入口脚本一起带走，而再 `apk add` 一次那个文件是**空操作**（包已经"装着"）、`--force-overwrite` 也一样——
+  恢复要连 `luci-app-zte-mesh` 与中文包一起删（`apk del zte-mesh` 单发会被拒：那两个包依赖它）。
+  `legacy_launcher_package=` 那一行就是装机之前先看这一眼用的（这台还留着 launcher 包就报它的版本号，没有就报 `absent`）。
 - apk 清不掉的要手工删：`/etc/config/zte_mesh*`（受保护的配置，apk 故意留着，第 2 节说的 `.apk-new` 也在这一条里）、
   `/run/zte-mesh`（tmpfs，重启就没了）。**`/usr/lib/zte-mesh` 那棵运行环境树是包自己装进去的，`apk del` 会连它一起删**——
   删完只剩你手工放的 `root/qemu-arm-static`（10.7 MB，占地方的一直是它，不是包）和那个空目录。

@@ -177,9 +177,10 @@ make package/feeds/zte_mesh/zte-mesh/compile \
   `src-git` 会把包**复制**进 `package/feeds/zte_mesh/`，那里没有仓库根的 `tools/`，于是 `Build/Compile` 直接停在一条写明原因的报错上——
   这种构建树要 `make … ZTE_MESH_LAUNCHER_BUILD=~/zte-mesh/tools/build/launcher-arches.sh`。两种情况下构建树里都只有目标机那一档工具链，
   所以 feed 构建出的 apk 通常只带一档；另外两档要宿主的 `gcc-aarch64-linux-gnu` / `gcc-arm-linux-gnueabihf` 在场。
-- 大小：合并前那两份 CI 产物是 `zte-mesh` 3 882 850 字节 + `zte-mesh-launcher` 1 221 700 字节（2026-11-05，r21 / launcher r2），
-  合成一个 apk 后压缩约 5.1 MB，大头仍是原厂库；LuCI 与中文包同一批合计 18 KB。要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**
-  （[INSTALL](INSTALL.md) 第 1 节）；旧读数 8 007 KiB 只覆盖运行环境那一半，合并后要重新读。
+- 大小：合并前那两份 CI 产物是 `zte-mesh` 3 882 850 字节 + `zte-mesh-launcher` 1 221 700 字节（2026-11-05，r21 / launcher r2）；
+  **合并后的那一份 `zte-mesh-0.1.0-r22.apk` 是 5 101 814 字节**（`ci/batch21`），比合并前那一份大 1.2 MB，但比两份相加（5 104 550）还小 2 736 字节——**合包在磁盘上不花钱**。
+  LuCI 与中文包同一批合计 18 KB。要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**：装 r22 后两台都读 **10 MiB**
+  （合并前 `zte-mesh` r21 单独是 8 034 KiB、launcher r2 是 2 413 KiB；更早文档里那个 8 007 KiB 只覆盖运行环境那一半，别再拿它当合并后的数）。
 - 包没签名：`apk add --allow-untrusted`；卸载 `apk del <三个包名>`。运行包含原厂二进制，随这个公开仓库一起发布
   （2026-10-19 决定）；`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享软件源。
 - **读 apk 的成员要用 SDK 自己编出来的那份 `apk`**（`staging_dir/host/bin/apk --allow-untrusted extract`，解到临时目录再 `find`）：
