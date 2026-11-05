@@ -65,7 +65,10 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 135 条、终端数采集 32 条、rpcd 24 条、装机验收 258 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  启动视图、init 144 条、终端数采集 32 条、启动器入口 20 条、启动器架构构建 26 条、rpcd 24 条、装机验收 277 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  **本机（Windows + Git Bash）跑启动器入口那组会 skip 2 条**：`chmod 644` 清不掉执行位，"文件在但不可 exec"这一支在这套文件系统上表达不出，
+  计数里那两条不是回归（owrt 的 busybox ash 上能跑全）。架构构建那组的编译器是 stub——它判的是 `tools/build/launcher-arches.sh` 的选址顺序、
+  `-dumpmachine` 映射与 `ZTE_MESH_REQUIRE_ARCHES`，不是真编译；真编译在 CI 那一步，产物成员清单是它的判据（第 8 节）。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
   脚本读子节点上报时会**连读几份快照**（`METRICS_READS` 默认 3 次、每次隔 `METRICS_READ_GAP` 默认 5 秒，只在一次都没读到数时才继续等）；
   测试必须把这两值导出成 `1` 和 `0`，否则每个"这台没有数"的用例都真睡满 10 秒——同一套测试实测没导出要 4 分 57 秒、导出后 3 分 7 秒，
@@ -162,22 +165,30 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 ```
 
 - 包直接解包同目录下提交的 `zte-mesh-runtime.tar.gz`，不需要往 `dl/` 放东西；`ZTE_MESH_RUNTIME=` 可指向别的运行包。
-- **两个包目录是必需的**：`package-pack.mk` 的 `Architecture` 读的是 Makefile 级全局 `PKGARCH`，一个 Makefile 给不了两个架构。
-  `zte-mesh` = `arch: all`（脚本、LuCI、rpcd、配置 + 运行时 tarball），`zte-mesh-launcher` = `aarch64_cortex-a53`
-  （用 `$(TARGET_CC)` 现编 `ns-run` 与 `mesh-search`）。数据包必须显式写空 `Build/Compile`，否则 OpenWrt 会在只有 tarball 的
-  构建目录里跑 `$(MAKE)` 报 `No targets specified and no makefile found`。
+- **两个包目录是必需的**：`zte-mesh` 是数据包（脚本、LuCI、rpcd、配置 + 运行时 tarball，`PKGARCH:=all`），`zte-mesh-launcher` 要真编译机器码，
+  两者放在一起就得让数据包也带上编译器与目标架构，而 `package-pack.mk` 的 `Architecture` 读的是 Makefile 级全局 `PKGARCH`。
+  启动器现在也是 `PKGARCH:=all`——**它不再"给不了两个架构"，而是把三个架构都装进一个包**：`arch/<cpu>/{ns-run,mesh-search}` 各一份
+  `-static` 构建，外层那两个名字是同一份 shell 入口（按 `$0` 选程序、按 `uname -m` 选目录）。打包细节与那张映射表在
+  [LAB](LAB.md) 第 4.3 节，脚本是仓库根的 `tools/build/launcher-arches.sh`（launcher 的 `Build/Compile` 调用它，`ZTE_MESH_LAUNCHER_BUILD=` 可指路）。
+  数据包必须显式写空 `Build/Compile`，否则 OpenWrt 会在只有 tarball 的构建目录里跑 `$(MAKE)` 报 `No targets specified and no makefile found`。
+- **`src-link` 与 `src-git` 对启动器构建脚本的可见性不一样**：`src-link zte_mesh <克隆>/openwrt` 时包目录是指向克隆的符号链接，
+  `$(CURDIR)/../../tools/build/launcher-arches.sh` 就落在克隆根上（CI 用的正是这一种，`.github/workflows/build-apk.yml` 的 Install feeds 一步）；
+  `src-git` 会把包**复制**进 `package/feeds/zte_mesh/`，那里没有仓库根的 `tools/`，于是 `Build/Compile` 直接停在一条写明原因的报错上——
+  这种构建树要 `make … ZTE_MESH_LAUNCHER_BUILD=~/zte-mesh/tools/build/launcher-arches.sh`。两种情况下构建树里都只有目标机那一档工具链，
+  所以 feed 构建出的 apk 通常只带一档；另外两档要宿主的 `gcc-aarch64-linux-gnu` / `gcc-arm-linux-gnueabihf` 在场。
 - 大小：`zte-mesh` 压缩约 3.9 MB（装机实测 3 872 842 字节，`apk info -s` 报装上占 8 007 KiB），大头是原厂库；LuCI 与中文包合计约 11 KB。
   要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**（[INSTALL](INSTALL.md) 第 1 节）。
 - 包没签名：`apk add --allow-untrusted`；卸载 `apk del <四个包名>`。运行包含原厂二进制，随这个公开仓库一起发布
   （2026-10-19 决定）；`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享软件源。
-- **包里没有 ARM32 模拟器**（2026-10-31 定）：x86_64 设备和没开 `CONFIG_COMPAT` 的 arm64 设备必须自己把 `qemu-arm-static`
-  放进私有根，否则 controller 实例每 5 秒以 `execv errno=8` 退出。理由与三条出路见 [LAB.md](LAB.md) 第 4.2 节。
+- **包里没有 ARM32 模拟器**（2026-10-31 定）：x86_64 设备和没开 `CONFIG_COMPAT` 的 arm64 设备必须自己准备 `qemu-arm-static`——
+  放进私有根，或把 `zte_mesh.main.emulator` 指到**这台机器上的任意绝对路径**（init 比 sha256 后拷进私有根的 `usr/bin/`，2026-11-05 起），
+  否则 controller 实例每 5 秒以 `execv errno=8` 退出。理由与三条出路见 [LAB.md](LAB.md) 第 4.2 节。
 
 **CI 全部手动触发**（`workflow_dispatch`），push 和 PR 都不会自动跑构建：
 
 | workflow | 产物 | 说明 |
 |---|---|---|
-| `build-apk.yml` | `zte-mesh-apk`（四个 apk） | `ubuntu-latest` 交叉编译 `zte/zx279133`，断言四个包都在。产物**未签名**，装的时候要 `--allow-untrusted` |
+| `build-apk.yml` | `zte-mesh-apk`（四个 apk） | `ubuntu-latest` 交叉编译 `zte/zx279133`，断言四个包都在。启动器那一步装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf`，`ZTE_MESH_REQUIRE_ARCHES` 设成三档全要（少编一档直接红），构建完**列出 launcher apk 的 tar 成员**确认两个入口脚本与 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 都在包里。产物**未签名**，装的时候要 `--allow-untrusted` |
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 路由器摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 
@@ -269,7 +280,7 @@ cp /tmp/zte-mesh.zh-cn.lmo /usr/lib/lua/luci/i18n/     # 不需要重启服务�
 | 文件 | 是什么 | 谁用 |
 |---|---|---|
 | `db-engine-probe` | ARM32、`-nostdlib` 链原厂 glibc 2.26 的沙箱宿主程序 | **产线**：`repack-runtime.py --replace` 把它塞进 `zte-mesh-runtime.tar.gz` 的 `root/bin/`，随 apk 分发 |
-| `ns-run-x86_64` / `ns-run-aarch64` | 两份宿主架构的沙箱启动器 | 只剩 lab 主机 `wget` 取（包里是现编的） |
+| `ns-run-x86_64` / `ns-run-aarch64` | 两份宿主架构的沙箱启动器 | 只剩 lab 主机 `wget` 取（包里按 CPU 各带一份，[LAB](LAB.md) 第 4.3 节） |
 | `libzte_mesh_shim.so` / `libzte_agent_mm.so` | ARM32 的原厂符号 shim | lab 里挂给 probe 用 |
 | `*.sha256`、`*-build.log` | 校验和与构建日志 | 追溯（构建失败也发布日志，这是无 token 时读失败日志的唯一通道） |
 

@@ -796,17 +796,26 @@ write_config() {
 }
 
 start_service() {
-	local enabled bridge role apply_local backhaul
+	local enabled bridge role apply_local backhaul launcher
 	config_load zte_mesh
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
 	config_get bridge main bridge br-lan
 	[ -d "/sys/class/net/$bridge/bridge" ] || { log "bridge $bridge does not exist"; return 1; }
 	# Two packages, two things that can be missing, and the log should say which: the runtime
-	# tarball comes from zte-mesh (arch:all), the launcher from zte-mesh-launcher (arch-tagged
-	# to the board). A box that installed only the first one has $ROOT but no $NSRUN.
+	# tarball comes from zte-mesh (arch:all), the launcher binaries from zte-mesh-launcher -- also
+	# arch:all now, carrying one build per CPU and picking between them by `uname -m`. A box that
+	# installed only the first one has $ROOT but no $NSRUN.
 	[ -d "$ROOT" ] || { log "runtime is not installed (package zte-mesh)"; return 1; }
-	[ -x "$NSRUN" ] || { log "$NSRUN is missing: install zte-mesh-launcher for this board's architecture"; return 1; }
+	[ -x "$NSRUN" ] || { log "$NSRUN is missing: install zte-mesh-launcher"; return 1; }
+	# ... and an arch:all package installs everywhere, so nothing at install time refuses a machine whose
+	# CPU the package does not carry. That refusal used to be `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)`;
+	# it is asked here instead, of the entry script the launcher installs, before any instance exists. The
+	# alternative is procd respawning a 127 every five seconds and a log that never says "architecture".
+	launcher=$("$NSRUN" --launcher-check 2>&1) || {
+		log "zte-mesh-launcher has no build for $(uname -m): $launcher"
+		return 1
+	}
 	write_config || return 1
 	config_get role main mesh_role ""
 	config_get apply_local main apply_local ""
@@ -869,9 +878,10 @@ start_service() {
 	# The daemon is a 32-bit ARM binary and the host is usually not. A kernel with CONFIG_COMPAT runs it
 	# natively, so the emulator is only used when the kernel says it cannot: x86-64 never can, and arm64
 	# only when CONFIG_COMPAT is off (the firmware build that turns it on is .github/workflows/
-	# build-firmware.yml). The emulator is opt-in by presence, overridable through zte_mesh.main.emulator
-	# ("none" forces the native path). Nothing is installed or loaded here; when neither works the service
-	# keeps failing the way it always did, with "execv errno=8" in the log.
+	# build-firmware.yml). The emulator is opt-in by presence, overridable through zte_mesh.main.emulator:
+	# "none" forces the native path, a path inside the private root is used where it sits, and a path
+	# outside it is copied in first (see below). No package ships an emulator and nothing is downloaded
+	# here; when neither works the service keeps failing the way it always did, with "execv errno=8".
 	emulator=""
 	config_get emulator main emulator ""
 	if [ "$emulator" = none ]; then
@@ -915,6 +925,35 @@ start_service() {
 			# three ways out of it.
 			[ -z "$emulator" ] && log "this kernel cannot run the 32-bit ARM daemon and no qemu-arm-static was found in $ROOT: put one there (it must be built for $(uname -m), and it must sit inside the private root because it is exec'd after the chroot), or install a firmware built with CONFIG_COMPAT=y, or set zte_mesh.main.emulator=none to force the native path"
 		fi
+	else
+		# An explicit value names the emulator either inside the private root -- relative, or absolute under
+		# $ROOT -- and it is used where it sits, or on this machine outside it. The second form is the one
+		# worth taking: a box that already has a qemu-arm-static somewhere should not have to be told to
+		# move it, and ns-run execs the emulator *after* the chroot, so a path the sandbox cannot see is not
+		# a path it can run. Copy it in, say so once, and hand on the root-relative path either way. The
+		# hash comparison is what keeps a restart from rewriting a 11 MB file every time the service starts.
+		case $emulator in
+		"$ROOT"/*) emulator=${emulator#"$ROOT"} ;;
+		/*)
+			host_bin=$emulator
+			rel=/usr/bin/${host_bin##*/}
+			dest=$ROOT$rel
+			[ -r "$host_bin" ] || { log "zte_mesh.main.emulator=$host_bin is not readable: not starting"; return 1; }
+			src_hash=$(sha256sum "$host_bin" 2>/dev/null)
+			dst_hash=$(sha256sum "$dest" 2>/dev/null)
+			src_hash=${src_hash%% *}
+			dst_hash=${dst_hash%% *}
+			if [ -n "$src_hash" ] && [ "$src_hash" = "$dst_hash" ]; then
+				emulator=$rel
+			elif { mkdir -p "${dest%/*}" 2>/dev/null && cp -f "$host_bin" "$dest" && chmod 755 "$dest"; }; then
+				emulator=$rel
+				log "copied $host_bin into the private root as $dest: the sandbox execs the emulator after the chroot"
+			else
+				log "cannot copy $host_bin into $dest, and the sandbox only execs an emulator it can see inside the private root: not starting"
+				return 1
+			fi
+			;;
+		esac
 	fi
 	emulated=""
 	[ -n "$emulator" ] && emulated="ZTE_MESH_EMULATED_LAB=1 ZTE_MESH_QEMU=$emulator"

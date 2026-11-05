@@ -37,7 +37,7 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 | 机器（别名 / 机型） | 地址 | 角色 | 关键事实 |
 |---|---|---|---|
 | `ax3600`：小米 AX3600，刷 ImmortalWrt 25.12.2 | 192.168.1.1 | OpenWrt 路由器（物理机），跑子节点角色 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）；实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static`。**无线只剩一块射频在候选里**（`radio0.disabled=1` 关掉了 2.4G），所以"一个频段有两块射频、`wlan-sync` 放弃该频段"那条路径在这台上测不出来——"没报错"不等于"已验证" |
-| `owrt`：ImmortalWrt 虚拟机（x86_64） | 192.168.1.20 | 测试环境里的主控（master） | 内核与 `ax3600` 同一个版本。`zte-mesh` 是 `arch:all` 所以能装，但 **`zte-mesh-launcher` 是 `PKGARCH:=aarch64_cortex-a53` 且 `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，装不上**。缺的两个二进制用 `tools/lab/build-launcher.sh` 补（**必须 `-static`**，见第 7 节 musl 那条）；`root/qemu-arm-static` 仍是手工放的 |
+| `owrt`：ImmortalWrt 虚拟机（x86_64） | 192.168.1.20 | 测试环境里的主控（master） | 内核与 `ax3600` 同一个版本。两个包都是 `arch:all`，所以 `zte-mesh-launcher` 装得上——它带 aarch64 / armv7 / x86_64 各一份构建，`uname -m` 是 `x86_64` 就走进 `arch/x86_64/`（这一档 2026-11-05 起才有；以前它是 `aarch64_cortex-a53` + `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，这台**一个都装不上**，只能 `tools/lab/build-launcher.sh` 手工补）。`root/qemu-arm-static` 仍是手工放的——那是 ARM32 用户态的事，与 launcher 这一档无关 |
 | `ubuntu`：x86_64 Ubuntu 22.04 | 192.168.1.191 | 编译机 | 本文主角：`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
 
 ## 3. 日常流程
@@ -117,7 +117,9 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 ### 4.1 装在设备上时这两个开关由 init 决定
 
-不需要手工 export：`start_service()` 先看 `uname -m`，arm64 上再判断内核能否原生跑 ARM32；只有确实跑不了、且私有根里存在 `qemu-arm-static` 时才把这两个变量传给 `ns-run`。`zte_mesh.main.emulator` 可指定路径，`=none` 强制走原生（刷过 `CONFIG_COMPAT=y` 固件之后就是这个状态）。
+不需要手工 export：`start_service()` 先看 `uname -m`，arm64 上再判断内核能否原生跑 ARM32；只有确实跑不了、且私有根里存在 `qemu-arm-static` 时才把这两个变量传给 `ns-run`。`zte_mesh.main.emulator` 可指定路径——**私有根内的相对/绝对路径，或宿主上的绝对路径**（后者由 init 比 sha256 后拷进私有根的 `usr/bin/`，见第 4.2 节），`=none` 强制走原生（刷过 `CONFIG_COMPAT=y` 固件之后就是这个状态）。
+
+同一处还问一句启动器：`$NSRUN --launcher-check`，答 127 就不把实例交给 procd。理由与那句拒绝见第 4.3 节。
 
 同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节（页面"控制器地址末字节"，两位十六进制），默认取 LAN 网桥 MAC 的末字节（`02:00:00:00:19:XX`）；写错格式会记一行日志并改用派生值。两台设备**必须**不同，否则 1905 栈会把对端当自己（[AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
 
@@ -132,9 +134,9 @@ zig cc -target aarch64-linux-musl -static -Os -s -o spark-aarch64 tools/lab/spar
 
 ### 4.2 ARM32 模拟器（`qemu-arm-static`）**不入包**
 
-`zte-mesh` 和 `zte-mesh-launcher` 都不装它、也不自动下载安装。包里只有原厂 ARM32 运行环境和用 `$(TARGET_CC)` 编出来的宿主架构工具；服务能不能起来，取决于设备内核能不能直接跑 ARM32。**这是有意的取舍，不是漏装。**
+`zte-mesh` 和 `zte-mesh-launcher` 都不装它、也不自动下载安装。包里只有原厂 ARM32 运行环境和按 CPU 编出来的启动器；服务能不能起来，取决于设备内核能不能直接跑 ARM32。**这是有意的取舍，不是漏装。**
 
-不进包的四条理由：**OpenWrt 不编它**（feed 里没有 `qemu-user`，打进包就得塞一个预编译第三方静态二进制，二进制再分发的许可与安全维护要另处理）；**必须与宿主架构匹配**（aarch64 设备要 arm64 版、x86_64 设备要 amd64 版，一份 apk 覆盖不了两种设备，而 `zte-mesh` 是 `arch: all`）；**体积不划算**（静态 qemu-arm 约 11 MB，比整个运行环境包还大，目标设备根本用不到）；**只有一处真的需要**（只有 chroot 里的 `db-engine-probe` 是原厂 ARM32，`ns-run`/`mesh-search` 由 launcher 现编、本来就是宿主架构）。
+不进包的四条理由：**OpenWrt 不编它**（feed 里没有 `qemu-user`，打进包就得塞一个预编译第三方静态二进制，二进制再分发的许可与安全维护要另处理）；**必须与宿主架构匹配**（aarch64 设备要 arm64 版、x86_64 设备要 amd64 版，而 `zte-mesh` 是 `arch: all`）——这一条 launcher 自己用"一个 apk 带三份构建 + 入口脚本按 `uname -m` 选"解决过（第 4.3 节），qemu 不跟着学是因为下面两条；**体积不划算**（静态 qemu-arm 约 11 MB，比整个运行环境包还大，目标设备根本用不到）；**只有一处真的需要**（只有 chroot 里的 `db-engine-probe` 是原厂 ARM32；`ns-run` / `mesh-search` 是 launcher 按这台机器的 CPU 编的那一份，本来就与模拟器无关）。
 
 init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
@@ -142,7 +144,7 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 |---|---|---|
 | `aarch64` / `arm64` | 先读 `/proc/config.gz`（退化 `/proc/config`）的 `CONFIG_COMPAT=y`；**读不到就直接 exec 一次 `$ROOT/lib/ld-linux.so.3`**，能打印自己的 usage（匹配 `*sage:*`）就认定支持 | 支持 → 原生跑 |
 | `x86_64` 及其他 | 一律不可能原生 | **必须**有模拟器 |
-| 任意 | `zte_mesh.main.emulator=<路径>` | 跳过探测，用指定路径（相对私有根） |
+| 任意 | `zte_mesh.main.emulator=<路径>` | 跳过探测，用指定路径。**两种写法都行**：私有根内的（相对或带 `$ROOT` 前缀的绝对路径），或宿主上的绝对路径（init 比 sha256 后拷进私有根的 `usr/bin/<basename>`，相同就不拷；拷不进去则不起服务并说明原因——它是在 chroot **之后**被 exec 的，沙箱看不见的文件等于没有） |
 | 任意 | `emulator=none` | 强制原生。只用于诊断，不是解决办法 |
 
 **"没有答案"不等于"不支持"**：多数固件（ax3600 上的 ImmortalWrt 6.12.103 就是）不导出 `/proc/config.gz`，早期版本因此一律走上模拟器，而包里没有模拟器，服务就每 5 秒退一次——所以探测改成问内核，而不是猜。私有根默认 `/usr/lib/zte-mesh/root`（`ZTE_MESH_ROOT` 可改）；模拟器是在 chroot **之后**被 exec 的，必须放在私有根内部，init 依次找 `/usr/lib/zte-mesh/root/{,usr/bin/,bin/}qemu-arm-static` 三处。找不到会打一条完整说明（含宿主架构与三条出路），随后 `execv errno=8`（`ENOEXEC`）——**看到 `errno=8` 先按这一节处理，不要当成代码 bug**。第 2 节装的 `qemu-user-static` + `binfmt-support` 只方便**在沙箱外**直接跑 ARM 程序；服务是 chroot 后 exec，即便 binfmt 带 `F` 标志能跨 chroot 生效，解释器文件仍须在根内可见。
@@ -162,6 +164,35 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
    ```
 
 3. **`emulator=none`**——确认"这块板子到底能不能原生跑"，不是解决办法。
+
+### 4.3 启动器与 CPU：一个 apk 带三份构建，入口脚本按 `uname -m` 选
+
+`zte-mesh-launcher` 是 `PKGARCH:=all`。`package-pack.mk` 一个 Makefile 只读一个 `PKGARCH` 写进 `Architecture:`，而 ELF 只认一种机器，所以包里的做法是**按 CPU 各放一份**：
+
+```
+/usr/libexec/zte-mesh/ns-run          # 入口脚本（同一份文件装成两个名字）
+/usr/libexec/zte-mesh/mesh-search     #   —— $0 的最后一截决定跑哪个程序
+/usr/libexec/zte-mesh/arch/aarch64/{ns-run,mesh-search}
+/usr/libexec/zte-mesh/arch/armv7/{ns-run,mesh-search}
+/usr/libexec/zte-mesh/arch/x86_64/{ns-run,mesh-search}
+```
+
+`uname -m` 决定进哪个目录（`arm64`→`aarch64`、`armv7l`→`armv7`），选中就 `exec`——换程序不换 pid，procd 盯的就是那个 pid，`attach` 的 `sandbox_pid()` 也还在 `/proc/*/cmdline` 里 grep 它。
+
+**代价是装机时不再挑机器**：以前的 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 会在 `apk add` 上失败（apk 求解全有或全无，一台不匹配的机器会把四个包一起带走），现在什么机器都收，那句拒绝改由入口脚本在运行时说清（报本机 `uname -m` 与包里带的几档，`exit 127`），`zte-mesh.init` 在把实例交给 procd 之前先问一次 `--launcher-check`——否则 `respawn 3600 5 0` 会每 5 秒重开一个 127，而日志里从头到尾不出现"架构"两个字。**问的就是装机要跑的同一份代码**：CPU→目录那张映射表不在 init 里抄第二份，读回与人手工跑看到的是同一句第一行。
+
+构建侧：`tools/build/launcher-arches.sh SRC OUT` 每档一次 `-static`（[DEVELOPMENT](DEVELOPMENT.md) 第 8 节；launcher 的 `Build/Compile` 从运行包解出三个 `.c` 再调它）。`$(TARGET_CC)` 只保本目标那一档，脚本用 `-dumpmachine` 认它属于哪个目录名——不认 `ARCH_PACKAGES` 这类内部变量，因为目录名必须和产出它的那台编译器一致。其余两档要宿主的交叉编译器（CI 那一步装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf`；本机 `ubuntu` 那台两档都有，见第 2.1 节）。可用的环境变量：`ZTE_MESH_ARCHES`（编哪几档）、`ZTE_MESH_REQUIRE_ARCHES`（缺了哪档就报错，CI 设成三档全要，于是"少编一档"从绿日志里的一行变成红）、`ZTE_MESH_CC_<档>`（指定编译器）。armv7 先试 hard-float、退一步用 soft-float：`-static` 的程序自带 libc，浮点 ABI 在运行时不是任何人的事。
+
+测试环境上这三条各判什么：
+
+| 要做的 | 命令 | 看什么 |
+|---|---|---|
+| 这台机器的 CPU 在不在包里 | `/usr/libexec/zte-mesh/ns-run --launcher-check` | 退出码 0 且打印 `…/arch/<这一档>/ns-run`；非 0 时那一句会带上 `carries:` 后面包里的目录名 |
+| 包里的哪几档 | `ls /usr/libexec/zte-mesh/arch/` | feed 构建树里只带目标机那一档，属正常；CI 出的 apk 三个目录都在 |
+| 这档不在包里，非要这台跑 | `tools/lab/build-launcher.sh`（原生 gcc 编一份） | 它现在把二进制放进 `arch/<cpu>/`（目录名按上面那张映射，脚本自己读目标机的 `uname -m`）——**放到 `/usr/libexec/zte-mesh/` 那一层没用**：那两个名字属于包，`apk add` 会重写，而入口只往 `arch/` 下面找 |
+
+**armv7 那一档目前没有测试机**（三台测试环境的 CPU 是 aarch64 / x86_64 / x86_64，中兴原厂路由器不吃 apk），所以那一档只有编译与打包级的证据，运行时读回来的是 [PLAN](PLAN.md) 的 H-16。ax3600 跑沙箱要靠私有根里那份 `qemu-arm-static`——那是 ARM32 用户态的事，与 `arch/aarch64/` 这两个二进制无关（它们本来就是 aarch64 机器码）。
+
 
 ## 5. 从运行包重建 `out/`
 
@@ -193,5 +224,5 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 | 构建机"能编"却被判定等于仓库 | 覆盖同步（`tar -xzf ... -C ~/zte-mesh`）**不删远端多余文件**：仓库里删掉的文档、临时实验目录（`cmp/`、`dist/`、根目录那些旧的 `.c`）会一直留着。判"这台机器等于仓库"要**比文件清单**（`git ls-files` 对 `find`），不是看 `make` 过不过；同理 `make` 只比 mtime，陈旧产物会混进哈希比对（见 [产物哈希基线](DEVELOPMENT.md) 第 4 节那条） |
 | `ash: syntax error: unexpected word (expecting ")")` 执行 ARM32 程序时；或 `mount: mounting none on /proc/sys/fs/binfmt_misc failed: No such file or directory` | 内核没有 `CONFIG_COMPAT`，execve 返回 ENOEXEC，shell 把二进制当脚本读（AX3600 原厂固件就是这样）；同一条的另一面是内核也没编 `BINFMT_MISC`，透明执行这条路直接没有。两条出路见 [BLOB_SHIM](research/BLOB_SHIM.md) 的 qemu 分支和 `build-firmware.yml`，判定表见第 4.2 节 |
 | `error: ignoring return value of 'write' ... -Werror=unused-result` | `(void)write(...)` 从 GCC 9 起不算"用了返回值"。用 `emit()` 辅助函数真赋值再丢弃，别写 `(void)write` |
-| 装上的 `ns-run` 执行报 `not found`，`ls` 明明在 | 编译机 glibc、目标机 musl，动态链接的 ELF 找不到 `/lib64/ld-linux-x86-64.so.2`，`execve` 返回 ENOENT，shell 就报 `not found`。**加 `-static`**，别被 "not found" 骗成路径或权限问题 |
-| 覆盖正在运行的 `ns-run` 得到 `Text file busy` | 先 `/etc/init.d/zte-mesh stop` 再换文件，换完再 start |
+| 装上的 `ns-run` 执行报 `not found`，`ls` 明明在 | 编译机 glibc、目标机 musl，动态链接的 ELF 找不到 `/lib64/ld-linux-x86-64.so.2`，`execve` 返回 ENOENT，shell 就报 `not found`。**加 `-static`**，别被 "not found" 骗成路径或权限问题。包里那三份构建全部 `-static`（`tools/build/launcher-arches.sh` 把它写死在 `FLAGS` 里，调用方拿不掉），理由就是这一条：apk 装到哪台机器都不保证那台机器的 libc 与编译器同一个 release |
+| 覆盖正在运行的 `ns-run` 得到 `Text file busy` | 先 `/etc/init.d/zte-mesh stop` 再换文件，换完再 start。**2026-11-05 起还有一层**：`/usr/libexec/zte-mesh/{ns-run,mesh-search}` 是包里的 shell 入口，真正的二进制在 `arch/<cpu>/` 下面——手工换文件要换 `arch/` 里那一份；换成外层那两个名字，等于把入口脚本顶掉，而 `zte-mesh.init` 正拿它问 `--launcher-check`（真二进制不认这个参数、返回 64，于是看起来像"这台机器不在包里"） |

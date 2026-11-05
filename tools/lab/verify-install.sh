@@ -26,9 +26,11 @@
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
 # installed (`packed_copy`), the four that say the batch's shell files are (`package_scripts` -- a batch that changes
-# only the init script and the applier leaves nothing in the rootfs), the collector's own table (`ap_sta_evidence`), the
+# only the init script and the applier leaves nothing in the rootfs), the three that say this machine has a launcher it
+# can exec (`launcher_evidence` -- the package is architecture-independent now and the install-time board gate is gone,
+# so the answer moved here), the collector's own table (`ap_sta_evidence`), the
 # peer files it has produced (`peer_files`) and whether the state document carries the per-BSS key (`state_nodes`).
-# Those are evidence lines, and only the six markers are counted as assertions -- an empty peer directory on a link
+# Those are evidence lines, and only the nine markers are counted as assertions -- an empty peer directory on a link
 # whose peer reports no station count is not a fault of ours.
 # Two more pairs turn PLAN's on-machine questions into lines you can read twice. `smoke_mesh_compat` judges the page
 # option against the key the daemon reads (they answer opposite questions), and `smoke_backhaul` judges the four uci
@@ -622,7 +624,8 @@ marker_present() {
 	# be compared byte-for-byte with the archive (the precedent is ZTE_TRACE_POLL and log_budget= from the r16 round).
 	# What it does prove is that this batch's writer is on the machine: a service that sums per-BSS files against a
 	# library that never writes them falls back to the digest every second and the page keeps the old behaviour.
-	if [ ! -r "$1" ]; then printf unreadable; elif grep -aqF "$2" "$1"; then printf yes; else printf no; fi
+	# `-e` because a needle can start with a dash: the launcher's contract word is --launcher-check.
+	if [ ! -r "$1" ]; then printf unreadable; elif grep -aqF -e "$2" "$1"; then printf yes; else printf no; fi
 }
 
 packed_copy() {
@@ -665,7 +668,36 @@ package_scripts() {
 	check collect_pause_in_collector yes "$collect"
 }
 
-# Evidence, not judgement: a `<MAC>.<BSSID>.sta` only appears when a frame arrives that carries its station count
+launcher_evidence() {
+	# The launcher is arch:all now: one apk, one build per CPU under $LIBEXEC/arch/<cpu>/, and this entry
+	# script installed twice -- as ns-run and as mesh-search -- to pick the one matching `uname -m`. The
+	# install-time gate that used to refuse a wrong board (`DEPENDS:=@(TARGET_zte||TARGET_qualcommax)`) is
+	# gone, so this is the line that says the machine has a launcher it can actually exec. Asking the entry
+	# script rather than recomputing its mapping here is deliberate: the read-back then proves the code that
+	# the service runs, not a copy of its logic.
+	entry=$(marker_present "$LIBEXEC/ns-run" '--launcher-check')
+	if [ "$entry" != yes ]; then
+		# Either no launcher on this machine, or the one from before the entry script -- a hand-built
+		# binary in $LIBEXEC is an environment fact, not a stale batch.
+		say launcher_dispatch "$entry"
+		say launcher_arch not-installed
+		return 0
+	fi
+	check launcher_dispatch yes "$entry"
+	# The package lays the same script down under the second name the service runs. A tree that carries only
+	# ns-run starts the controller and leaves the search instance dead, so the half install is worth its own line.
+	search=$(marker_present "$LIBEXEC/mesh-search" '--launcher-check')
+	check launcher_second_name yes "$search"
+	resolved=$("$LIBEXEC/ns-run" --launcher-check 2>&1)
+	rc=$?
+	say launcher_arch "$(printf '%s\n' "$resolved" | head -n 1)"
+	if [ "$rc" = 0 ]; then
+		check launcher_arch_present yes yes
+	else
+		check launcher_arch_present yes no
+	fi
+}
+
 # split per BSS, so `peers_sta=0` beside `peer_reports_stations=no` means the peer never reported a number at all
 # (measured on the lab link, where the only metrics digest is `hops=1`) and says nothing about the decoder. Read
 # PLAN.md H-13 before treating an empty count as a failure.
@@ -757,6 +789,7 @@ smoke_mesh_compat
 smoke_backhaul
 packed_copy
 package_scripts
+launcher_evidence
 ap_sta_evidence
 peer_files
 peer_evidence

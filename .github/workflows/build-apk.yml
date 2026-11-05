@@ -33,12 +33,14 @@ name: Build APK
 #    fetches often enough to waste whole runs, and neither is needed to package
 #    a script-only feed.
 #
-# The .apk therefore declares @TARGET_zte alone. The kernel package is
-# additionally neutralised rather than avoided: package/kernel/linux has an
-# EMPTY Build/Compile and its install step only copies $(LINUX_DIR)/modules.builtin
-# and strings modules.builtin.modinfo, so two empty placeholder files in the
-# kernel tree make it a zero-second no-op if it enters the graph anyway
-# (package/Makefile hardcodes `package-y += kernel/linux`).
+# The launcher apk therefore declares no runtime dep at all on this target, and
+# no target either: it is PKGARCH:=all and carries one static build per CPU, so
+# the same bytes install on a board this workflow never built for. The kernel
+# package is additionally neutralised rather than avoided: package/kernel/linux
+# has an EMPTY Build/Compile and its install step only copies
+# $(LINUX_DIR)/modules.builtin and strings modules.builtin.modinfo, so two empty
+# placeholder files in the kernel tree make it a zero-second no-op if it enters
+# the graph anyway (package/Makefile hardcodes `package-y += kernel/linux`).
 #
 # SPEED: the cross toolchain (binutils -> gcc/initial -> musl -> gcc/final) is
 # by far the most expensive part (~30-45 min) and always produces the same
@@ -92,6 +94,12 @@ env:
   # (netfilter.org); both answer 403 to automated fetches often enough to waste
   # whole runs. It is a runtime-only dep, so it stays out of the build graph.
   TRIM_IP_FULL: 'true'
+  # The promise of the architecture-independent launcher is that one apk fits every
+  # machine this package claims. tools/build/launcher-arches.sh reports a missing
+  # architecture and carries on; this is what turns "armv7 was not built" from a
+  # line in a green log into a red run. It reaches the script through the make
+  # environment, which the launcher's Build/Compile inherits.
+  ZTE_MESH_REQUIRE_ARCHES: 'aarch64 armv7 x86_64'
 
 jobs:
   build:
@@ -128,11 +136,17 @@ jobs:
       - name: Install host dependencies
         run: |
           sudo apt-get update
+          # The two cross compilers are for the launcher, which is architecture-independent now: its apk carries one
+          # build per CPU, and inside this SDK only the target's own (aarch64) toolchain exists. armv7 comes from the
+          # hard-float compiler and x86_64 from the host gcc, so a machine that is not the board this target runs on
+          # still gets a binary instead of the dispatcher's "no build for this machine".
           sudo apt-get install -y --no-install-recommends \
             build-essential gawk unzip file wget python3 \
             rsync subversion git zstd libncurses-dev \
             swig libssl-dev python3-dev lua5.1 liblua5.1-0-dev \
-            meson ninja-build xz-utils
+            meson ninja-build xz-utils \
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+            gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
 
       - name: Check out ImmortalWrt tree
         run: |
@@ -289,7 +303,8 @@ jobs:
           # The runtime deps moved with the compiled binaries: zte-mesh itself is
           # arch:all now (scripts and the runtime tarball), and everything that
           # only a real board can satisfy -- iproute2, the veth module -- is
-          # declared by zte-mesh-launcher, which is arch-tagged. Trimming has to
+          # declared by zte-mesh-launcher, which is arch:all too now that its apk
+          # carries one build per CPU instead of naming one. Trimming has to
           # happen there or the apk would still drag a kernel build in.
           MK=../../zte-mesh/openwrt/zte-mesh-launcher/Makefile
           echo "target builds kernel modules: $TARGET_BUILDS_KERNEL_MODULES"
@@ -325,14 +340,18 @@ jobs:
         run: |
           # The feed was scanned in "Link the package feed" before .config named a
           # target, and a target-gated package is dropped from the index there:
-          # zte-mesh-launcher declares @(TARGET_zte||TARGET_qualcommax), so the
-          # scan saw it as unavailable, never linked package/feeds/zte_mesh/
+          # zte-mesh-launcher used to declare @(TARGET_zte||TARGET_qualcommax), so
+          # the scan saw it as unavailable, never linked package/feeds/zte_mesh/
           # zte-mesh-launcher, and the build died on "No rule to make target
           # package/feeds/zte_mesh/zte-mesh-launcher/compile" after the whole
           # toolchain had been built. defconfig then dropped
           # CONFIG_PACKAGE_zte-mesh-launcher without saying so, because a symbol
-          # that never reached Config.in cannot be selected. Re-scan now that the
-          # target is known; the metadata is cheap, the toolchain is not.
+          # that never reached Config.in cannot be selected.
+          # The gate is gone -- the launcher is arch:all and installs on any
+          # machine -- but the re-scan stays: the index is still built before the
+          # target is known, and a symbol that never reaches Config.in is still
+          # silently unselectable. Re-scan now that the target is known; the
+          # metadata is cheap, the toolchain is not.
           cat >> .config <<EOF
           CONFIG_TARGET_zte=y
           CONFIG_TARGET_zte_zx279133=y
@@ -347,10 +366,10 @@ jobs:
           make defconfig
 
           # Say it here rather than 20 minutes later with three words of make
-          # output: an arch-tagged package that is missing from the index has no
-          # make rule at all.
+          # output: a package that is missing from the index has no make rule
+          # at all.
           grep -q '^CONFIG_PACKAGE_zte-mesh-launcher=m' .config || {
-            echo "zte-mesh-launcher fell out of the package index (target-gated DEPENDS?)" >&2
+            echo "zte-mesh-launcher fell out of the package index (its DEPENDS or Makefile changed?)" >&2
             ls package/feeds/zte_mesh/ >&2
             exit 1; }
 
@@ -524,16 +543,62 @@ jobs:
             test -n "$(find bin -name "$stem-*.apk" -print -quit)" || {
               echo "build reported success but produced no $stem apk" >&2; exit 1; }
           done
+
+          # Reading the members, not the exit code: the launcher is architecture-
+          # independent now, so the package has to carry one build per CPU *inside*
+          # it. ZTE_MESH_REQUIRE_ARCHES already fails the build if a compiler did not
+          # produce one; this fails it if the install rule does not ship what was
+          # built -- a Makefile that lost the copy would green-light an apk whose
+          # entry script answers "no build for this machine" on every CPU, including
+          # the one it was compiled on.
+          has_member() {
+            # The member names carry tar's "./" prefix or not, depending on who wrote the
+            # archive; neither spelling is a fact worth failing a batch over.
+            for p in "./$1" "$1"; do
+              if printf '%s\n' "$members" | grep -qxF "$p"; then return 0; fi
+            done
+            return 1
+          }
+          LAUNCHER_APK=$(find bin -name 'zte-mesh-launcher*.apk' | head -1)
+          for opt in -tzf -tJ -tj -t; do
+            members=$(tar $opt "$LAUNCHER_APK" 2>/dev/null)
+            [ -n "$members" ] && break
+          done
+          if [ -z "$members" ]; then
+            echo "cannot list the members of $LAUNCHER_APK: $(file -b "$LAUNCHER_APK")" >&2
+            exit 1
+          fi
+          for name in ns-run mesh-search; do
+            has_member "usr/libexec/zte-mesh/$name" || {
+              echo "$LAUNCHER_APK has no $name entry script. Its members are:" >&2
+              printf '%s\n' "$members" >&2
+              exit 1
+            }
+          done
+          for arch in aarch64 armv7 x86_64; do
+            for name in ns-run mesh-search; do
+              has_member "usr/libexec/zte-mesh/arch/$arch/$name" || {
+                echo "$LAUNCHER_APK carries no build for $arch ($name). Its members are:" >&2
+                printf '%s\n' "$members" >&2
+                exit 1
+              }
+            done
+          done
+          echo "launcher apk: $LAUNCHER_APK carries the entry script and all three architectures"
+
           find bin -name '*.apk' | grep -E 'zte-mesh' || true
 
       - name: Locate artifacts
         id: collect
         run: |
-          # zte-mesh is PKG_FLAGS:=nonshared but PKGARCH:=all (scripts plus the
-          # runtime tarball are data), so it lands under the feed packages dir with
-          # the LuCI packages. zte-mesh-launcher carries the compiled ns-run and
-          # mesh-search and is aarch64_cortex-a53, so it lands under the target
-          # packages dir. `zte-mesh*.apk` matches both.
+          # Both zte-mesh and zte-mesh-launcher are PKGARCH:=all now: the runtime
+          # package is scripts plus a data tarball, and the launcher carries its
+          # compiled ns-run / mesh-search under arch/<cpu>/ beside a shell entry
+          # script that picks one for the CPU it is standing on. Neither names a
+          # target any more, so which directory the SDK files them under is not
+          # something this step has to know -- `zte-mesh*.apk` under bin/ finds
+          # them wherever they went. What the launcher apk holds is the build
+          # step's business, and it reads the members for that.
           mkdir -p dist
           find sr1010/immortalwrt/bin -name 'zte-mesh*.apk' -exec cp -v {} dist/ \;
           find sr1010/immortalwrt/bin -name 'luci-*zte-mesh*.apk' -exec cp -v {} dist/ \;

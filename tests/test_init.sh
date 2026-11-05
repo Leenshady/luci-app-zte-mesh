@@ -1442,5 +1442,39 @@ for needle in 'STA_COLLECT=${ZTE_MESH_STA_COLLECT:-/usr/libexec/zte-mesh/sta-col
 	fi
 done
 
+# The launcher is arch:all now -- one apk, one build per CPU, and a shell entry that picks the directory
+# matching `uname -m`. Nothing at install time refuses a machine it cannot run any more, so start_service()
+# has to ask before procd gets an instance: a command that exits 127 is respawned every five seconds with
+# nothing in the log about the architecture. The needles are the question, the refusal and the line.
+for needle in '"$NSRUN" --launcher-check 2>&1' 'zte-mesh-launcher has no build for' 'install zte-mesh-launcher'; do
+	if grep -q -F -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL launcher pre-flight: $needle"
+	fi
+done
+
+# The two halves of that question are in different packages, so they can drift apart without either file
+# looking wrong: the flag zte-mesh.init calls with is the one the launcher's entry script answers with.
+DISPATCH_SRC=$(dirname "$INIT")/../../zte-mesh-launcher/files/launcher-dispatch
+if [ -f "$DISPATCH_SRC" ] && grep -q -F -- '--launcher-check' "$INIT" && grep -q -F -- '--launcher-check' "$DISPATCH_SRC"; then
+	pass=$((pass + 1))
+else
+	fail=$((fail + 1)); echo "FAIL launcher pre-flight: --launcher-check is not the same word on both sides"
+fi
+
+# zte_mesh.main.emulator accepts a path on the host as well as one inside the private root. ns-run execs the
+# emulator after the chroot, so a path the sandbox cannot see is not a path it can run: the copy is the
+# whole feature, the hash comparison is what stops a restart from rewriting an 11 MB file every time the
+# service starts, and a copy that fails must not leave an instance pointing at a file that is not there.
+for needle in 'host_bin=$emulator' 'sha256sum "$host_bin"' 'copied $host_bin into the private root' \
+	'is not readable: not starting' 'cannot copy $host_bin into $dest'; do
+	if grep -q -F -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL emulator from the host: $needle"
+	fi
+done
+
 echo "init test: $pass passed, $fail failed"
 [ "$fail" = 0 ]

@@ -22,7 +22,7 @@ UCI /etc/config/zte_mesh ── LuCI 页面（luci-app-zte-mesh）
   procd 实例 controller：ns-run                    procd 实例 attach：把 zmesh0 挂进 br-lan
         │                                                       ▲
         ▼                                                       │ veth
-ns-run（AArch64 静态）：新建 network/IPC/mount 命名空间，私有根 /usr/lib/zte-mesh/root，只把 /run/zte-mesh 暴露给宿主
+ns-run（本机 CPU 的那一份静态构建；外层是入口脚本，见第 5 节）：新建 network/IPC/mount 命名空间，私有根 /usr/lib/zte-mesh/root，只把 /run/zte-mesh 暴露给宿主
         │
         ▼
 db-engine-probe --controller-service（ARM32，原厂 glibc 2.26）
@@ -66,7 +66,7 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 
 | 文件 | 运行位置 | 职责 |
 |---|---|---|
-| `ns-run.c`、`controller-net.c` | 路由器，AArch64 静态 | 沙箱启动器：命名空间、私有根、私有网桥和到宿主的 veth |
+| `ns-run.c`、`controller-net.c` | 路由器，本机 CPU 的那一份静态构建（aarch64 / armv7 / x86_64 各一） | 沙箱启动器：命名空间、私有根、私有网桥和到宿主的 veth |
 | `db-engine-probe.c`、`controller-run.c`、`controller-service.c` | 沙箱，ARM32 | 数据库服务端、守护进程的启动与重启、长期运行的服务（配置、调度器、动作、状态） |
 | `multiap-cfg.c`、`mesh-policies.c`、`wlan-profiles.c`、`*.def`、`startup-views.inc` | 同上 | 从原厂二进制还原的表结构与写表逻辑（带读回） |
 | `mesh-bridge.c` | 同上 | 配置值的类型化校验（`mb_profile`、`mb_validate`） |
@@ -127,6 +127,12 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 - `multiapd` 和原厂库是 ARM EABI5 soft-float（`e_flags=0x05000200`），解释器 `/lib/ld-linux.so.3`，glibc 2.26。不能注入 AArch64、
   musl 或 hard-float 的库；preload 库和 ARM32 程序用 `arm-linux-gnueabi-gcc -mfloat-abi=soft` 编，直接链接原厂 glibc，
   `make-runtime.py` 再审计强符号与 GNU 符号版本。
+- 启动器（`ns-run` / `mesh-search`）是本机 CPU 的机器码，与上面那套 ARM32 无关。`zte-mesh-launcher` 也是 `arch: all`：
+  一个 apk 带 aarch64 / armv7 / x86_64 各一份 `-static` 构建，放在 `/usr/libexec/zte-mesh/arch/<cpu>/`，外层那两个名字是同一份
+  shell 入口——按 `$0` 的最后一截选程序、按 `uname -m` 选目录，选中就 `exec`（换程序不换 pid，procd 与 `attach` 的
+  `sandbox_pid()` 盯的都是它）。**换掉的是装机时的架构判决**：以前那句 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 在一台不匹配的
+  机器上会把整串 `apk add` 一起带走（apk 求解全有或全无），现在什么机器都收，"这台不在包里"由入口脚本自己说，
+  `zte-mesh.init` 在把实例交给 procd 之前问一次 `--launcher-check`。布局、映射表与构建脚本见 [LAB](LAB.md) 第 4.3 节。
 - 内核要 `CONFIG_COMPAT`（AArch32 用户态）、SysV IPC（原厂数据库是 SysV 共享内存）与 raw socket（`CONFIG_PACKET`，
   1905 帧由 `multiapd` 在用户态自己收）。这三条原来是根目录那份 `kernel.fragment`，零引用、没被任何构建吃过，删掉并把话写在这里。
 - 私有根里保留原厂 loader 和 glibc，不碰 OpenWrt 的 `/lib`；原厂进程看不到 MTD、厂商设备和宿主配置。
