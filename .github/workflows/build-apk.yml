@@ -667,6 +667,35 @@ jobs:
           expect_elf armv7 mesh-search 'ELF 32-bit.*ARM'
           expect_elf x86_64 ns-run 'ELF 64-bit.*x86-64'
           expect_elf x86_64 mesh-search 'ELF 64-bit.*x86-64'
+          # Weight is the one thing the path and `file` cannot see: a build made by the host gcc
+          # instead of musl-gcc stands at the same path, is the same CPU and prints the same ELF line --
+          # it just carries glibc statically, an order of magnitude more bytes for the same code. Measured
+          # on these sources: the x86_64 pair is 79 600 + 75 632 built by musl-gcc against 735 932 + 854 716
+          # built by the host gcc (what r22 installed, 1 553 KiB on the owrt test machine), and a glibc
+          # aarch64 pair on the same machine weighs 1 408 328 against the 128 KiB the SDK's own musl
+          # toolchain ships. So the two architectures that are asked for musl get a ceiling a glibc
+          # build cannot pass, and every reading goes to the run summary. armv7 gets no ceiling: it is
+          # still the hard-float glibc cross compiler (~372 KiB a file in r22), and a number invented for
+          # it would turn a libc question into a red run for the wrong reason.
+          WEIGHTS=launcher-weights.txt
+          : > "$WEIGHTS"
+          expect_weight() { # ARCH NAME CEILING_BYTES, or "-" for none
+            bin=$MEMBERS_DIR/usr/libexec/zte-mesh/arch/$1/$2
+            bytes=$(wc -c < "$bin")
+            if [ "$3" != "-" ] && [ "$bytes" -gt "$3" ]; then
+              echo "$MESH_APK: arch/$1/$2 weighs $bytes bytes, over the $3-byte ceiling for $1." >&2
+              echo "If $1 is no longer built by musl-gcc, launcher-arches.sh said so in the build log;" >&2
+              echo "if it is, this ceiling is the promise that it still is -- move it on purpose." >&2
+              rm -rf "$MEMBERS_DIR"
+              exit 1
+            fi
+            printf '%-8s %-12s %9s bytes  ceiling %s\n' "$1" "$2" "$bytes" "$3" >> "$WEIGHTS"
+          }
+          for name in ns-run mesh-search; do
+            expect_weight aarch64 "$name" 204800
+            expect_weight x86_64 "$name" 204800
+            expect_weight armv7 "$name" -
+          done
           rm -rf "$MEMBERS_DIR"
           echo "zte-mesh apk: $MESH_APK carries the entry script, all three architectures and the runtime"
 
@@ -689,6 +718,12 @@ jobs:
             echo '```'
             ls -l dist 2>/dev/null || echo "no dist/"
             cat dist/SHA256SUMS.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo 'Launcher build weights, one line per binary the apk carries:'
+            echo
+            echo '```'
+            cat launcher-weights.txt 2>/dev/null || echo "no launcher weights read"
             echo '```'
             echo
             echo "Publishing is manual: download this artifact, install it on the"
