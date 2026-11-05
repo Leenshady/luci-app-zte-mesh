@@ -26,8 +26,9 @@
 | `luci-app-zte-mesh` | `all` | 配置页面（`网络 → ZTE Mesh`） |
 | `luci-i18n-zte-mesh-zh-cn` | `all` | 中文文案。**装应用包不会自动带上它**，要中文就单独装 |
 
-**手工装（最常用）**：从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 里拿三个 apk（解开是一个平铺目录，
-`SHA256SUMS.txt` 就在里面，所以 `sha256sum -c` 要 `cd` 进那个目录；`dist/*.apk` 那行按你放的位置换）。包没签名，所以要 `--allow-untrusted`：
+**手工装（最常用）**：三个 apk 的对外来源是 GitHub Release（<https://github.com/Leenshady/luci-app-zte-mesh/releases>，
+最新一版 `v0.2.0` = `zte-mesh 0.1.0-r22` + 两个 LuCI 包 `0.1.0-r11`，四个文件平铺在资产里，`SHA256SUMS.txt` 和它们放在一起，所以 `sha256sum -c` 要 `cd` 进那个目录）。
+仓库里自己发一批时也可以直接从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 拿（`dist/*.apk` 那行按你放的位置换）。包没签名，所以要 `--allow-untrusted`：
 
 ```sh
 ssh root@<这台路由器的IP> 'mkdir -p /tmp/zte-apk'

@@ -72,6 +72,10 @@
 
 ## 上手
 
+三个 apk（`zte-mesh` / `luci-app-zte-mesh` / `luci-i18n-zte-mesh-zh-cn`）与 `SHA256SUMS.txt` 在
+[Releases](https://github.com/Leenshady/luci-app-zte-mesh/releases) 上，最新一版 `v0.2.0`（包版本串 `0.1.0-r22`）；
+包没签名，装的时候要 `apk add --allow-untrusted`。
+
 ```sh
 # 装：把三个 apk 放到机器上，一条命令装完 + 读回 + 冒烟
 sh tools/lab/verify-install.sh /tmp/zte-apk        # 会真装包、真重启服务

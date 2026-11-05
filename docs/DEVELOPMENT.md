@@ -219,9 +219,11 @@ token 只留在 shell 变量里，不回显、不落盘。zip 解开是三个 ap
 gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 ```
 
+- **本机没有 `gh`**，2026-11-05 发 `v0.2.0` 走的是同一套 API 的三次调用：`POST /repos/<owner>/<repo>/releases`（`tag_name` + **`target_commitish` 填本次构建的那个 commit**，tag 由这一步建出来，不用先 `git push` tag）→ 对每个文件 `POST <upload_url>?name=<文件名>`，`Content-Type: application/octet-stream` + `--data-binary @文件` → **回到公开 URL 再下一个副本，在临时目录里 `sha256sum -c SHA256SUMS.txt`**（上传把字节弄坏了只有这一步会发现，而这一句正是 release 说明里让新用户执行的那一句）。`v0.2.0` 的 tag 指 `d9ce19d`（`ci/batch21` 的 tip，也就是那次构建吃的树），**不是**它上面那份只改文档的批末提交。
 - workflow 的权限是 `contents: read`：它写不了仓库，也建不了 tag，跑绿了对外什么都不会发生。
 - tag 要指对着提交——发布出来的字节和 tag 上的代码必须是同一件事，所以先装机验证、再在**那个**提交上打 tag。
 - 包**没有签名**，装的时候要 `apk add --allow-untrusted`；release 说明里也要写清这一条，不然新的人只会看到"装不上"。
+- **tag 名与包版本串是两件事**：`v0.2.0` 是 tag，apk 里仍写 `0.1.0-r22`（`PKG_VERSION` 从 2026-10 起没动过，每批只升 `PKG_RELEASE`）。说明第一行就要把这两个数都写出来，否则按 tag 去找文件名的人会以为发错了。
 
 ## 9. 界面文案与中文翻译
 

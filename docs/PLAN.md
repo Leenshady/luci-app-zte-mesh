@@ -187,7 +187,9 @@ sha256 与 artifact 里那份 `SHA256SUMS.txt` 逐字对上之后才传上机。
   **发起前核对 ref 的 SHA 与本地一致。**
 - **CI 不创建 GitHub Release**。发布是人的决定：确认某一版要对外，再手工
   `gh release create <tag> dist/*.apk dist/SHA256SUMS.txt`。流水线按批跑，跑出来的字节是"这一批的中间态"，
-  不该自动变成对外承诺。
+  不该自动变成对外承诺。**第一个按批发出去的 release 是 `v0.2.0`**（2026-11-05，批 21 那三个 apk + 校验和；
+  tag 指本次构建的 `d9ce19d`，`ci/batch21` 装完机读完就删）。本机没有 `gh`，所以走 API：建 release 时用 `target_commitish`
+  把 tag 打在那个提交上，再逐个资产 `POST ?name=`，最后**从公开 URL 下载回来核 `sha256sum -c`**——发布成没成只看这一条。
 
 ### 6.2 装机（批末一次）
 
