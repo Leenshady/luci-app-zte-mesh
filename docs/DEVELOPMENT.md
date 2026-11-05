@@ -65,7 +65,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 130 条、rpcd 24 条、装机验收 224 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  启动视图、init 135 条、终端数采集 22 条、rpcd 24 条、装机验收 224 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
   装机验收脚本在设备上会**等主控的 SSID 在本机生效**（`SSID_WAIT` 默认 60 秒、每 `SSID_POLL`=3 秒看一次），等不到才判 FAIL 并列出
   `ssid_pending=`；测试用 `SSID_WAIT=0` 把等待关掉，另有一条用例喂"第三次才出现"的 uci 桩来守这段。uci 桩处理 `uci -q get` 是
@@ -83,7 +83,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
   `"<本机那个 node.exe 的绝对路径>" tests/test_luci.js`（v24.21.0）。
   这个测试只读仓库里的 `zte-mesh.js` 与 `tests/test_init.sh`，不需要 LuCI 运行时，所以不必上开发机。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
-- 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`、`python tests/test_runtime.py`（29 条，守的是"tarball 成员与仓库文件逐字节一致"）、`python tests/test_i18n.py`。
+- 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`、`python tests/test_runtime.py`（31 条，守的是"tarball 成员与仓库文件逐字节一致"，另加两条"包里的库认不认得这条新帧路"）、`python tests/test_i18n.py`。
   `sh tests/test_rpcd.sh` 也能本机跑，但它的 `jsonfilter` 桩写死调 `python3`——这台机器上只有 `python`，没有那个名字时**七条用例全回 `{"result":-2}`**
   （看着像校验把合法参数也拒了，其实是桩没跑起来）。本机这样给它一个名字：`mkdir -p /tmp/pyshim && printf '#!/bin/sh\nexec "<本机 python.exe 的绝对路径>" "$@"\n' > /tmp/pyshim/python3 && chmod +x /tmp/pyshim/python3 && PATH=/tmp/pyshim:$PATH sh tests/test_rpcd.sh`——24 条全绿；要么上测试主机跑这一组。
 - 容器把 `/tmp` 挂成 noexec：测试不能执行自己写到 `/tmp` 的脚本（`tests/test_rpcd.sh` 用 shell 函数和 `sh -c`），

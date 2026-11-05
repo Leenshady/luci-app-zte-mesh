@@ -22,7 +22,7 @@
 
 | 包 | 架构 | 内容 |
 |---|---|---|
-| `zte-mesh` | `all` | 服务本体：`/etc/init.d/zte-mesh`、`attach` / `wlan-sync`、rpcd 插件、默认 `/etc/config/zte_mesh`、带原厂 `multiapd` 的运行包（解到 `/usr/lib/zte-mesh/root`） |
+| `zte-mesh` | `all` | 服务本体：`/etc/init.d/zte-mesh`、`attach` / `wlan-sync` / `sta-collect`、rpcd 插件、默认 `/etc/config/zte_mesh`、带原厂 `multiapd` 的运行包（解到 `/usr/lib/zte-mesh/root`） |
 | `zte-mesh-launcher` | `aarch64_cortex-a53` | 现编的 `ns-run` 与 `mesh-search`；依赖 `ip-full`、`kmod-veth`、`kmod-sched-core`。缺 veth 内核模块时启动器停在 `error=private-service-network errno=2`（建私有网线之前先 `stat /sys/module/veth`） |
 | `luci-app-zte-mesh` | `all` | 配置页面（`网络 → ZTE Mesh`） |
 | `luci-i18n-zte-mesh-zh-cn` | `all` | 中文文案。**装应用包不会自动带上它**，要中文就单独装 |

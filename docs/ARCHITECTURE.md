@@ -35,7 +35,7 @@ db-engine-probe --controller-service（ARM32，原厂 glibc 2.26）
   libzte_mesh_shim.so            数据库初始化边界（DBShmCliInit / dbAPIGetView）
   libzte_controller_profile.so   CM 替身：CmWLANGetAPConfig、CmWLANGetPsk 从我们的行读
   libzte_controller_route.so     接口身份适配；cspd 的 multiapd_mgr 替身（启动计数 0xa96e）
-  libzte_controller_trace.so     受限日志；子节点帧摘要写 /run/zte-mesh/peers/
+  libzte_controller_trace.so     受限日志；子节点帧摘要写 /run/zte-mesh/peers/；子节点这边替 `0x800b` 答终端数
         │ IEEE 1905（EtherType 0x893a）
         ▼
 zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
@@ -45,6 +45,12 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 - **配置**：宿主只写 `/run/zte-mesh/config`；服务每秒检查，改动按种类热更新（写库后发原厂 CM 通知、按频段 Renew），
   mesh 级变化重启守护进程（原厂 `multiapd_mgr` 的做法），少数键的出现或消失要重启服务（见 [SERVICE.md](SERVICE.md)）。
 - **状态**：服务每秒写 `/run/zte-mesh/state.json`（节点、动作结果、调度状态），rpcd 和 LuCI 读它。
+- **子节点的终端数从哪来（实例 `sta-collect`）**：原厂 agent 的 `0x94` 是驱动经 `cspd` 填的，沙箱两样都没有，`ns-run` 又不挂
+  `/sys`——实测它收到 AP Metric Query（`0x800b`）一声不响，所以 OpenWrt 子节点在页面上只能是"没数据"。数只能在宿主测：
+  `sta-collect` 每 5 秒把本机 AP 的关联数写进 `/run/zte-mesh/ap-sta`（`epoch=` 加每路一行 `BSSID 数`，整表原子替换），
+  这个目录本来就 bind 进私有根，`agent-ap-metrics.c` 在沙箱里读它拼 `0x800c`。表超过 30 秒没刷新就不回——
+  **过期即沉默，不报一个陈旧的数**。主控那头由服务定时发查询（见 [SERVICE.md](SERVICE.md)）。
+
 - **有线口的自愈（实例 `attach`）**：沙箱这头的 `veth-lab` 和宿主那头的 `zmesh0` 是一对 veth，删掉任一端两个一起没了；
   而沙箱里没有 `/proc`、没有 `/sys`、没有 `ip`、也没有 `CAP_NET_ADMIN`，daemon 又在 `bind()` 时把 ifindex 绑死了——
   线掉了里面没人能重建，只有重启实例才行。`attach` 因此兼任看门狗：`zmesh0` 与 `lab-peer` 连续 20 秒都不在、
@@ -68,14 +74,15 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 | `shim.c` | 沙箱，preload | 数据库初始化边界 |
 | `controller-profile.c`、`cm-profile-layout.inc` | 沙箱，preload | CM 替身；43 个字段偏移由 `cm-profile-evidence.py` 从机器码推出 |
 | `controller-route.c` | 沙箱，preload | 接口身份；`SSEND(0xa96e)` 启动计数替身 |
-| `controller-trace.c` | 沙箱，preload | 受限日志、ASEND 记录、把收到的 1905 帧交给 `controller-peer.c`；每一行先过 `controller-log.c` 的预算 |
+| `controller-trace.c` | 沙箱，preload | 受限日志、ASEND 记录、把收到的 1905 帧交给 `controller-peer.c`，并把 `0x800b` 交给 `agent-ap-metrics.c` 应答（回帧从查询到达的那个 socket 直接发出，不走本文件的 `sendto` 包装）；每一行先过 `controller-log.c` 的预算 |
 | `controller-log.c`、`controller-log.h` | 沙箱，preload + 主机测试 | 纯函数：一段格式文本 + 调用方给的时钟 → 这一行打不打、打不成时发哪条提示（措辞固定，只有采样那句带一个累计丢弃数——值行打的是 daemon 格式化好的结果，提示里绝不掺它）。设备的日志落点是 logd 那圈 128 KiB 环，一次配置推送里原厂 daemon 重复的状态行能把它占满，所以按类分预算、重复行按分钟采样；带密钥/SSID/BSS 的格式永不展开值 |
 | `controller-peer.c`、`controller-peer.h` | 沙箱，preload | 一帧 → `peers/<MAC>.<kind>`：指示灯、终端数、BSS 数、直连还是中继、动作回执；终端数还**按 BSSID 各存一个 `peers/<MAC>.<BSSID>.sta`**（各自的时间戳，服务读 `controller_peer_bss_load()` 把没过期的一路一路加起来，并拿到按 BSSID 的明细去拼 `state.json` 的 `bss_detail`——摘要只留最后一帧的总数，按射频分别上报时会互相顶掉）；落盘目录是 `ZTE_MESH_PEERS_DIR`，所以主机测试能在临时目录上验整条链 |
-| `controller-1905.c`、`controller-steer.c` | 沙箱 + 主机测试 | 纯函数解码：CMDU 头与 TLV 走查、原厂 vendor 容器（0x0b/0x21）、`0x94` 按 BSSID 的 `{BSSID, 终端数}`（拆不出可信的一份就整体返回 0，宁缺毋滥）、终端引导三类报文 |
-| `controller-packet.c`、`controller-wsc*.c` | 测试环境 | 合成对端和独立的 M2 校验器（只用公开测试值） |
+| `agent-ap-metrics.c`、`agent-ap-metrics.h` | 沙箱，preload | 子节点终端数的替身应答：一帧 `0x800b` + `/run/zte-mesh/ap-sta` → 一帧 `0x800c`（点名的那几路各回一条 `0x94`，空列表＝本机跑的每一路）。没有表、表超过 30 秒没刷新、`epoch` 在未来、查询点名的 BSSID 一个都不认识 ⇒ 回 0 字节＝不吭声；认得的路数照答，**没测到的那一路不补 0**。自己不开 socket，发回哪儿由 `controller-trace.c` 决定；表的路径是 `ZTE_MESH_AP_STA_FILE`，所以主机测试能喂一张自己的表 |
+| `controller-1905.c`、`controller-steer.c` | 沙箱 + 主机测试 | 纯函数解码与组帧：CMDU 头与 TLV 走查、原厂 vendor 容器（0x0b/0x21）、`0x94` 按 BSSID 的 `{BSSID, 终端数}`（拆不出可信的一份就整体返回 0，宁缺毋滥）、`0x93` 的查询解码与 `0x800b`/`0x800c` 的组帧、终端引导三类报文 |
+| `controller-packet.c`、`controller-wsc*.c` | 沙箱 + 测试环境 | 合成对端和独立的 M2 校验器（只用公开测试值）；主控侧发 `0x800b` 查询（`controller_ap_metrics_query()`：从 `veth-lab` 发、源取 `br0` 的 AL MAC、发出即不读——应答按那个 MAC 回到 daemon 自己的 socket） |
 | `config-bridge-probe.c`、`exec-check.c`、`zte-debugcmd.c` | 测试环境 | 早期桥接测试、加载检查、原厂 `sendcmd` 调试通道客户端 |
 | `prepare.py`、`jffs2.py`、`vendor_elf.py`、`schema.py`、`profile_schema.py`、`startup-schema.py`、`bridge_evidence.py`、`cm-profile-evidence.py` | mac | 从固件提取运行环境、按固定哈希审计 ABI、核对表结构与偏移证据 |
-| `openwrt/` | 路由器 | init（UCI 映射）、rpcd 插件、LuCI 页面、`make-runtime.py`、`repack-runtime.py` |
+| `openwrt/` | 路由器 | init（UCI 映射）、rpcd 插件、LuCI 页面、`wlan-sync`、`sta-collect`（宿主侧量终端数）、`make-runtime.py`、`repack-runtime.py` |
 
 ## 4. 固件来源
 
