@@ -13,7 +13,7 @@ SCRIPT=${1:-$(dirname "$0")/../tools/lab/verify-install.sh}
 [ -f "$SCRIPT" ] || { echo "verify-install.sh not found: $SCRIPT" >&2; exit 1; }
 # the real entry script, not a stub of it: the read-back asks the launcher a question (--launcher-check), so the
 # suite that pins the answer pins the contract between the two files rather than two independent guesses.
-DISPATCH=$(dirname "$0")/../openwrt/zte-mesh-launcher/files/launcher-dispatch
+DISPATCH=$(dirname "$0")/../openwrt/zte-mesh/files/launcher-dispatch
 [ -f "$DISPATCH" ] || { echo "launcher-dispatch not found: $DISPATCH" >&2; exit 1; }
 T=$(mktemp -d) || exit 1
 T=$(cd "$T" && pwd)
@@ -98,7 +98,7 @@ cat > "$BIN/apk" <<EOF
 case "\$1" in
 add)
 	if [ -f '$FIX/add-fails' ]; then echo 'ERROR: unable to select packages:'; exit 1; fi
-	if [ -f '$FIX/uninstallable' ]; then echo 'ERROR: zte-mesh-launcher-0.1.0-r2: not installable'; exit 1; fi
+	if [ -f '$FIX/uninstallable' ]; then echo 'ERROR: zte-mesh-0.1.0-r15: not installable'; exit 1; fi
 	# naming the file it took is how the test catches the stem-glob confusion (zte-mesh swallowing the launcher apk)
 	echo "ADDED $(basename "${2##*/}")"; exit 0 ;;
 list) cat '$FIX/installed' ;;
@@ -242,6 +242,9 @@ check_line plan_ssid_0 FRESHR10@default_radio0
 check_line plan_ssid_1 'FRESHR10-5G@zte_backhaul_sta_5g'
 check_line version_zte-mesh 0.1.0-r15
 check_line version_luci-i18n-zte-mesh-zh-cn absent
+# the machine still carries the package that used to hold ns-run and mesh-search; saying so is the whole line, and
+# it is what makes `version_zte-mesh` below mean "this is the merged package" rather than "the solver kept both".
+check_line legacy_launcher_package 0.1.0-r2
 check_line log_error_lines 0
 # the child's own hop count: the startup fixture writes -2 and nothing else in our code overwrites it on this role,
 # so a 2 here can only be the vendor daemon's own update (B16).
@@ -351,6 +354,9 @@ check_line RESULT FAIL
 check_line sync_result error
 
 # --- case 6: install reporting -----------------------------------------------------------------------------------------
+# The directory holds a zte-mesh-launcher-*.apk from the batch before the packages were merged. That file is not one
+# of this batch's stems, and it must never be installed -- nor, with a plain `zte-mesh-*.apk` glob, mistaken for
+# zte-mesh itself (docs/INSTALL.md §2: one directory, one batch).
 CASE=install-mixed
 printf 'not installable here\n' > "$FIX/uninstallable"
 APK_DIR=$T/apks
@@ -360,14 +366,18 @@ mkdir -p "$APK_DIR"
 : > "$APK_DIR/luci-app-zte-mesh-0.1.0-r8.apk"
 sh "$SCRIPT" "$APK_DIR" > "$out" 2>&1
 check_line install_zte-mesh uninstallable
-check_line install_zte-mesh-launcher uninstallable
 check_line install_luci-app-zte-mesh uninstallable
 check_line install_luci-i18n-zte-mesh-zh-cn skip
+if grep -q '^install_zte-mesh-launcher=' "$out"; then
+	fail=$((fail + 1)); echo "FAIL case $CASE: the leftover launcher apk was installed"
+else
+	pass=$((pass + 1))
+fi
 if grep -qx 'RESULT=PASS' "$out" || grep -qx 'RESULT=FAIL' "$out"; then pass=$((pass + 1)); else
 	fail=$((fail + 1)); echo "FAIL case $CASE: install must still end with a verdict"; fi
 
 # the two verdicts must not be confused: a file that is absent is a skip, a file the machine refuses is a failure.
-# And each stem must pick its own file -- zte-mesh-*.apk alone would match the launcher too.
+# And each stem must pick its own file -- zte-mesh-[0-9]*.apk is what keeps the launcher file out of it.
 CASE=install-clean
 rm -f "$FIX/uninstallable" "$FIX/add-fails" "$FIX/restarted"
 sh "$SCRIPT" "$APK_DIR" > "$out" 2>&1
@@ -375,7 +385,11 @@ check_line restart rpcd+zte-mesh
 check_line install_zte-mesh zte-mesh-0.1.0-r15.apk
 if [ "$(wc -l < "$FIX/restarted" 2>/dev/null | tr -d ' ')" = 2 ]; then pass=$((pass + 1)); else
 	fail=$((fail + 1)); echo "FAIL case $CASE: an install must restart both rpcd and zte-mesh"; fi
-check_line install_zte-mesh-launcher zte-mesh-launcher-0.1.0-r2.apk
+if grep -q 'zte-mesh-launcher-0.1.0-r2.apk' "$out"; then
+	fail=$((fail + 1)); echo "FAIL case $CASE: the leftover launcher apk was installed"
+else
+	pass=$((pass + 1))
+fi
 check_line install_luci-app-zte-mesh luci-app-zte-mesh-0.1.0-r8.apk
 check_line install_luci-i18n-zte-mesh-zh-cn skip
 

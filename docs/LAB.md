@@ -37,7 +37,7 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 | 机器（别名 / 机型） | 地址 | 角色 | 关键事实 |
 |---|---|---|---|
 | `ax3600`：小米 AX3600，刷 ImmortalWrt 25.12.2 | 192.168.1.1 | OpenWrt 路由器（物理机），跑子节点角色 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）；实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static`。**无线只剩一块射频在候选里**（`radio0.disabled=1` 关掉了 2.4G），所以"一个频段有两块射频、`wlan-sync` 放弃该频段"那条路径在这台上测不出来——"没报错"不等于"已验证" |
-| `owrt`：ImmortalWrt 虚拟机（x86_64） | 192.168.1.20 | 测试环境里的主控（master） | 内核与 `ax3600` 同一个版本。两个包都是 `arch:all`，所以 `zte-mesh-launcher` 装得上——它带 aarch64 / armv7 / x86_64 各一份构建，`uname -m` 是 `x86_64` 就走进 `arch/x86_64/`（这一档 2026-11-05 起才有；以前它是 `aarch64_cortex-a53` + `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，这台**一个都装不上**，只能 `tools/lab/build-launcher.sh` 手工补）。`root/qemu-arm-static` 仍是手工放的——那是 ARM32 用户态的事，与 launcher 这一档无关 |
+| `owrt`：ImmortalWrt 虚拟机（x86_64） | 192.168.1.20 | 测试环境里的主控（master） | 内核与 `ax3600` 同一个版本。带启动器的那个包是 `arch:all`（合并前它是单独的 `zte-mesh-launcher`），所以这台装得上——包里带 aarch64 / armv7 / x86_64 各一份构建，`uname -m` 是 `x86_64` 就走进 `arch/x86_64/`（这一档 2026-11-05 起才有；以前它是 `aarch64_cortex-a53` + `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，这台**一个都装不上**，只能 `tools/lab/build-launcher.sh` 手工补）。`root/qemu-arm-static` 仍是手工放的——那是 ARM32 用户态的事，与启动器这一档无关 |
 | `ubuntu`：x86_64 Ubuntu 22.04 | 192.168.1.191 | 编译机 | 本文主角：`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
 
 ## 3. 日常流程
@@ -134,9 +134,9 @@ zig cc -target aarch64-linux-musl -static -Os -s -o spark-aarch64 tools/lab/spar
 
 ### 4.2 ARM32 模拟器（`qemu-arm-static`）**不入包**
 
-`zte-mesh` 和 `zte-mesh-launcher` 都不装它、也不自动下载安装。包里只有原厂 ARM32 运行环境和按 CPU 编出来的启动器；服务能不能起来，取决于设备内核能不能直接跑 ARM32。**这是有意的取舍，不是漏装。**
+`zte-mesh` 不装它、也不自动下载安装（启动器并进这个包之前，`zte-mesh-launcher` 同样不装）。包里只有原厂 ARM32 运行环境和按 CPU 编出来的启动器；服务能不能起来，取决于设备内核能不能直接跑 ARM32。**这是有意的取舍，不是漏装。**
 
-不进包的四条理由：**OpenWrt 不编它**（feed 里没有 `qemu-user`，打进包就得塞一个预编译第三方静态二进制，二进制再分发的许可与安全维护要另处理）；**必须与宿主架构匹配**（aarch64 设备要 arm64 版、x86_64 设备要 amd64 版，而 `zte-mesh` 是 `arch: all`）——这一条 launcher 自己用"一个 apk 带三份构建 + 入口脚本按 `uname -m` 选"解决过（第 4.3 节），qemu 不跟着学是因为下面两条；**体积不划算**（静态 qemu-arm 约 11 MB，比整个运行环境包还大，目标设备根本用不到）；**只有一处真的需要**（只有 chroot 里的 `db-engine-probe` 是原厂 ARM32；`ns-run` / `mesh-search` 是 launcher 按这台机器的 CPU 编的那一份，本来就与模拟器无关）。
+不进包的四条理由：**OpenWrt 不编它**（feed 里没有 `qemu-user`，打进包就得塞一个预编译第三方静态二进制，二进制再分发的许可与安全维护要另处理）；**必须与宿主架构匹配**（aarch64 设备要 arm64 版、x86_64 设备要 amd64 版，而 `zte-mesh` 是 `arch: all`）——这一条启动器自己用"一个 apk 带三份构建 + 入口脚本按 `uname -m` 选"解决过（第 4.3 节），qemu 不跟着学是因为下面两条；**体积不划算**（静态 qemu-arm 约 11 MB，比整个运行环境包还大，目标设备根本用不到）；**只有一处真的需要**（只有 chroot 里的 `db-engine-probe` 是原厂 ARM32；`ns-run` / `mesh-search` 是按这台机器的 CPU 编的那一份，本来就与模拟器无关）。
 
 init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
@@ -167,7 +167,7 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
 ### 4.3 启动器与 CPU：一个 apk 带三份构建，入口脚本按 `uname -m` 选
 
-`zte-mesh-launcher` 是 `PKGARCH:=all`。`package-pack.mk` 一个 Makefile 只读一个 `PKGARCH` 写进 `Architecture:`，而 ELF 只认一种机器，所以包里的做法是**按 CPU 各放一份**：
+启动器和运行环境在同一个包里：`zte-mesh` 是 `PKGARCH:=all`（2026-11-05 之前它是单独的 `zte-mesh-launcher`，两半各一个 apk）。`package-pack.mk` 一个 Makefile 只读一个 `PKGARCH` 写进 `Architecture:`，而 ELF 只认一种机器，所以包里的做法是**按 CPU 各放一份**：
 
 ```
 /usr/libexec/zte-mesh/ns-run          # 入口脚本（同一份文件装成两个名字）
@@ -179,9 +179,9 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
 `uname -m` 决定进哪个目录（`arm64`→`aarch64`、`armv7l`→`armv7`），选中就 `exec`——换程序不换 pid，procd 盯的就是那个 pid，`attach` 的 `sandbox_pid()` 也还在 `/proc/*/cmdline` 里 grep 它。
 
-**代价是装机时不再挑机器**：以前的 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 会在 `apk add` 上失败（apk 求解全有或全无，一台不匹配的机器会把四个包一起带走），现在什么机器都收，那句拒绝改由入口脚本在运行时说清（报本机 `uname -m` 与包里带的几档，`exit 127`），`zte-mesh.init` 在把实例交给 procd 之前先问一次 `--launcher-check`——否则 `respawn 3600 5 0` 会每 5 秒重开一个 127，而日志里从头到尾不出现"架构"两个字。**问的就是装机要跑的同一份代码**：CPU→目录那张映射表不在 init 里抄第二份，读回与人手工跑看到的是同一句第一行。
+**代价是装机时不再挑机器**：以前的 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 会在 `apk add` 上失败（apk 求解全有或全无，一台不匹配的机器会把同一条命令里的其他包一起带走），现在什么机器都收，那句拒绝改由入口脚本在运行时说清（报本机 `uname -m` 与包里带的几档，`exit 127`），`zte-mesh.init` 在把实例交给 procd 之前先问一次 `--launcher-check`——否则 `respawn 3600 5 0` 会每 5 秒重开一个 127，而日志里从头到尾不出现"架构"两个字。**问的就是装机要跑的同一份代码**：CPU→目录那张映射表不在 init 里抄第二份，读回与人手工跑看到的是同一句第一行。**只有 127 才是"这一档不在包里"**：其余非零（例如 `/usr/libexec/zte-mesh/ns-run` 站着的是合并前手工放的旧 ELF，它不认识这个参数、只打 usage 并回 64）由 init 另记一行 `--launcher-check exited <码>`，不冒充架构判决。
 
-构建侧：`tools/build/launcher-arches.sh SRC OUT` 每档一次 `-static`（[DEVELOPMENT](DEVELOPMENT.md) 第 8 节；launcher 的 `Build/Compile` 从运行包解出三个 `.c` 再调它）。`$(TARGET_CC)` 只保本目标那一档，脚本用 `-dumpmachine` 认它属于哪个目录名——不认 `ARCH_PACKAGES` 这类内部变量，因为目录名必须和产出它的那台编译器一致。其余两档要宿主的交叉编译器（CI 那一步装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf`；本机 `ubuntu` 那台两档都有，见第 2.1 节）。可用的环境变量：`ZTE_MESH_ARCHES`（编哪几档）、`ZTE_MESH_REQUIRE_ARCHES`（缺了哪档就报错，CI 设成三档全要，于是"少编一档"从绿日志里的一行变成红）、`ZTE_MESH_CC_<档>`（指定编译器）。armv7 先试 hard-float、退一步用 soft-float：`-static` 的程序自带 libc，浮点 ABI 在运行时不是任何人的事。
+构建侧：`tools/build/launcher-arches.sh SRC OUT` 每档一次 `-static`（[DEVELOPMENT](DEVELOPMENT.md) 第 8 节；`zte-mesh` 的 `Build/Compile` 从运行包解出三个 `.c` 再调它）。`$(TARGET_CC)` 只保本目标那一档，脚本用 `-dumpmachine` 认它属于哪个目录名——不认 `ARCH_PACKAGES` 这类内部变量，因为目录名必须和产出它的那台编译器一致。其余两档要宿主的交叉编译器（CI 那一步装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf`；本机 `ubuntu` 那台两档都有，见第 2.1 节）。可用的环境变量：`ZTE_MESH_ARCHES`（编哪几档）、`ZTE_MESH_REQUIRE_ARCHES`（缺了哪档就报错，CI 设成三档全要，于是"少编一档"从绿日志里的一行变成红）、`ZTE_MESH_CC_<档>`（指定编译器）。armv7 先试 hard-float、退一步用 soft-float：`-static` 的程序自带 libc，浮点 ABI 在运行时不是任何人的事。
 
 测试环境上这三条各判什么：
 

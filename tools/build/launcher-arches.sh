@@ -1,16 +1,16 @@
 #!/bin/sh
-# launcher-arches.sh -- compile the zte-mesh-launcher binaries for every CPU one apk can carry.
+# launcher-arches.sh -- compile the zte-mesh launcher binaries for every CPU one apk can carry.
 #
 #   sh tools/build/launcher-arches.sh SRC OUT
 #
-# SRC holds ns-run.c, controller-net.c and enroller.c; the launcher Makefile unpacks them out of
-# openwrt/zte-mesh/zte-mesh-runtime.tar.gz, so the packaged code cannot drift from what the repository
-# ships. OUT gets one directory per architecture built -- OUT/aarch64/{ns-run,mesh-search} and so on --
-# which the package installs under /usr/libexec/zte-mesh/arch/.
+# SRC holds ns-run.c, controller-net.c and enroller.c; the zte-mesh Makefile unpacks them out of the
+# runtime tarball it installs, so the packaged code cannot drift from what the repository ships. OUT gets
+# one directory per architecture built -- OUT/aarch64/{ns-run,mesh-search} and so on -- which the package
+# installs under /usr/libexec/zte-mesh/arch/.
 #
-# Why a loop instead of one $(TARGET_CC) build: the launcher package is arch:all, so its apk has to carry
-# the code for every machine it claims to install on. Inside an OpenWrt build tree only the target's own
-# toolchain exists, so the other architectures come from host cross compilers where they are installed
+# Why a loop instead of one $(TARGET_CC) build: the package is arch:all, so its apk has to carry the code
+# for every machine it claims to install on. Inside an OpenWrt build tree only the target's own toolchain
+# exists, so the other architectures come from host cross compilers where they are installed
 # (.github/workflows/build-apk.yml installs them; a feed build inside a source tree gets the target arch
 # alone, which the dispatcher then says out loud on any other machine).
 #
@@ -18,7 +18,7 @@
 #
 #   ZTE_MESH_TARGET_ARCH / ZTE_MESH_TARGET_CC / ZTE_MESH_TARGET_CFLAGS
 #       the architecture this OpenWrt toolchain builds for, and the compiler and flags for it. The
-#       launcher Makefile passes $(TARGET_CC) and $(TARGET_CFLAGS) through and leaves the
+#       package Makefile passes $(TARGET_CC) and $(TARGET_CFLAGS) through and leaves the
 #       architecture to this script, which reads it off the compiler (see -dumpmachine below).
 #   ZTE_MESH_CC_AARCH64 / ZTE_MESH_CC_ARMV7 / ZTE_MESH_CC_X86_64
 #       build this architecture with this compiler instead of searching for one.

@@ -1,7 +1,7 @@
 #!/bin/sh
-# Host test of openwrt/zte-mesh-launcher/files/launcher-dispatch: the entry script the launcher package
-# installs twice (as ns-run and as mesh-search), the machine it asks `uname -m` about, and the transparency
-# of the exec it ends with.
+# Host test of openwrt/zte-mesh/files/launcher-dispatch: the entry script the package installs twice (as
+# ns-run and as mesh-search), the machine it asks `uname -m` about, and the transparency of the exec it ends
+# with.
 #
 # The binaries are stubs that print their own path plus the arguments they were handed, and `uname -m` is a
 # stub that answers whatever the case says. That is the point: nothing here compiles anything, and what gets
@@ -11,7 +11,7 @@
 # Run with the shell OpenWrt uses: busybox ash tests/test_launcher_dispatch.sh
 #
 #   sh tests/test_launcher_dispatch.sh [LAUNCHER_DISPATCH]
-DISPATCH=${1:-$(dirname "$0")/../openwrt/zte-mesh-launcher/files/launcher-dispatch}
+DISPATCH=${1:-$(dirname "$0")/../openwrt/zte-mesh/files/launcher-dispatch}
 [ -f "$DISPATCH" ] || { echo "launcher-dispatch not found: $DISPATCH" >&2; exit 1; }
 T=$(mktemp -d) || exit 1
 T=$(cd "$T" && pwd)

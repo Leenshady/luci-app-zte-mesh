@@ -52,11 +52,11 @@
 |---|---|
 | LuCI 页面，中英双语（中文随 CI 出 `zh-cn.lmo`） | ✅ |
 | 两个开关摆出三种拓扑，页面按角色只显示有效项 | ✅ |
-| 四个 apk：`zte-mesh` / `zte-mesh-launcher` / `luci-app-zte-mesh` / `luci-i18n-zte-mesh-zh-cn` | ✅ |
-| 启动器不挑机器：一个 apk 带 aarch64 / armv7 / x86_64 各一份构建，装机时不再有架构判决，"这台不在包里"由启动器在运行时说清 | ◐（真机读数待 [PLAN](docs/PLAN.md) H-16） |
+| 三个 apk：`zte-mesh`（运行环境 + 启动器）/ `luci-app-zte-mesh` / `luci-i18n-zte-mesh-zh-cn` | ✅ |
+| 启动器不挑机器：一个 apk 带 aarch64 / armv7 / x86_64 各一份构建，装机时不再有架构判决，"这台不在包里"由启动器在运行时说清 | ◐（x86_64 与 aarch64 两档已在两台测试环境读到，含反面那次改名；armv7 那一档没有机器，只有编译与打包级的证据，见 [PLAN](docs/PLAN.md) H-16） |
 | 一条命令装机验收（装包 + 读回版本 + 四条冒烟 + 读回这批的标记） | ✅ |
 | 卸载与重装（`apk del` / `apk add` 循环走通） | ✅ |
-| 作为 ImmortalWrt 的 feed 登记，四个包在那棵树里编出来（CI 出的 apk 就是这么来的） | ✅ |
+| 作为 ImmortalWrt 的 feed 登记，三个包在那棵树里编出来（CI 出的 apk 就是这么来的） | ✅ |
 | 预装进固件镜像、刷到设备 | ⬜ |
 | arm64 设备直接跑 32 位原厂程序：内核能跑就原生跑（探测已修，ax3600 实测） | ✅ |
 | 内核跑不了 ARM32 时用 `qemu-arm-static`：**支持手工放，不随包分发**（有意的取舍）；放的位置可以是这台机器上的任意路径，`zte_mesh.main.emulator` 指过去即可 | ◐ |
@@ -73,7 +73,7 @@
 ## 上手
 
 ```sh
-# 装：把四个 apk 放到机器上，一条命令装完 + 读回 + 冒烟
+# 装：把三个 apk 放到机器上，一条命令装完 + 读回 + 冒烟
 sh tools/lab/verify-install.sh /tmp/zte-apk        # 会真装包、真重启服务
 sh tools/lab/verify-install.sh                     # 只读检查，不装不重启
 ```
@@ -101,7 +101,7 @@ python3 tests/test_i18n.py                           # 改了界面文案必须�
 | `src/` | C 侧：沙箱启动器、服务、垫片与 preload 库、命令行工具，以及原厂表结构的 `.def`/`.inc`（职责见 [ARCHITECTURE](docs/ARCHITECTURE.md)） |
 | `build.sh`、`Makefile`、`Dockerfile*` | 构建入口：提取并审计运行环境、交叉编译、跑主机测试 |
 | `tests/` | 主机测试（C 编解码、Python、shell、LuCI 的 JS） |
-| `openwrt/` | OpenWrt 包：`zte-mesh`、`zte-mesh-launcher`、`luci-app-zte-mesh` |
+| `openwrt/` | OpenWrt 包：`zte-mesh`（含按 CPU 各一份的启动器）、`luci-app-zte-mesh` |
 | `prebuilt/` | lab 用的预编译件，**不进任何 apk** |
 | `tools/` | `tools/dev/` 是构建与测试用的 17 个 Python 脚本，另有构建容器与打包、抓包重放、子路由 telnet、测试环境里的脚本 |
 | `docs/` | 文档（下） |

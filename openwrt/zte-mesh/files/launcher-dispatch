@@ -4,10 +4,11 @@
 #   ns-run / mesh-search    -- one file installed under two names; the program is the name it was called by.
 #
 # Why this script exists: an ELF carries exactly one architecture, and package-pack.mk reads one PKGARCH
-# per Makefile ("Architecture: $(PKGARCH)"), so a package that ships machine code has to name one CPU. The
-# launcher is arch:all now and ships arch/<cpu>/{ns-run,mesh-search} next to this file -- one apk, any
-# machine. The price is that nothing rejects a wrong board at install time any more: the old
-# DEPENDS:=@(TARGET_zte||TARGET_qualcommax) gate used to fail `apk add` on a machine that could not run
+# per Makefile ("Architecture: $(PKGARCH)"), so a package that ships machine code has to name one CPU -- unless
+# it names none and ships one build per CPU instead. That is what zte-mesh does: it is arch:all and ships
+# arch/<cpu>/{ns-run,mesh-search} next to this file, so one apk fits every machine and this script picks the
+# directory for the one running it. The price is that nothing rejects a wrong board at install time any more: the
+# old DEPENDS:=@(TARGET_zte||TARGET_qualcommax) gate used to fail `apk add` on a machine that could not run
 # the sandbox, and an arch:all package installs everywhere by definition. So the check lives here, where it
 # can name the machine it is standing on, and zte-mesh.init asks the same question before it starts an
 # instance (otherwise procd respawns a 127 every five seconds, which is the failure docs/LAB.md describes
@@ -19,7 +20,7 @@ name=${0##*/}
 dir=${0%/*}
 
 # `uname -m` is the kernel's own name for the machine, and the three names below are the ones the package
-# is built for (openwrt/zte-mesh-launcher/Makefile). An unmapped CPU falls through as its own name, so the
+# is built for (openwrt/zte-mesh/Makefile). An unmapped CPU falls through as its own name, so the
 # "not carried" line reports what the kernel actually said instead of inventing a directory.
 machine=$(uname -m)
 case $machine in

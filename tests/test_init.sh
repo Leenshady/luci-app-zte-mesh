@@ -1442,11 +1442,17 @@ for needle in 'STA_COLLECT=${ZTE_MESH_STA_COLLECT:-/usr/libexec/zte-mesh/sta-col
 	fi
 done
 
-# The launcher is arch:all now -- one apk, one build per CPU, and a shell entry that picks the directory
-# matching `uname -m`. Nothing at install time refuses a machine it cannot run any more, so start_service()
-# has to ask before procd gets an instance: a command that exits 127 is respawned every five seconds with
-# nothing in the log about the architecture. The needles are the question, the refusal and the line.
-for needle in '"$NSRUN" --launcher-check 2>&1' 'zte-mesh-launcher has no build for' 'install zte-mesh-launcher'; do
+# The launcher is arch:all and lives in the same apk as the runtime now -- one build per CPU under
+# arch/<cpu>/, and a shell entry that picks the directory matching `uname -m`. Nothing at install time
+# refuses a machine it cannot run any more, so start_service() has to ask before procd gets an instance: a
+# command that exits 127 is respawned every five seconds with nothing in the log about the architecture.
+# The exit code is the whole judgement, so the needles are the question, the two answers and the fact that
+# they are keyed off the number -- an ELF left under this name by hand answers 64, and calling that "no
+# build for this machine" is a diagnosis that sends the reader to the wrong file (read back in a real
+# upgrade on 2026-11-05; docs/journal/2026-11-05.md).
+for needle in '"$NSRUN" --launcher-check 2>&1' 'launcher_status=$?' '"$launcher_status" = 127' \
+	'has no launcher build for' '--launcher-check exited $launcher_status' \
+	'$NSRUN is missing from package zte-mesh'; do
 	if grep -q -F -- "$needle" "$INIT"; then
 		pass=$((pass + 1))
 	else
@@ -1454,13 +1460,37 @@ for needle in '"$NSRUN" --launcher-check 2>&1' 'zte-mesh-launcher has no build f
 	fi
 done
 
-# The two halves of that question are in different packages, so they can drift apart without either file
-# looking wrong: the flag zte-mesh.init calls with is the one the launcher's entry script answers with.
-DISPATCH_SRC=$(dirname "$INIT")/../../zte-mesh-launcher/files/launcher-dispatch
+# ... and the arch sentence must be the one gated by 127, not a bare `|| {`: any non-zero used to reach it.
+if grep -F -- '--launcher-check 2>&1' "$INIT" | grep -q '|| {$'; then
+	fail=$((fail + 1)); echo "FAIL launcher pre-flight: every non-zero still reads as an architecture refusal"
+else
+	pass=$((pass + 1))
+fi
+
+# The package this file used to tell people to install does not exist any more. A leftover mention is not
+# cosmetic: it sends the reader to an `apk add` that the solver cannot satisfy.
+if grep -q 'zte-mesh-launcher' "$INIT"; then
+	fail=$((fail + 1)); echo "FAIL launcher pre-flight: $INIT still names the package zte-mesh-launcher"
+else
+	pass=$((pass + 1))
+fi
+
+# The two halves of that question are on both sides of one exec, so they can drift apart without either file
+# looking wrong: the flag zte-mesh.init calls with is the one the entry script answers with.
+DISPATCH_SRC=$(dirname "$INIT")/launcher-dispatch
 if [ -f "$DISPATCH_SRC" ] && grep -q -F -- '--launcher-check' "$INIT" && grep -q -F -- '--launcher-check' "$DISPATCH_SRC"; then
 	pass=$((pass + 1))
 else
 	fail=$((fail + 1)); echo "FAIL launcher pre-flight: --launcher-check is not the same word on both sides"
+fi
+
+# One package, one install rule: the entry script and the per-CPU builds it looks for have to be installed by
+# the same Makefile that this init script ships in, or a box ends up with an $NSRUN and no arch/ under it.
+MK=$(dirname "$INIT")/../Makefile
+if grep -qF -- 'files/launcher-dispatch' "$MK" && grep -qF -- '$(PKG_BUILD_DIR)/arch' "$MK"; then
+	pass=$((pass + 1))
+else
+	fail=$((fail + 1)); echo "FAIL launcher pre-flight: $MK installs neither the entry script nor arch/"
 fi
 
 # zte_mesh.main.emulator accepts a path on the host as well as one inside the private root. ns-run execs the

@@ -1,7 +1,7 @@
 #!/bin/sh
 # build-launcher.sh：给一台"包里没有它那一档构建"的目标机现编一份启动器，放进入口脚本会找的那个目录。
 #
-# 为什么还需要这个：zte-mesh-launcher 现在是 PKGARCH:=all，一个 apk 带 aarch64 / armv7 / x86_64 各一份，
+# 为什么还需要这个：zte-mesh 是 PKGARCH:=all，一个 apk 带 aarch64 / armv7 / x86_64 各一份，
 # 装到哪台机器都收——"这台机器装不上启动器"这种失败不会再发生了。剩下的情况是**这台机器的 CPU 不在包里**：
 # feed 构建树里只有目标机那一档的工具链，出来的 apk 就只带一档；或者这台是 mips 之类本包不带的架构。
 # 那时 /usr/libexec/zte-mesh/{ns-run,mesh-search} 那份入口脚本会报出它的 `uname -m` 与包里带的几档，
@@ -49,7 +49,7 @@ fi
 
 remote() { "$PYTHON" "$RSSH" "$1" "$2"; }
 
-# 目录名必须与 openwrt/zte-mesh-launcher/files/launcher-dispatch 里那张 `uname -m` 映射一致，
+# 目录名必须与 openwrt/zte-mesh/files/launcher-dispatch 里那张 `uname -m` 映射一致，
 # 否则装进去了入口脚本也找不到它。arm64 与 armv7l 都归到包用的那两个名字上。
 target_machine=$(remote "$TARGET_HOST" 'uname -m')
 case $target_machine in

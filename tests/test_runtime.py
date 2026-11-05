@@ -118,35 +118,32 @@ def main():
           "the packed library predates agent-ap-metrics.c; the child stays silent and the master reads "
           "stations=-1 for a node that has the counts")
 
-    # The compiled halves are machine code, so they cannot ride in an arch:all apk: on the
-    # x86_64 lab box an aarch64 ns-run would not exec at all. zte-mesh is arch:all (scripts
-    # plus the runtime tarball, which is data), and ns-run / mesh-search have their own
-    # arch-tagged package. package-pack.mk reads one global PKGARCH per Makefile, so two
-    # architectures genuinely require two package directories -- this is the guard against
-    # quietly moving a binary back and breaking the lab box again.
+    # The launcher is machine code, and an ELF names one architecture -- but it no longer rides in a second
+    # package for that reason. zte-mesh is arch:all and ships one build per CPU under arch/<cpu>/ next to a
+    # shell entry that picks the directory matching `uname -m`, so the architecture question is answered at
+    # run time by that script instead of at install time by the solver. package-pack.mk reads one global
+    # PKGARCH per Makefile, which is exactly why the apk cannot name a CPU *and* carry three builds; the
+    # guard below is that the payload it needs is really installed by the same Makefile as the scripts.
     makefile = text("openwrt/zte-mesh/Makefile")
     check("zte-mesh is architecture independent", "PKGARCH:=all" in makefile,
-          "the package still claims a board arch; the x86_64 lab box cannot install it")
-    check("zte-mesh ships no compiled launcher",
-          "/usr/libexec/zte-mesh/ns-run" not in makefile
-          and "/usr/libexec/zte-mesh/mesh-search" not in makefile,
-          "a binary built by $(TARGET_CC) cannot be installed by an arch:all package")
+          "the package names a board arch; the x86_64 lab box cannot install it")
+    check("zte-mesh builds the launcher out of the unpacked tarball",
+          "launcher-arches.sh" in makefile
+          and "sh $(ZTE_MESH_LAUNCHER_BUILD) $(PKG_BUILD_DIR)" in makefile,
+          "the code that gets compiled has to be the code that ships: one unpack of the runtime tarball feeds both")
     check("zte-mesh overrides Build/Compile", "define Build/Compile" in makefile,
           "undefined, it falls back to Build/Compile/Default, which runs $(MAKE) in the build "
           "directory -- there is no makefile there, only the unpacked tarball")
-
-    launcher = text("openwrt/zte-mesh-launcher/Makefile")
-    check("the launcher builds ns-run from the archive sources",
-          "$(PKG_BUILD_DIR)/ns-run.c" in launcher and "$(PKG_BUILD_DIR)/controller-net.c" in launcher)
-    check("the launcher builds mesh-search from the archive sources",
-          "$(PKG_BUILD_DIR)/enroller.c" in launcher)
-    check("the launcher installs both binaries",
-          "/usr/libexec/zte-mesh/ns-run" in launcher
-          and "/usr/libexec/zte-mesh/mesh-search" in launcher)
-    check("the launcher is arch-tagged", "PKGARCH:=aarch64_cortex-a53" in launcher)
-    check("the launcher takes the sources from the sibling runtime tarball",
-          "../zte-mesh/zte-mesh-runtime.tar.gz" in launcher,
-          "the sources must not be duplicated; they travel inside the tarball (see C5)")
+    check("zte-mesh installs the entry script under both names",
+          "./files/launcher-dispatch $(1)/usr/libexec/zte-mesh/ns-run" in makefile
+          and "/usr/libexec/zte-mesh/mesh-search" in makefile)
+    check("zte-mesh installs the per-CPU builds",
+          "$(PKG_BUILD_DIR)/arch $(1)/usr/libexec/zte-mesh/" in makefile,
+          "an entry script without arch/ answers 'no build for this machine' on every CPU")
+    check("zte-mesh still ships the runtime tarball", "zte-mesh-runtime.tar.gz" in makefile)
+    check("no package directory is named zte-mesh-launcher",
+          not (REPO / "openwrt/zte-mesh-launcher").exists(),
+          "the split was merged away; a leftover Makefile would build an apk whose files belong to zte-mesh too")
 
     init = (REPO / "openwrt/zte-mesh/files/zte-mesh.init").read_text()
     check("the init script starts the search helper", "MESH_SEARCH" in init and "procd_open_instance search" in init)

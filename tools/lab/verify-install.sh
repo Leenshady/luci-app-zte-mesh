@@ -28,7 +28,8 @@
 # installed (`packed_copy`), the four that say the batch's shell files are (`package_scripts` -- a batch that changes
 # only the init script and the applier leaves nothing in the rootfs), the three that say this machine has a launcher it
 # can exec (`launcher_evidence` -- the package is architecture-independent now and the install-time board gate is gone,
-# so the answer moved here), the collector's own table (`ap_sta_evidence`), the
+# so the answer moved here), one more there that only reports whether the separate zte-mesh-launcher package is still
+# on the box, the collector's own table (`ap_sta_evidence`), the
 # peer files it has produced (`peer_files`) and whether the state document carries the per-BSS key (`state_nodes`).
 # Those are evidence lines, and only the nine markers are counted as assertions -- an empty peer directory on a link
 # whose peer reports no station count is not a fault of ours.
@@ -77,7 +78,7 @@ TABLE=$RUNDIR/ap-sta
 STATE=$RUNDIR/state.json
 PLAN=$RUNDIR/wlan-plan
 SYNC_STATUS=$RUNDIR/wlan-sync.status
-PKG_STEMS='zte-mesh zte-mesh-launcher luci-app-zte-mesh luci-i18n-zte-mesh-zh-cn'
+PKG_STEMS='zte-mesh luci-app-zte-mesh luci-i18n-zte-mesh-zh-cn'
 
 pass=0
 fail=0
@@ -111,8 +112,9 @@ install_apks() {
 	[ -n "$APK_DIR" ] || { say install skipped; return 0; }
 	[ -d "$APK_DIR" ] || { fail=$((fail + 1)); printf 'FAIL apk_dir dir=%s\n' "$APK_DIR"; return 1; }
 	for stem in $PKG_STEMS; do
-		# [0-9] after the stem: `zte-mesh-*.apk` would otherwise also match zte-mesh-launcher-*.apk
-		# and the loop would install the launcher twice while zte-mesh itself never lands.
+		# [0-9] after the stem: an earlier batch left zte-mesh-launcher-*.apk in this same directory, and
+		# `zte-mesh-*.apk` would pick it up as this batch's zte-mesh -- the loop would install the launcher file
+		# twice while the runtime apk never lands. docs/INSTALL.md §2 is the rule this guards against.
 		pkg=$(ls "$APK_DIR/$stem"-[0-9]*.apk 2>/dev/null | sort | tail -n 1)
 		if [ -z "$pkg" ]; then
 			say "install_$stem" skip
@@ -152,7 +154,8 @@ restart_services() {
 
 versions() {
 	for stem in $PKG_STEMS; do
-		# [0-9] after the stem: without it `zte-mesh-` also matches zte-mesh-launcher-
+		# [0-9] after the stem: without it `zte-mesh-` also matches a zte-mesh-launcher- line left installed
+		# from an earlier batch, and the version reported for zte-mesh would be that package's release.
 		v=$($APK list --installed 2>/dev/null | sed -n "s|^$stem-\([0-9][^ ]*\) .*|\1|p" | head -1)
 		say "version_$stem" "${v:-absent}"
 	done
@@ -669,6 +672,12 @@ package_scripts() {
 }
 
 launcher_evidence() {
+	# The package is one now: the runtime tarball and, under $LIBEXEC/arch/<cpu>/, one build per CPU, both from
+	# zte-mesh. A machine that still lists zte-mesh-launcher as installed therefore holds two packages claiming the
+	# same files, and which one owns them after an upgrade is the apk solver's answer, not something this script can
+	# settle -- the line exists to make the question visible in the same read-back that checks the entry script.
+	legacy=$($APK list --installed 2>/dev/null | sed -n 's|^zte-mesh-launcher-\([0-9][^ ]*\) .*|\1|p' | head -1)
+	say legacy_launcher_package "${legacy:-absent}"
 	# The launcher is arch:all now: one apk, one build per CPU under $LIBEXEC/arch/<cpu>/, and this entry
 	# script installed twice -- as ns-run and as mesh-search -- to pick the one matching `uname -m`. The
 	# install-time gate that used to refuse a wrong board (`DEPENDS:=@(TARGET_zte||TARGET_qualcommax)`) is

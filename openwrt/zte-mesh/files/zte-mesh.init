@@ -796,24 +796,35 @@ write_config() {
 }
 
 start_service() {
-	local enabled bridge role apply_local backhaul launcher
+	local enabled bridge role apply_local backhaul launcher launcher_status
 	config_load zte_mesh
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
 	config_get bridge main bridge br-lan
 	[ -d "/sys/class/net/$bridge/bridge" ] || { log "bridge $bridge does not exist"; return 1; }
-	# Two packages, two things that can be missing, and the log should say which: the runtime
-	# tarball comes from zte-mesh (arch:all), the launcher binaries from zte-mesh-launcher -- also
-	# arch:all now, carrying one build per CPU and picking between them by `uname -m`. A box that
-	# installed only the first one has $ROOT but no $NSRUN.
+	# One package carries both halves now -- the runtime tarball and, under arch/<cpu>/, one launcher build
+	# per CPU -- so either of these missing is a box somebody edited by hand, not a half-installed one. The
+	# two lines stay apart because the two repairs are not the same: the first says the data is gone, the
+	# second names the file.
 	[ -d "$ROOT" ] || { log "runtime is not installed (package zte-mesh)"; return 1; }
-	[ -x "$NSRUN" ] || { log "$NSRUN is missing: install zte-mesh-launcher"; return 1; }
+	[ -x "$NSRUN" ] || { log "$NSRUN is missing from package zte-mesh"; return 1; }
 	# ... and an arch:all package installs everywhere, so nothing at install time refuses a machine whose
 	# CPU the package does not carry. That refusal used to be `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)`;
-	# it is asked here instead, of the entry script the launcher installs, before any instance exists. The
+	# it is asked here instead, of the entry script the package installs, before any instance exists. The
 	# alternative is procd respawning a 127 every five seconds and a log that never says "architecture".
-	launcher=$("$NSRUN" --launcher-check 2>&1) || {
-		log "zte-mesh-launcher has no build for $(uname -m): $launcher"
+	# Only 127 is that answer, so only 127 gets that sentence: the entry script exits 127 when this CPU has
+	# no build in arch/, while any other non-zero is a different problem wearing the same exit. An ELF left
+	# under this name by hand takes --launcher-check as two unknown arguments, prints usage and exits 64 --
+	# and calling that "no build for this machine" sends the reader off to look for an architecture when the
+	# file they should be looking at is the one standing there.
+	launcher_status=0
+	launcher=$("$NSRUN" --launcher-check 2>&1) || launcher_status=$?
+	if [ "$launcher_status" = 127 ]; then
+		log "zte-mesh has no launcher build for $(uname -m): $launcher"
+		return 1
+	fi
+	[ "$launcher_status" = 0 ] || {
+		log "$NSRUN --launcher-check exited $launcher_status: $launcher"
 		return 1
 	}
 	write_config || return 1

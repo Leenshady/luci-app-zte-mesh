@@ -127,12 +127,15 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 - `multiapd` 和原厂库是 ARM EABI5 soft-float（`e_flags=0x05000200`），解释器 `/lib/ld-linux.so.3`，glibc 2.26。不能注入 AArch64、
   musl 或 hard-float 的库；preload 库和 ARM32 程序用 `arm-linux-gnueabi-gcc -mfloat-abi=soft` 编，直接链接原厂 glibc，
   `make-runtime.py` 再审计强符号与 GNU 符号版本。
-- 启动器（`ns-run` / `mesh-search`）是本机 CPU 的机器码，与上面那套 ARM32 无关。`zte-mesh-launcher` 也是 `arch: all`：
+- 启动器（`ns-run` / `mesh-search`）是本机 CPU 的机器码，与上面那套 ARM32 无关。它和运行环境在同一个包里（`zte-mesh`，`arch: all`）：
   一个 apk 带 aarch64 / armv7 / x86_64 各一份 `-static` 构建，放在 `/usr/libexec/zte-mesh/arch/<cpu>/`，外层那两个名字是同一份
   shell 入口——按 `$0` 的最后一截选程序、按 `uname -m` 选目录，选中就 `exec`（换程序不换 pid，procd 与 `attach` 的
-  `sandbox_pid()` 盯的都是它）。**换掉的是装机时的架构判决**：以前那句 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 在一台不匹配的
+  `sandbox_pid()` 盯的都是它）。以前它是第二个包（`zte-mesh-launcher`），为的是"一个 Makefile 只给一个 `PKGARCH`"；两边都成了
+  `arch: all` 之后那句话说不到什么了，剩下的只是两次事务——升级时先换 `zte-mesh` 还是先换 launcher，中间那几秒服务已经按新脚本重启过一次。
+  **换掉的还有装机时的架构判决**：以前那句 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 在一台不匹配的
   机器上会把整串 `apk add` 一起带走（apk 求解全有或全无），现在什么机器都收，"这台不在包里"由入口脚本自己说，
-  `zte-mesh.init` 在把实例交给 procd 之前问一次 `--launcher-check`。布局、映射表与构建脚本见 [LAB](LAB.md) 第 4.3 节。
+  `zte-mesh.init` 在把实例交给 procd 之前问一次 `--launcher-check`——**只有 127 算这一问的答案**，其余非零另说一行。
+  布局、映射表与构建脚本见 [LAB](LAB.md) 第 4.3 节。
 - 内核要 `CONFIG_COMPAT`（AArch32 用户态）、SysV IPC（原厂数据库是 SysV 共享内存）与 raw socket（`CONFIG_PACKET`，
   1905 帧由 `multiapd` 在用户态自己收）。这三条原来是根目录那份 `kernel.fragment`，零引用、没被任何构建吃过，删掉并把话写在这里。
 - 私有根里保留原厂 loader 和 glibc，不碰 OpenWrt 的 `/lib`；原厂进程看不到 MTD、厂商设备和宿主配置。

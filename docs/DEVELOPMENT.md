@@ -65,7 +65,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 144 条、终端数采集 32 条、启动器入口 20 条、启动器架构构建 26 条、rpcd 24 条、装机验收 277 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  启动视图、init 150 条、终端数采集 32 条、启动器入口 20 条、启动器架构构建 26 条、rpcd 24 条、装机验收 278 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
   **本机（Windows + Git Bash）跑启动器入口那组会 skip 2 条**：`chmod 644` 清不掉执行位，"文件在但不可 exec"这一支在这套文件系统上表达不出，
   计数里那两条不是回归（owrt 的 busybox ash 上能跑全）。架构构建那组的编译器是 stub——它判的是 `tools/build/launcher-arches.sh` 的选址顺序、
   `-dumpmachine` 映射与 `ZTE_MESH_REQUIRE_ARCHES`，不是真编译；真编译在 CI 那一步，产物成员清单是它的判据（第 8 节）。
@@ -158,33 +158,35 @@ sh tools/build/runtime.sh install                       # -> openwrt/zte-mesh/zt
 # 构建机
 git -C ~/workspace/zte-mesh pull && cd ~/workspace/immortalwrt
 ./scripts/feeds update zte_mesh && ./scripts/feeds install -a -p zte_mesh
-# .config 里加 CONFIG_PACKAGE_{zte-mesh,zte-mesh-launcher,luci-app-zte-mesh,luci-i18n-zte-mesh-zh-cn}=m，再 make defconfig
-make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-launcher/compile \
+# .config 里加 CONFIG_PACKAGE_{zte-mesh,luci-app-zte-mesh,luci-i18n-zte-mesh-zh-cn}=m，再 make defconfig
+make package/feeds/zte_mesh/zte-mesh/compile \
      package/feeds/zte_mesh/luci-app-zte-mesh/compile \
      package/feeds/zte_mesh/luci-i18n-zte-mesh-zh-cn/compile   # 翻译是独立的包，不编译它就没有中文
 ```
 
 - 包直接解包同目录下提交的 `zte-mesh-runtime.tar.gz`，不需要往 `dl/` 放东西；`ZTE_MESH_RUNTIME=` 可指向别的运行包。
-- **两个包目录是必需的**：`zte-mesh` 是数据包（脚本、LuCI、rpcd、配置 + 运行时 tarball，`PKGARCH:=all`），`zte-mesh-launcher` 要真编译机器码，
-  两者放在一起就得让数据包也带上编译器与目标架构，而 `package-pack.mk` 的 `Architecture` 读的是 Makefile 级全局 `PKGARCH`。
-  启动器现在也是 `PKGARCH:=all`——**它不再"给不了两个架构"，而是把三个架构都装进一个包**：`arch/<cpu>/{ns-run,mesh-search}` 各一份
-  `-static` 构建，外层那两个名字是同一份 shell 入口（按 `$0` 选程序、按 `uname -m` 选目录）。打包细节与那张映射表在
-  [LAB](LAB.md) 第 4.3 节，脚本是仓库根的 `tools/build/launcher-arches.sh`（launcher 的 `Build/Compile` 调用它，`ZTE_MESH_LAUNCHER_BUILD=` 可指路）。
-  数据包必须显式写空 `Build/Compile`，否则 OpenWrt 会在只有 tarball 的构建目录里跑 `$(MAKE)` 报 `No targets specified and no makefile found`。
+- **一个包目录**（2026-11-05 合并 `zte-mesh-launcher`）：`zte-mesh` 既装脚本、LuCI、rpcd、配置和运行时 tarball，也编启动器，
+  `PKGARCH:=all`。拆成两个包为的是 `package-pack.mk` 的 `Architecture` 读 Makefile 级全局 `PKGARCH`——数据包要 `all`，编译机器码的包
+  就得在自己的 Makefile 里给别的值。两边都成了 `all` 之后这句话不再逼着什么：启动器**不是"给不了两个架构"，而是把三个架构都装进一个包**——
+  `arch/<cpu>/{ns-run,mesh-search}` 各一份 `-static` 构建，外层那两个名字是同一份 shell 入口（按 `$0` 选程序、按 `uname -m` 选目录）。
+  拆开唯一多出来的是两次事务：升级时先换 `zte-mesh` 还是先换 launcher，中间那几秒服务已按新脚本重启过一次。打包细节与那张映射表在
+  [LAB](LAB.md) 第 4.3 节，脚本是仓库根的 `tools/build/launcher-arches.sh`（`zte-mesh` 的 `Build/Compile` 调用它，`ZTE_MESH_LAUNCHER_BUILD=` 可指路）。
+  `Build/Compile` 这一行不能省：数据包不写它，OpenWrt 会在只有 tarball 的构建目录里跑 `$(MAKE)`，报 `No targets specified and no makefile found`。
 - **`src-link` 与 `src-git` 对启动器构建脚本的可见性不一样**：`src-link zte_mesh <克隆>/openwrt` 时包目录是指向克隆的符号链接，
   `$(CURDIR)/../../tools/build/launcher-arches.sh` 就落在克隆根上（CI 用的正是这一种，`.github/workflows/build-apk.yml` 的 Install feeds 一步）；
   `src-git` 会把包**复制**进 `package/feeds/zte_mesh/`，那里没有仓库根的 `tools/`，于是 `Build/Compile` 直接停在一条写明原因的报错上——
   这种构建树要 `make … ZTE_MESH_LAUNCHER_BUILD=~/zte-mesh/tools/build/launcher-arches.sh`。两种情况下构建树里都只有目标机那一档工具链，
   所以 feed 构建出的 apk 通常只带一档；另外两档要宿主的 `gcc-aarch64-linux-gnu` / `gcc-arm-linux-gnueabihf` 在场。
-- 大小：`zte-mesh` 压缩约 3.9 MB（装机实测 3 872 842 字节，`apk info -s` 报装上占 8 007 KiB），大头是原厂库；LuCI 与中文包合计约 11 KB。
-  要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**（[INSTALL](INSTALL.md) 第 1 节）。
-- 包没签名：`apk add --allow-untrusted`；卸载 `apk del <四个包名>`。运行包含原厂二进制，随这个公开仓库一起发布
+- 大小：合并前那两份 CI 产物是 `zte-mesh` 3 882 850 字节 + `zte-mesh-launcher` 1 221 700 字节（2026-11-05，r21 / launcher r2），
+  合成一个 apk 后压缩约 5.1 MB，大头仍是原厂库；LuCI 与中文包同一批合计 18 KB。要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**
+  （[INSTALL](INSTALL.md) 第 1 节）；旧读数 8 007 KiB 只覆盖运行环境那一半，合并后要重新读。
+- 包没签名：`apk add --allow-untrusted`；卸载 `apk del <三个包名>`。运行包含原厂二进制，随这个公开仓库一起发布
   （2026-10-19 决定）；`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享软件源。
 - **读 apk 的成员要用 SDK 自己编出来的那份 `apk`**（`staging_dir/host/bin/apk --allow-untrusted extract`，解到临时目录再 `find`）：
   `.apk` 是 ADBD/libadb 容器，`tar -t` 换四种压缩标志都回 2，一个成员也列不出来。
 - **Actions 的 `run:` 是 `bash -e`**，`var=$(会失败的命令)` 就是这一步的退出码——探针写成 `if cmd; then ...` 才不会带走整步；
   `2>/dev/null` 还会让它一句都不留。r21 第一次跑就栽在这两条上：读成员的 `members=$(tar ...)` 排在构建那一步的尾巴上，
-  四个包都编好了，步骤红在第 2 秒且日志是空的。**读包这一步现在单独成步，排在 `Upload packages` 之后**——判定的工具坏了只红一次运行，不吞掉一批能装的包。
+  四个包都编好了（那时 launcher 还是单独一个包），步骤红在第 2 秒且日志是空的。**读包这一步现在单独成步，排在 `Upload packages` 之后**——判定的工具坏了只红一次运行，不吞掉一批能装的包。
 - **包里没有 ARM32 模拟器**（2026-10-31 定）：x86_64 设备和没开 `CONFIG_COMPAT` 的 arm64 设备必须自己准备 `qemu-arm-static`——
   放进私有根，或把 `zte_mesh.main.emulator` 指到**这台机器上的任意绝对路径**（init 比 sha256 后拷进私有根的 `usr/bin/`，2026-11-05 起），
   否则 controller 实例每 5 秒以 `execv errno=8` 退出。理由与三条出路见 [LAB.md](LAB.md) 第 4.2 节。
@@ -193,7 +195,7 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 
 | workflow | 产物 | 说明 |
 |---|---|---|
-| `build-apk.yml` | `zte-mesh-apk`（四个 apk） | `ubuntu-latest` 交叉编译 `zte/zx279133`，断言四个包都在。启动器那一步装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf`，`ZTE_MESH_REQUIRE_ARCHES` 设成三档全要（少编一档直接红），构建完**列出 launcher apk 的 tar 成员**确认两个入口脚本与 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 都在包里。产物**未签名**，装的时候要 `--allow-untrusted` |
+| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-latest` 交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf`，`ZTE_MESH_REQUIRE_ARCHES` 设成三档全要（少编一档直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这一档的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再确认运行环境那半（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 路由器摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 
@@ -203,10 +205,10 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
 `out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
 
 **取产物**：artifact 下载要认证（匿名 401），本机没有 `gh`，走 `git credential fill` 拿到的 token 拼 API——
-token 只留在 shell 变量里，不回显、不落盘。zip 解开是四个 apk，`sha256sum -c SHA256SUMS.txt` 在机器上核对最省事。
+token 只留在 shell 变量里，不回显、不落盘。zip 解开是三个 apk，`sha256sum -c SHA256SUMS.txt` 在机器上核对最省事。
 
 **发布 release**：`Build APK` **只构建，不发布**（2026-11-01 起；以前那个 `release_tag` 输入把"开始构建"和"把这些字节承诺给外面"
-做成同一个按钮，而一批的包要先在两台测试机上装机验过才谈得上发布）。它产出两个 artifact：`zte-mesh-apk`（四个 apk +
+做成同一个按钮，而一批的包要先在两台测试机上装机验过才谈得上发布）。它产出两个 artifact：`zte-mesh-apk`（三个 apk +
 `SHA256SUMS.txt`）和 `build-log`，run summary 里每个文件一行，不下载也能认出这一批是什么。发布是另一次手工动作，用的就是这份产物：
 
 ```sh
@@ -262,7 +264,7 @@ python tests/test_i18n.py        # 12 项：覆盖率、格式符、菜单标题
 
 **它怎么到设备上**：`luci.mk` 把 `po/<lang>/` 编成独立的包 `luci-i18n-<app>-<lang>`，文件写到
 `/usr/lib/lua/luci/i18n/zte-mesh.zh-cn.lmo`；`zh_Hans` 经 `LUCI_LC_ALIAS` 映射成 `zh-cn`。装应用包**不会**带上它——
-`build-apk.yml` 因此单独编译它，并断言四个 apk 都在。页面从 `/cgi-bin/luci/admin/translations/<lang>` 拿到所有
+`build-apk.yml` 因此单独编译它，并断言三个 apk 都在。页面从 `/cgi-bin/luci/admin/translations/<lang>` 拿到所有
 `<lang>.lmo` 拼成的 JS，`cbi.js` 的 `_()` 查的就是它——所以"源码里有译文"和"设备上有 lmo"是两件事，缺一件页面就是英文。
 
 手工装到运行中的设备（测试环境里的路由器是拷文件而不是装包）：
