@@ -544,48 +544,6 @@ jobs:
               echo "build reported success but produced no $stem apk" >&2; exit 1; }
           done
 
-          # Reading the members, not the exit code: the launcher is architecture-
-          # independent now, so the package has to carry one build per CPU *inside*
-          # it. ZTE_MESH_REQUIRE_ARCHES already fails the build if a compiler did not
-          # produce one; this fails it if the install rule does not ship what was
-          # built -- a Makefile that lost the copy would green-light an apk whose
-          # entry script answers "no build for this machine" on every CPU, including
-          # the one it was compiled on.
-          has_member() {
-            # The member names carry tar's "./" prefix or not, depending on who wrote the
-            # archive; neither spelling is a fact worth failing a batch over.
-            for p in "./$1" "$1"; do
-              if printf '%s\n' "$members" | grep -qxF "$p"; then return 0; fi
-            done
-            return 1
-          }
-          LAUNCHER_APK=$(find bin -name 'zte-mesh-launcher*.apk' | head -1)
-          for opt in -tzf -tJ -tj -t; do
-            members=$(tar $opt "$LAUNCHER_APK" 2>/dev/null)
-            [ -n "$members" ] && break
-          done
-          if [ -z "$members" ]; then
-            echo "cannot list the members of $LAUNCHER_APK: $(file -b "$LAUNCHER_APK")" >&2
-            exit 1
-          fi
-          for name in ns-run mesh-search; do
-            has_member "usr/libexec/zte-mesh/$name" || {
-              echo "$LAUNCHER_APK has no $name entry script. Its members are:" >&2
-              printf '%s\n' "$members" >&2
-              exit 1
-            }
-          done
-          for arch in aarch64 armv7 x86_64; do
-            for name in ns-run mesh-search; do
-              has_member "usr/libexec/zte-mesh/arch/$arch/$name" || {
-                echo "$LAUNCHER_APK carries no build for $arch ($name). Its members are:" >&2
-                printf '%s\n' "$members" >&2
-                exit 1
-              }
-            done
-          done
-          echo "launcher apk: $LAUNCHER_APK carries the entry script and all three architectures"
-
           find bin -name '*.apk' | grep -E 'zte-mesh' || true
 
       - name: Locate artifacts
@@ -597,8 +555,8 @@ jobs:
           # script that picks one for the CPU it is standing on. Neither names a
           # target any more, so which directory the SDK files them under is not
           # something this step has to know -- `zte-mesh*.apk` under bin/ finds
-          # them wherever they went. What the launcher apk holds is the build
-          # step's business, and it reads the members for that.
+          # them wherever they went. What the launcher apk holds is checked after
+          # this, once the four files are already uploaded.
           mkdir -p dist
           find sr1010/immortalwrt/bin -name 'zte-mesh*.apk' -exec cp -v {} dist/ \;
           find sr1010/immortalwrt/bin -name 'luci-*zte-mesh*.apk' -exec cp -v {} dist/ \;
@@ -617,6 +575,80 @@ jobs:
           name: zte-mesh-apk
           path: dist/
           if-no-files-found: error
+
+      # This used to be the tail of "Build packages", and run 41968055835 showed
+      # why that is the wrong place: the four apks built fine, the reader was
+      # wrong, and the red step came before the upload -- so a batch with good
+      # artifacts produced no artifact to install. Reading the package is its own
+      # step now and sits after the upload: a broken judgement costs a red run,
+      # not a lost batch.
+      - name: Assert the launcher apk carries three architectures
+        run: |
+          # Reading the members, not the exit code: the launcher is architecture-
+          # independent now, so the package has to carry one build per CPU *inside*
+          # it. ZTE_MESH_REQUIRE_ARCHES already fails the build if a compiler did not
+          # produce one; this fails it if the install rule does not ship what was
+          # built -- a Makefile that lost the copy would green-light an apk whose
+          # entry script answers "no build for this machine" on every CPU, including
+          # the one it was compiled on.
+          #
+          # The reader is the apk-tools the SDK just built for itself, not tar: a
+          # .apk is an ADBD/libadb container, so `tar -t` with every compression
+          # flag returns 2 on it -- and under `bash -e` an assignment like
+          # `members=$(tar -t ...)` aborts the whole step on the first probe,
+          # silently if stderr went to /dev/null.
+          has_member() {
+            printf '%s\n' "$members" | grep -qxF "$1"
+          }
+          LAUNCHER_APK=$(find dist -name 'zte-mesh-launcher*.apk' | head -1)
+          test -n "$LAUNCHER_APK" || { echo "no launcher apk to read" >&2; exit 1; }
+          LAUNCHER_APK=$PWD/$LAUNCHER_APK
+          APK_TOOL=$PWD/sr1010/immortalwrt/staging_dir/host/bin/apk
+          test -x "$APK_TOOL" || { echo "$APK_TOOL is not the host apk that packaged this" >&2; exit 1; }
+          MEMBERS_DIR=$(mktemp -d)
+          if ! ( cd "$MEMBERS_DIR" && "$APK_TOOL" --allow-untrusted extract "$LAUNCHER_APK" >/dev/null 2>&1 ); then
+            echo "cannot extract $LAUNCHER_APK: $(file -b "$LAUNCHER_APK")" >&2
+            rm -rf "$MEMBERS_DIR"
+            exit 1
+          fi
+          members=$(cd "$MEMBERS_DIR" && find . -type f -printf '%P\n' | sort)
+          for name in ns-run mesh-search; do
+            has_member "usr/libexec/zte-mesh/$name" || {
+              echo "$LAUNCHER_APK has no $name entry script. Its members are:" >&2
+              printf '%s\n' "$members" >&2
+              rm -rf "$MEMBERS_DIR"
+              exit 1
+            }
+          done
+          for arch in aarch64 armv7 x86_64; do
+            for name in ns-run mesh-search; do
+              has_member "usr/libexec/zte-mesh/arch/$arch/$name" || {
+                echo "$LAUNCHER_APK carries no build for $arch ($name). Its members are:" >&2
+                printf '%s\n' "$members" >&2
+                rm -rf "$MEMBERS_DIR"
+                exit 1
+              }
+            done
+          done
+          # The paths alone would also be there if the install rule had copied one
+          # build three times under different names -- which is exactly what the
+          # entry script cannot see: it execs whatever is standing at the path for
+          # its own CPU. So ask the binary what it is.
+          expect_elf() {
+            if ! file -b "$MEMBERS_DIR/usr/libexec/zte-mesh/arch/$1/$2" | grep -q "$3"; then
+              echo "$LAUNCHER_APK: arch/$1/$2 is not $1 code: $(file -b "$MEMBERS_DIR/usr/libexec/zte-mesh/arch/$1/$2")" >&2
+              rm -rf "$MEMBERS_DIR"
+              exit 1
+            fi
+          }
+          expect_elf aarch64 ns-run 'ELF 64-bit.*aarch64'
+          expect_elf aarch64 mesh-search 'ELF 64-bit.*aarch64'
+          expect_elf armv7 ns-run 'ELF 32-bit.*ARM'
+          expect_elf armv7 mesh-search 'ELF 32-bit.*ARM'
+          expect_elf x86_64 ns-run 'ELF 64-bit.*x86-64'
+          expect_elf x86_64 mesh-search 'ELF 64-bit.*x86-64'
+          rm -rf "$MEMBERS_DIR"
+          echo "launcher apk: $LAUNCHER_APK carries the entry script and all three architectures"
 
       - name: Upload build log
         if: always()

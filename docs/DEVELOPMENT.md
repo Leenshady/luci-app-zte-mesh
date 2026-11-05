@@ -180,6 +180,11 @@ make package/feeds/zte_mesh/zte-mesh/compile package/feeds/zte_mesh/zte-mesh-lau
   要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**（[INSTALL](INSTALL.md) 第 1 节）。
 - 包没签名：`apk add --allow-untrusted`；卸载 `apk del <四个包名>`。运行包含原厂二进制，随这个公开仓库一起发布
   （2026-10-19 决定）；`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享软件源。
+- **读 apk 的成员要用 SDK 自己编出来的那份 `apk`**（`staging_dir/host/bin/apk --allow-untrusted extract`，解到临时目录再 `find`）：
+  `.apk` 是 ADBD/libadb 容器，`tar -t` 换四种压缩标志都回 2，一个成员也列不出来。
+- **Actions 的 `run:` 是 `bash -e`**，`var=$(会失败的命令)` 就是这一步的退出码——探针写成 `if cmd; then ...` 才不会带走整步；
+  `2>/dev/null` 还会让它一句都不留。r21 第一次跑就栽在这两条上：读成员的 `members=$(tar ...)` 排在构建那一步的尾巴上，
+  四个包都编好了，步骤红在第 2 秒且日志是空的。**读包这一步现在单独成步，排在 `Upload packages` 之后**——判定的工具坏了只红一次运行，不吞掉一批能装的包。
 - **包里没有 ARM32 模拟器**（2026-10-31 定）：x86_64 设备和没开 `CONFIG_COMPAT` 的 arm64 设备必须自己准备 `qemu-arm-static`——
   放进私有根，或把 `zte_mesh.main.emulator` 指到**这台机器上的任意绝对路径**（init 比 sha256 后拷进私有根的 `usr/bin/`，2026-11-05 起），
   否则 controller 实例每 5 秒以 `execv errno=8` 退出。理由与三条出路见 [LAB.md](LAB.md) 第 4.2 节。
