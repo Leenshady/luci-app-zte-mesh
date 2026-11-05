@@ -76,6 +76,18 @@ fi
 FLAGS="-O2 -std=c11 -static -Wall -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
 EXTRA_FLAGS=""
 
+# The kernel UAPI headers ns-run.c and controller-net.c include (<linux/capability.h>, <linux/if_link.h>)
+# sit in the host compiler's own include directories, which the host gcc searches but musl-gcc does not:
+# its specs compile with -nostdinc. Ask the host compiler -- the one the fallback below is built with, so
+# its answer is by definition enough for these sources -- which directories it would search, keep the ones
+# actually carrying those headers, and hand them to the musl build with -idirafter so they land AFTER musl's
+# libc headers: with -isystem they win over musl and the build dies inside glibc's errno.h instead.
+uapi_flags=""
+for dir in $(echo | cc -E -Wp,-v -x c - 2>&1 >/dev/null | sed -n '/^ /p' | tr -d ' '); do
+	[ -f "$dir/linux/if_link.h" ] || [ -f "$dir/asm/types.h" ] || continue
+	uapi_flags="$uapi_flags -idirafter $dir"
+done
+
 mkdir -p "$OUT" || exit 1
 
 # try_cc ARCH SYSROOT COMPILER... -- one build of both programs. SYSROOT is "none" for the compiler's own
@@ -135,6 +147,15 @@ for arch in $ARCHES; do
 	for cc in $candidates; do
 		command -v "$cc" >/dev/null 2>&1 || continue
 		attempted=1
+		# The target's own toolchain already has the kernel headers in its sysroot, so only the host
+		# cross builds above get to need them. The match has to be after -musl-gcc too: OpenWrt's own
+		# aarch64 compiler is named ...-linux-musl-gcc and must keep $(TARGET_CFLAGS), not these flags.
+		if [ "$arch" != "$TARGET_ARCH" ]; then
+			case $cc in
+			*-musl-gcc | musl-gcc) EXTRA_FLAGS=$uapi_flags ;;
+			*) EXTRA_FLAGS="" ;;
+			esac
+		fi
 		for sr in $sysroots; do
 			# shellcheck disable=SC2086 -- the compiler may be several words
 			try_cc "$arch" "$sr" $cc && {
