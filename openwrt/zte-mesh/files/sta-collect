@@ -25,6 +25,14 @@
 #
 # A board with no radios, a radio that is down and a missing debugfs all produce an empty table, which is what the
 # responder needs in order to say nothing rather than to answer with counts it never measured.
+#
+# One switch for this loop alone: a $DIR/collect-pause file stops the writes, and deleting it starts them again. The
+# table is left where it is, so what the controller sees is an ageing table -- the responder stops answering from a
+# table older than its freshness window, and the station column falls back. That is the input PLAN H-15 ⑤⑥ needs
+# ("the collector stops, does the node go silent?"), and the procd way of stopping this instance only looks equivalent:
+# measured 2026-11-05, `ubus call service delete` stops it, but bringing it back means /etc/init.d/zte-mesh start, and
+# that replaces the controller daemon too -- the child drops out of the topology for a few seconds, so the reading you
+# get is a restart's, not the collector's.
 
 # Two positional values and a switch, in any order: a path never looks like a number, so the first argument with a
 # non-digit in it is the file and the first all-digit one is the interval.
@@ -41,6 +49,9 @@ done
 [ -n "$FILE" ] || FILE=/run/zte-mesh/ap-sta
 [ -n "$INTERVAL" ] || INTERVAL=5
 DIR=${FILE%/*}
+# the stop/switch for this loop alone, beside the table it stops writing (see the note above); its path is derived, so
+# a test that names a table under a temporary root gets its own flag file.
+PAUSE=$DIR/collect-pause
 DEBUG=${ZTE_MESH_MAC80211_DEBUG:-/sys/kernel/debug/ieee80211}
 
 log() { logger -t zte-mesh -p daemon.warn "$*"; }
@@ -128,6 +139,7 @@ missing=""
 [ -x "$JSONFILTER" ] || missing="$missing${missing:+, }jsonfilter"
 
 started=""
+paused=""
 run_once() {
 	if [ -n "$missing" ] || [ ! -d "$DIR" ]; then
 		local reason=$missing
@@ -140,6 +152,18 @@ run_once() {
 		}
 		return 1
 	fi
+	# Paused is not a fault and not a new measurement: say the stop once, keep the last table, and say nothing until
+	# it moves again. Clearing `started` here is what makes the next collect log its line again -- the two transitions
+	# are the witnesses of the experiment, so a reader can see when the numbers stopped being refreshed.
+	if [ -e "$PAUSE" ]; then
+		[ -n "$paused" ] || {
+			paused=1
+			started=
+			log "paused by $PAUSE: leaving $FILE as it is"
+		}
+		return 0
+	fi
+	paused=""
 	if collect; then
 		[ -n "$started" ] || {
 			started=1

@@ -65,8 +65,11 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 135 条、终端数采集 22 条、rpcd 24 条、装机验收 224 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  启动视图、init 135 条、终端数采集 32 条、rpcd 24 条、装机验收 258 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
+  脚本读子节点上报时会**连读几份快照**（`METRICS_READS` 默认 3 次、每次隔 `METRICS_READ_GAP` 默认 5 秒，只在一次都没读到数时才继续等）；
+  测试必须把这两值导出成 `1` 和 `0`，否则每个"这台没有数"的用例都真睡满 10 秒——同一套测试实测没导出要 4 分 57 秒、导出后 3 分 7 秒，
+  睡出来的绿不算绿。
   装机验收脚本在设备上会**等主控的 SSID 在本机生效**（`SSID_WAIT` 默认 60 秒、每 `SSID_POLL`=3 秒看一次），等不到才判 FAIL 并列出
   `ssid_pending=`；测试用 `SSID_WAIT=0` 把等待关掉，另有一条用例喂"第三次才出现"的 uci 桩来守这段。uci 桩处理 `uci -q get` 是
   **按最后一个键名去查一个文件**——以前不分键，任何键都回角色那一行，新加的读回会"看起来总是对的"；`iw`/`ip` 同样是桩

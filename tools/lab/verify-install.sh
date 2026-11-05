@@ -25,11 +25,11 @@
 # controller's own database row now carries (`smoke_cur_hop_override`); a machine with no such file judges nothing.
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
-# installed (`packed_copy`), the three that say the batch's shell files are (`package_scripts` -- a batch that changes
-# only the init script and the applier leaves nothing in the rootfs), the peer files it has produced (`peer_files`) and
-# whether the state document carries the per-BSS key (`state_nodes`). Those are evidence lines, and only the four
-# markers are counted as assertions -- an empty peer directory on a link whose peer reports no station count is not a
-# fault of ours.
+# installed (`packed_copy`), the four that say the batch's shell files are (`package_scripts` -- a batch that changes
+# only the init script and the applier leaves nothing in the rootfs), the collector's own table (`ap_sta_evidence`), the
+# peer files it has produced (`peer_files`) and whether the state document carries the per-BSS key (`state_nodes`).
+# Those are evidence lines, and only the six markers are counted as assertions -- an empty peer directory on a link
+# whose peer reports no station count is not a fault of ours.
 # Two more pairs turn PLAN's on-machine questions into lines you can read twice. `smoke_mesh_compat` judges the page
 # option against the key the daemon reads (they answer opposite questions), and `smoke_backhaul` judges the four uci
 # lines this package writes for a wireless backhaul while reporting what wpad and the radio made of them.
@@ -58,12 +58,20 @@ CUR_HOP_GRACE=${CUR_HOP_GRACE:-120}
 # right after an install, when the child is still waiting for the controller's profile)
 SSID_WAIT=${SSID_WAIT:-60}
 SSID_POLL=${SSID_POLL:-3}
+# The peer records are rewritten by every frame that arrives, so one snapshot of the directory is one instant: the
+# metrics line is the last frame's, and a frame that carries no station count erases it (measured 2026-11-05, eight
+# reads on the lab link caught one `peer_reports_stations=no` while `peers_sta=2`). So re-sample -- but only while a
+# pass shows no number anywhere, which is the "did this machine get any input at all" question. In tests the fixture
+# never changes, so METRICS_READS=1 keeps a silent link from sleeping.
+METRICS_READS=${METRICS_READS:-3}
+METRICS_READ_GAP=${METRICS_READ_GAP:-5}
 RUNDIR=${ZTE_MESH_RUNDIR:-/run/zte-mesh}
 # the private root the runtime tree is shipped in (openwrt/zte-mesh/Makefile copies `root/` into the package itself,
 # so `apk del` removes it again -- what survives is only the qemu-arm-static a machine needed and someone put here)
 ROOTFS=${ZTE_MESH_ROOTFS:-/usr/lib/zte-mesh}
 LIBEXEC=${ZTE_MESH_LIBEXEC:-/usr/libexec/zte-mesh}
 PEERS=$RUNDIR/peers
+TABLE=$RUNDIR/ap-sta
 STATE=$RUNDIR/state.json
 PLAN=$RUNDIR/wlan-plan
 SYNC_STATUS=$RUNDIR/wlan-sync.status
@@ -640,39 +648,87 @@ package_scripts() {
 	# A12b renamed the page option and inverted it, so the init script is the file that changed. This marker says the
 	# reader on the machine is the one that inverts; `smoke_mesh_compat` is the pair that shows it working.
 	compat=$(marker_present "$INIT_D/zte-mesh" 'mesh_compatible')
-	if [ "$init" = unreadable ] || [ "$sync" = unreadable ] || [ "$compat" = unreadable ]; then
+	# r19 batch: the collector learned one switch. Reading it back matters because the pause is the only lever that
+	# stops the station counts without touching the daemon -- a machine still holding the old script answers `no`.
+	collect=$(marker_present "$LIBEXEC/sta-collect" 'collect-pause')
+	if [ "$init" = unreadable ] || [ "$sync" = unreadable ] || [ "$compat" = unreadable ] ||
+		[ "$collect" = unreadable ]; then
 		say init_seed_from_air "$init"
 		say sync_flag_by_meaning "$sync"
 		say init_reads_mesh_compatible "$compat"
+		say collect_pause_in_collector "$collect"
 		return 0
 	fi
 	check init_seed_from_air yes "$init"
 	check sync_flag_by_meaning yes "$sync"
 	check init_reads_mesh_compatible yes "$compat"
+	check collect_pause_in_collector yes "$collect"
 }
 
 # Evidence, not judgement: a `<MAC>.<BSSID>.sta` only appears when a frame arrives that carries its station count
 # split per BSS, so `peers_sta=0` beside `peer_reports_stations=no` means the peer never reported a number at all
 # (measured on the lab link, where the only metrics digest is `hops=1`) and says nothing about the decoder. Read
 # PLAN.md H-13 before treating an empty count as a failure.
+# The last two lines make that pair readable in one run instead of eight. `peer_reads` says how many snapshots this
+# answer needed -- more than one means the first showed no number anywhere -- and `peer_input` is the switch H-13 and
+# H-15 actually ask about: did any station number reach this controller, from the per-BSS records or from the digest.
+# `peer_reports_stations` keeps its old, narrower meaning: it is the snapshot that ended the sampling, and a stand-in
+# that answers per BSS without a digest TLV can hold `peers_sta=2` beside `no`.
 peer_files() {
+	check=1
 	sta=0
 	soft=0
 	report=no
-	if [ -d "$PEERS" ]; then
-		for f in $PEERS/*.sta; do
-			[ -e "$f" ] && sta=$((sta + 1))
-		done
-		for f in $PEERS/*.software; do
-			[ -e "$f" ] && soft=$((soft + 1))
-		done
-		for f in $PEERS/*.metrics; do
-			[ -e "$f" ] && grep -q '^stations=' "$f" && report=yes
-		done
-	fi
+	while :; do
+		sta=0
+		soft=0
+		report=no
+		if [ -d "$PEERS" ]; then
+			for f in $PEERS/*.sta; do
+				[ -e "$f" ] && sta=$((sta + 1))
+			done
+			for f in $PEERS/*.software; do
+				[ -e "$f" ] && soft=$((soft + 1))
+			done
+			for f in $PEERS/*.metrics; do
+				[ -e "$f" ] && grep -q '^stations=' "$f" && report=yes
+			done
+		fi
+		# a number from either record ends the sampling; so does the last read this run is allowed
+		[ "$sta" -gt 0 ] && break
+		[ "$report" = yes ] && break
+		[ "$check" -lt "$METRICS_READS" ] || break
+		sleep "$METRICS_READ_GAP"
+		check=$((check + 1))
+	done
 	say peers_sta "$sta"
 	say peers_software "$soft"
 	say peer_reports_stations "$report"
+	say peer_reads "$check"
+	if [ "$sta" -gt 0 ] || [ "$report" = yes ]; then say peer_input yes; else say peer_input no; fi
+}
+
+# --- the table the collector keeps (PLAN H-15) -------------------------------------------------------------------------
+# /run/zte-mesh/ap-sta is the AP Metric answer's whole input: one `epoch=` line the collector stamps on each pass,
+# then one `<bssid> <count>` row per access point it found. Both numbers are read and neither is judged: a controller
+# does not run the collector, so `absent` is that role's shape, and a child with nothing associated legitimately holds
+# rows of zeroes. The age is the one to read after pausing the collector -- the `collect-pause` flag stops the writes
+# and the table then ages out of the responder's freshness window, so a growing number means the collector is not
+# updating, which is the half of H-15 ⑤ that used to need a procd edit.
+ap_sta_evidence() {
+	if [ ! -r "$TABLE" ]; then
+		say ap_sta_rows absent
+		say ap_sta_age absent
+		return 0
+	fi
+	say ap_sta_rows "$(sed -n '/^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:.* [0-9][0-9]*$/p' "$TABLE" | wc -l)"
+	epoch=$(sed -n 's/^epoch=\([0-9][0-9]*\)$/\1/p' "$TABLE" | head -1)
+	now=$($DATE +%s 2>/dev/null)
+	if [ -n "$epoch" ] && [ -n "$now" ]; then
+		say ap_sta_age "$((now - epoch))"
+	else
+		say ap_sta_age unreadable
+	fi
 }
 
 state_nodes() {
@@ -701,6 +757,7 @@ smoke_mesh_compat
 smoke_backhaul
 packed_copy
 package_scripts
+ap_sta_evidence
 peer_files
 peer_evidence
 state_nodes

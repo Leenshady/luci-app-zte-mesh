@@ -179,5 +179,32 @@ check "a previous table is replaced, not appended to" "aa:aa:aa:00:00:01 2
 aa:aa:aa:00:00:02 0" "$(rows)"
 check "the epoch moves with the clock" "epoch=1700000000" "$(sed -n 1p "$TABLE")"
 
+# 10. the pause flag stops this loop and nothing else: the last table stays where the responder can read it (and age),
+#     the log says the stop once, and the run after the flag is gone says the collecting line again.
+run
+printf '%s\n' 'pause' > "$RUN/collect-pause"
+: > "$LOG"
+run
+check "paused: the epoch does not move" "epoch=1700000000" "$(sed -n 1p "$TABLE")"
+check "paused: rows kept" "aa:aa:aa:00:00:01 2
+aa:aa:aa:00:00:02 0" "$(rows)"
+check "paused: names the flag" "1" "$(log_has 'paused by .*collect-pause')"
+check "paused: not collecting" "0" "$(log_has 'collecting')"
+check "paused: exit 0" "0" "$(run; echo $?)"
+# `run` clears the log first, so this counts one process: the gate lives in the loop, not on disk, and on the router
+# the loop is one process -- which is the "said once" the script promises.
+check "paused twice: one stop line per process" "1" "$(log_has 'paused by')"
+check "paused twice: still the same table" "epoch=1700000000
+aa:aa:aa:00:00:01 2
+aa:aa:aa:00:00:02 0" "$(cat "$TABLE")"
+rm -f "$RUN/collect-pause"
+: > "$LOG"
+printf '1800000000\n' > "$FIX/epoch"
+run
+check "resumed: the epoch moves again" "epoch=1800000000" "$(sed -n 1p "$TABLE")"
+check "resumed: says it is collecting" "1" "$(log_has 'collecting 2 access point(s)')"
+check "resumed: no pause line left" "0" "$(log_has 'paused by')"
+printf '1700000000\n' > "$FIX/epoch"
+
 echo "sta-collect: $pass passed, $fail failed"
 [ "$fail" = 0 ]

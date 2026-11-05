@@ -91,6 +91,8 @@
 
 `sta-collect` 只在 `mesh_role=slave` 起（与 `search` 互斥：主控问，子节点答）。它把本机每个 AP 的关联终端数写进 `/run/zte-mesh/ap-sta`，沙箱里的应答读这张表回主控的 AP Metric Query——原厂 agent 那一份数来自驱动经 cspd，沙箱两样都没有，所以没有这张表就没有任何 OpenWrt 子节点报得出终端数（原理见 [ARCHITECTURE](ARCHITECTURE.md) 第 2 节，判据见 [FEATURE_STATUS](FEATURE_STATUS.md) A26）。`stop_service` 连同 `ap-sta` 一起删：一份没人刷新又留着的表会被当成刚测过的数答出去。
 
+这一条循环可以单独停：往同目录的 `collect-pause` 写点什么都行（`touch /run/zte-mesh/collect-pause`），脚本不再重写表，**表留着、`epoch=` 不再盖章**——30 秒后沙箱里的应答就不回主控，这正是"这台没人上报终端数"的样子；`rm -f` 那个文件，下一次 5 秒的循环恢复盖章。日志各说一次（`paused by …: leaving … as it is` / `collecting N access point(s) into …`）。为什么不用 procd 停这个实例：`ubus call service delete` 停得掉，但恢复只能走 `/etc/init.d/zte-mesh start`，那一下把守护进程也换了 pid、子节点从拓扑里掉出去十几秒——读回来的是"重启了一次"，不是"采集停了"。
+
 第三个开关 `backhaul`（`off` / `multi_ap`，别的取值 `write_config` 直接拒——`multi-ap` 这种带连字符的写法会被 `wlan-sync` 当成 `off`，页面上一切正常、射频上什么也没建）也归 `wlan-sync` 管，但它落不落得下取决于上面两个：plan 里 `MapAccessAttr & 64` 的那一行**按角色写成两端的某一段**——`mesh_role=slave` 是客户端（`zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` + `wds 1`），`master` + `apply_local=1` 是回程 BSS（`zte_backhaul_<band>`，`multi_ap 2`，主 SSID 标 `multi_ap 1`）；`master` + `apply_local=0` 什么都不生成，所以 `start_service` 对这一组合明说一句，别让人以为"回程没生效"。4 地址为什么在客户端要写 `wds` 而不是只写 `multi_ap`，见 [research/AGENT_PROBE](research/AGENT_PROBE.md) §15。换角色时上一端的段会被回收，不会留下一个"页面看着正常、实际不通"的半条回程。
 
 它的取值也进 `restart.sig`，理由和上面两个相反：它不改实例集合，也不改 plan（plan 里那一行一直都在），只改 `wlan-sync` 拿到同一份 plan 时**写什么**——而那个 watcher 只对 plan 的内容起作用（`stamp()` 比的是文件摘要），所以 `off → multi_ap` 保存后若不重启 `wlan-sync`，就要等下一次别的原因引起的重启才生效。签名里只有"跑着 applier 的两个角色"带这个值（`sync_runs`，与 procd 那段用同一个判据）：`apply_local=0` 的主控不把任何配置应用到本机，为一个不起作用的值重启服务是白重启。

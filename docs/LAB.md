@@ -90,7 +90,7 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 `--agent` 换成 `db-engine-probe --agent-startup`：daemon 以 `Mode=1 / SetRoleEnable=0 / EnMasterOnly=0` 启动，探针这一侧扮演合成主控，走完 Discovery → Topology Query → Search → Search Response → M1 → M2。关注前缀：`ZTE_AGENT_WIRE`（帧收发）、`ZTE_AGENT_WLAN`/`ZTE_AGENT_PSK`（库读回）、`ZTE_TRACE_VALUE`（M2 有没有触发 `cfgChg`、写到哪个 BSS、M2 多长、同步完成没有——四条一次性的证据行）、`ZTE_TRACE_POLL`（daemon 每隔几秒重复的状态行，受下面的采样预算管）。
 
-`--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()` 把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。重启后 M1 要十几秒才来（通常两次 topology retry），**不要**因此判断成"它记得自己已配置"。沙箱只给 daemon 一个环境变量（多传一个会让原厂 ld.so 断言），运行时开关一律用 `/run/zte-mesh` 下的 flag 文件（bind mount）：`trace-all` 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行），`mm-off` 关掉 `libzte_agent_mm.so` 的配置管理器替身、让两个 WLAN setter 报告原厂返回值（诊断用）。
+`--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()` 把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。重启后 M1 要十几秒才来（通常两次 topology retry），**不要**因此判断成"它记得自己已配置"。沙箱只给 daemon 一个环境变量（多传一个会让原厂 ld.so 断言），运行时开关一律用 `/run/zte-mesh` 下的 flag 文件（bind mount）：`trace-all` 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行），`mm-off` 关掉 `libzte_agent_mm.so` 的配置管理器替身、让两个 WLAN setter 报告原厂返回值（诊断用），`collect-pause` 只停 `sta-collect` 那一条循环（表留着不再盖章，见 [SERVICE](SERVICE.md)；停 procd 实例会连守护进程一起换 pid，读回来的是重启不是停采集）。
 
 **日志的落点只有一个：logd 那圈环**（两台测试机 `system.@system[0].log_size='128'`，单位 KiB）。服务不写会长大的文件——沙箱根只读、`/tmp` 与 `/var/tmp` 是 8 MiB tmpfs、`/run/zte-mesh` 下全是小文件原子替换——所以 `controller-log.c` 管的是**打进环的比例**，不是轮转。分类与预算：
 

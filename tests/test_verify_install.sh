@@ -32,6 +32,10 @@ RESTART_WAIT=0
 # the profile smoke is the one that waits; the fixtures answer immediately, so no case pays for a settle
 SSID_WAIT=0
 SSID_POLL=1
+# ... and neither does the peer re-read: one snapshot per run unless a case says otherwise (and stubs `sleep`, which is
+# how the case that watches a frame arrive between two snapshots stays deterministic).
+METRICS_READS=1
+METRICS_READ_GAP=0
 ZTE_MESH_RUNDIR=$RUN
 ZTE_MESH_ROOTFS=$ROOTFS
 LIBEXEC=$T/libexec
@@ -40,7 +44,8 @@ ZTE_MESH_LIBEXEC=$LIBEXEC
 # the host's wall clock would judge or not judge depending on what minute someone ran it.
 FIXED_NOW=1793686800
 mkdir -p "$ROOTFS/root/lib" "$ROOTFS/root/bin" "$LIBEXEC"
-export UBUS APK UCI IW IP LOGREAD DATE INIT_D RESTART_WAIT SSID_WAIT SSID_POLL ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS ZTE_MESH_LIBEXEC
+export UBUS APK UCI IW IP LOGREAD DATE INIT_D RESTART_WAIT SSID_WAIT SSID_POLL METRICS_READS METRICS_READ_GAP \
+	ZTE_MESH_RUNDIR ZTE_MESH_ROOTFS ZTE_MESH_LIBEXEC
 
 pass=0
 fail=0
@@ -149,6 +154,13 @@ cat > "$LIBEXEC/wlan-sync" <<'EOF'
 set_flag() { :; }
 EOF
 chmod +x "$LIBEXEC/wlan-sync"
+
+# the collector, same directory: the read-back wants the string that only the version with the pause switch carries
+cat > "$LIBEXEC/sta-collect" <<'EOF'
+#!/bin/sh
+PAUSE=$DIR/collect-pause
+EOF
+chmod +x "$LIBEXEC/sta-collect"
 
 # plan_rows SSID... -- /run/zte-mesh/wlan-plan is a key=value table, one row per BSS the applier was told to carry.
 # The SSID smoke compares those rows against the wireless config, so the fixtures have to look like the real file.
@@ -453,11 +465,18 @@ check_line trace_per_bss_name yes
 check_line probe_bss_detail yes
 check_line init_seed_from_air yes
 check_line sync_flag_by_meaning yes
+check_line collect_pause_in_collector yes
 check_line peers_sta 0
 check_line peers_software 0
 # the lab link's only metrics digest is hops=1: no station count arrived at all, so an empty per-BSS count is not
 # evidence against the decoder and must not be graded as one
 check_line peer_reports_stations no
+# one snapshot (METRICS_READS=1 for the whole suite) and no number in it, from either record
+check_line peer_reads 1
+check_line peer_input no
+# a controller does not run the collector, so the table simply is not there -- that is the role's shape, not a fault
+check_line ap_sta_rows absent
+check_line ap_sta_age absent
 check_line state_bss_detail present
 # the counts beside that condition: one peer this machine heard from, nothing it ever split, and one child row the
 # controller still calls online. These are the H-12/H-13 numbers with the companion line that makes them mean
@@ -475,11 +494,84 @@ printf '3\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e4.sta"
 printf '1\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e5.sta"
 printf 'V1.0.0.2B2.8000\n' > "$RUN/peers/02:00:00:00:19:e3.software"
 printf 'stations=4\nhops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
+# the collector's table on the child side of the same link: what the stand-in is asked to answer from
+printf 'epoch=%s\n02:00:00:00:19:e4 3\n02:00:00:00:19:e5 1\n' "$((FIXED_NOW - 30))" > "$RUN/ap-sta"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line peers_sta 2
 check_line peers_software 1
 check_line peer_reports_stations yes
+check_line peer_reads 1
+check_line peer_input yes
+check_line ap_sta_rows 2
+check_line ap_sta_age 30
+
+# the batch-18 reading, spelled out: per-BSS records present, digest with no station count in it. That pair is by
+# design (the stand-in answers 0x94 and never writes the aggregate TLV), and `peer_input` is the line that says the
+# controller did get numbers -- `peer_reports_stations` stays the narrower snapshot it always was.
+CASE=peer-input-from-split-only
+printf 'hops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line peers_sta 2
+check_line peer_reports_stations no
+check_line peer_input yes
+
+# an empty table is a measured nothing, not a missing collector: the row count says zero and the age still counts
+CASE=ap-sta-empty
+printf 'epoch=%s\n' "$((FIXED_NOW - 42))" > "$RUN/ap-sta"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line ap_sta_rows 0
+check_line ap_sta_age 42
+
+# a collector stopped by the pause flag leaves its last table sitting there and stops stamping it: the rows stay, the
+# age grows, and that is the reading H-15 ⑤ wants. Nothing is judged -- a stale table is the responder's business.
+CASE=ap-sta-paused
+printf 'epoch=%s\n02:00:00:00:19:e4 3\n' "$((FIXED_NOW - 120))" > "$RUN/ap-sta"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line ap_sta_rows 1
+check_line ap_sta_age 120
+
+# a table with no epoch line has no age to report. The row count still stands: half the reading is better than
+# dropping the line, and `unreadable` says which half is missing.
+CASE=ap-sta-no-epoch
+printf '02:00:00:00:19:e4 3\n02:00:00:00:19:e5 1\n' > "$RUN/ap-sta"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line ap_sta_rows 2
+check_line ap_sta_age unreadable
+
+# --- the second snapshot: one read is one instant (the batch-18 lesson) -----------------------------------------------
+# A frame with no station count rewrites the metrics line without it, so a single snapshot can answer `no` while the
+# per-BSS records say otherwise. The script re-reads only while a pass shows nothing anywhere; the proof that it
+# re-reads is a fixture that changes inside the gap. `sleep` is stubbed for this call alone -- a real five seconds
+# would make the case depend on the host, and METRICS_READ_GAP=0 would make the loop finish before anything lands.
+CASE=peer-resample
+printf 'epoch=%s\n02:00:00:00:19:e4 3\n' "$((FIXED_NOW - 42))" > "$RUN/ap-sta"
+rm -f "$RUN/peers"/*.sta "$RUN/peers"/*.software
+printf 'hops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
+cat > "$BIN/sleep" <<EOF
+#!/bin/sh
+# the gap is when the frame arrives: one per-BSS record, written by the first sleep this run takes
+[ -f '$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e4.sta' ] || printf '3\n' > '$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e4.sta'
+exit 0
+EOF
+chmod +x "$BIN/sleep"
+PATH="$BIN:$PATH" METRICS_READS=3 METRICS_READ_GAP=5 sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line peer_reads 2
+check_line peers_sta 1
+check_line peer_reports_stations no
+check_line peer_input yes
+check_line ap_sta_rows 1
+check_line ap_sta_age 42
+rm -f "$BIN/sleep" "$RUN/ap-sta"
+printf '3\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e4.sta"
+printf '1\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e5.sta"
+printf 'V1.0.0.2B2.8000\n' > "$RUN/peers/02:00:00:00:19:e3.software"
+printf 'stations=4\nhops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
 
 # the document those same frames leave behind: write_state sums the .sta files into the node row, so `sta_file_sum`
 # and `bss_detail_rows` are two readings of one witness. Neither is judged -- an empty split is H-13's answer, not a
@@ -546,6 +638,20 @@ check_line init_seed_from_air yes
 check_line sync_flag_by_meaning unreadable
 if grep -q '^FAIL ' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: an absent applier file is an environment fact"; else pass=$((pass + 1)); fi
 printf '#!/bin/sh\nset_flag() { :; }\n' > "$LIBEXEC/wlan-sync"
+
+# and the same judgement one file over: a machine whose collector cannot be paused is a machine where H-15 ⑤ still
+# needs a procd edit -- and the edit is the one that restarts the daemon.
+CASE=scripts-stale-collector
+packed_libs
+printf '#!/bin/sh\n' > "$LIBEXEC/sta-collect"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line RESULT FAIL
+if grep -q 'FAIL collect_pause_in_collector expected=yes got=no' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: a collector without the pause switch must fail the run"; fi
+check_line init_seed_from_air yes
+check_line sync_flag_by_meaning yes
+printf '#!/bin/sh\nPAUSE=$DIR/collect-pause\n' > "$LIBEXEC/sta-collect"
 
 # --- case 12: the profile lands a few seconds after the restart -------------------------------------------------------
 # Measured on ax3600 (2026-11-03): after a restart the plan has no rows at t=0, its rows are there at t=2s while
