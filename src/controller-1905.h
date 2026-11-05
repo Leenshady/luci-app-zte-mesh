@@ -22,11 +22,14 @@
 #define CONTROLLER_TLV_AL_MAC 0x01
 #define CONTROLLER_TLV_VENDOR 0x0b
 #define CONTROLLER_TLV_AP_OPERATIONAL_BSS 0x83
+#define CONTROLLER_TLV_AP_METRICS_QUERY 0x93
 #define CONTROLLER_TLV_AP_METRICS 0x94
 #define CONTROLLER_TLV_DEVICE_INVENTORY 0xd4
 
 /* CMDU types, for the rare field whose number only means something inside one message type. */
 #define CONTROLLER_MSG_AP_CAPABILITY_REPORT 0x8002
+#define CONTROLLER_MSG_AP_METRICS_QUERY 0x800b
+#define CONTROLLER_MSG_AP_METRICS_RESPONSE 0x800c
 
 struct cmdu_header {
     unsigned int type;      /* CMDU message type, e.g. 0x0003 topology response, 0x800c AP metrics response */
@@ -87,6 +90,35 @@ struct ap_bss_metric {
  * BSSID that repeats, more distinct BSSes than `max` - returns 0 rather than a partial list, because a sum over a
  * partial list is a too-small number that looks measured. */
 unsigned int ap_metrics_by_bss(const uint8_t *frame, size_t bytes, struct ap_bss_metric *out, unsigned int max);
+
+/* AP Metric Query (CMDU 0x800b), AP Metric Query TLV (0x93) = {BSSID number, BSSID[n]} - the shape the factory
+ * master's I5TlvApMetricsQueryInsert writes, which is what `enroller --metric` sends and what a ZTE master sends
+ * when it wants station counts. The one field whose meaning depends on the message type is the number: a query
+ * that lists no BSSID asks about every BSS the node runs.
+ *
+ * 1 = a complete, unfragmented query whose list this reads in whole, with `count` BSSIDs in `bssids` (0 = about
+ * all of them). 0 = not a query, a fragment, no 0x93 TLV, or a list this decoder will not split (a length that
+ * disagrees with its own count byte, more BSSIDs than CONTROLLER_AP_BSS_MAX): the cost of not answering a query is
+ * that nothing shows on the page, and the cost of answering one we only half read is a number that looks measured. */
+int ap_metrics_query_decode(const uint8_t *frame, size_t bytes, struct cmdu_header *header,
+                            uint8_t bssids[CONTROLLER_AP_BSS_MAX][6], unsigned int *count);
+
+/* The answer to one query: CMDU 0x800c carrying one AP Metrics TLV (0x94) per BSS, in the layout
+ * node_metrics_decode() and ap_metrics_by_bss() read - BSSID[6], channel utilisation, station count, presence
+ * byte. `dest` is the MAC that asked, `source` this node's AL MAC: the master keys the station files it writes by
+ * the Ethernet source of the frame, so a reply from anywhere else is filed under the wrong node.
+ *
+ * The frame is padded to 60 bytes because a raw socket does not pad an Ethernet frame. Returns the byte count, or
+ * 0 when there is nothing to say (no BSS given) or the frame will not fit in `capacity`. */
+size_t ap_metrics_response_build(uint8_t *frame, size_t capacity, const uint8_t dest[6], const uint8_t source[6],
+                                 unsigned int message_id, const struct ap_bss_metric *bsses, unsigned int count);
+
+/* The query that starts the exchange, built the way a controller builds it: CMDU 0x800b with a 0x93 that lists no
+ * BSSID, so the agent answers for every BSS it runs. `dest` is that agent's AL MAC and `source` this controller's,
+ * because the answer comes back to the Ethernet source of the query and is filed under it. 60 bytes on the wire,
+ * or 0 when `capacity` will not hold that. */
+size_t ap_metrics_query_build(uint8_t *frame, size_t capacity, const uint8_t dest[6], const uint8_t source[6],
+                              unsigned int message_id);
 
 /* The longest version the inventory can carry. The factory receiver copies each of its strings into a 64-byte
  * member and refuses a length byte above 64, so nothing longer is ever a version. */

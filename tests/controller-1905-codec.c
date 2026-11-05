@@ -511,6 +511,39 @@ static void captured_tests(void)
     CHECK(!tlv_next(&cursor, &type, &value, &length)); /* the capture ends with EOM and Ethernet padding */
 }
 
+/* The master's half of the station-count exchange: the query this repository builds is the one its own decoder
+ * reads, in the shape the vendor's I5TlvApMetricsQueryInsert writes - and with no BSSID listed, which is how the
+ * question says "every access point you run". */
+static void query_build_tests(void)
+{
+    uint8_t frame[CONTROLLER_1905_MAX_BYTES], runt[59];
+    struct cmdu_header header;
+    uint8_t asked[CONTROLLER_AP_BSS_MAX][6];
+    unsigned int listed = 7, k;
+    size_t used = ap_metrics_query_build(frame, sizeof(frame), agent, controller, 0x4100);
+    CHECK(used == 60); /* the padding is part of what goes on the wire: a raw socket does not add it */
+    CHECK(!memcmp(frame, agent, 6) && !memcmp(frame + 6, controller, 6));
+    CHECK(frame[12] == 0x89 && frame[13] == 0x3a);
+    CHECK(frame[14] == 0 && frame[15] == 0); /* revision and reserved */
+    CHECK(frame[16] == 0x80 && frame[17] == 0x0b);
+    CHECK(frame[18] == 0x41 && frame[19] == 0x00);
+    CHECK(frame[20] == 0 && frame[21] == 0x80); /* last fragment, not relayed: it is unicast to one agent */
+    CHECK(frame[22] == CONTROLLER_TLV_AP_METRICS_QUERY && frame[23] == 0 && frame[24] == 1);
+    CHECK(frame[25] == 0); /* the count byte, and it counts nothing */
+    CHECK(frame[26] == 0 && frame[27] == 0 && frame[28] == 0); /* End of Message */
+    for (k = 29; k < 60; k++)
+        CHECK(frame[k] == 0);
+    CHECK(ap_metrics_query_decode(frame, used, &header, asked, &listed));
+    CHECK(header.type == CONTROLLER_MSG_AP_METRICS_QUERY && header.message_id == 0x4100);
+    CHECK(header.fragment == 0 && header.last_fragment && !header.relayed);
+    CHECK(listed == 0);
+    used = ap_metrics_query_build(frame, sizeof(frame), agent, controller, 0);
+    CHECK(used == 60 && frame[18] == 0 && frame[19] == 0); /* id 0 is a legal id, not a refusal */
+    CHECK(ap_metrics_query_build(runt, sizeof(runt), agent, controller, 1) == 0);
+    CHECK(ap_metrics_query_build(frame, sizeof(frame), NULL, controller, 1) == 0);
+    CHECK(ap_metrics_query_build(frame, sizeof(frame), agent, NULL, 1) == 0);
+}
+
 int main(void)
 {
     static uint8_t frame[CONTROLLER_1905_MAX_BYTES];
@@ -520,6 +553,7 @@ int main(void)
     header_tests();
     tlv_walk_tests();
     metrics_tests();
+    query_build_tests();
     bss_list_tests();
     vendor_tests();
     inventory_tests();

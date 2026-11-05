@@ -249,3 +249,118 @@ unsigned int ap_metrics_by_bss(const uint8_t *frame, size_t bytes, struct ap_bss
     memcpy(out, seen, count * sizeof(*seen));
     return count;
 }
+
+int ap_metrics_query_decode(const uint8_t *frame, size_t bytes, struct cmdu_header *header,
+                            uint8_t bssids[CONTROLLER_AP_BSS_MAX][6], unsigned int *count)
+{
+    struct tlv_cursor cursor;
+    const uint8_t *value;
+    unsigned int type, listed;
+    size_t length, k;
+    if (!count)
+        return 0;
+    *count = 0;
+    if (!bssids || !cmdu_decode(frame, bytes, header) || header->type != CONTROLLER_MSG_AP_METRICS_QUERY ||
+        header->fragment || !header->last_fragment)
+        return 0;
+    tlv_open(&cursor, frame, bytes);
+    while (tlv_next(&cursor, &type, &value, &length)) {
+        if (type != CONTROLLER_TLV_AP_METRICS_QUERY)
+            continue;
+        /* The count byte is the list's own length, so a TLV whose two disagree is damaged and the walk cannot say
+         * where the BSSIDs end. A list longer than the per-node cap is one this answer would have to truncate, and
+         * a truncated answer is the master believing it asked everything. Either way: silence. */
+        if (length < 1)
+            return 0;
+        listed = value[0];
+        if (length != 1 + 6 * (size_t)listed || listed > CONTROLLER_AP_BSS_MAX)
+            return 0;
+        for (k = 0; k < listed; k++)
+            memcpy(bssids[k], value + 1 + 6 * k, 6);
+        *count = listed;
+        return 1;
+    }
+    return 0; /* a query with no 0x93 asks nothing */
+}
+
+/* The same question from the other end of the wire: AP Metric Query (CMDU 0x800b) whose 0x93 lists no BSSID, which
+ * is the query saying "every BSS you run". `source` has to be this controller's AL MAC: the agent answers the
+ * Ethernet source of the query, and the master files whatever comes back under that source. Padded to 60 because a
+ * raw socket does not pad an Ethernet frame. */
+size_t ap_metrics_query_build(uint8_t *frame, size_t capacity, const uint8_t dest[6], const uint8_t source[6],
+                              unsigned int message_id)
+{
+    size_t needed = CONTROLLER_1905_HEADER + 3 + 1 + 3, used = CONTROLLER_1905_HEADER;
+    if (needed < 60)
+        needed = 60;
+    if (!frame || !dest || !source || capacity < needed)
+        return 0;
+    memcpy(frame, dest, 6);
+    memcpy(frame + 6, source, 6);
+    frame[12] = (uint8_t)(CONTROLLER_1905_ETHER >> 8);
+    frame[13] = (uint8_t)CONTROLLER_1905_ETHER;
+    frame[14] = 0;                                    /* revision, reserved */
+    frame[15] = 0;
+    frame[16] = (uint8_t)(CONTROLLER_MSG_AP_METRICS_QUERY >> 8);
+    frame[17] = (uint8_t)CONTROLLER_MSG_AP_METRICS_QUERY;
+    frame[18] = (uint8_t)(message_id >> 8);
+    frame[19] = (uint8_t)message_id;
+    frame[20] = 0;                                    /* fragment id */
+    frame[21] = 0x80;                                 /* last fragment, not relayed: it goes to one node */
+    frame[used++] = CONTROLLER_TLV_AP_METRICS_QUERY;
+    frame[used++] = 0;
+    frame[used++] = 1;                                /* the value is the count byte alone */
+    frame[used++] = 0;                                /* and it counts no BSSID: ask about all of them */
+    frame[used++] = 0;
+    frame[used++] = 0;
+    frame[used++] = 0;                                /* End of Message */
+    memset(frame + used, 0, 60 - used);
+    return 60;
+}
+
+/* One AP Metrics TLV: BSSID[6], channel utilisation, station count, presence bitmap - the fixed part the factory
+ * sender writes before its optional estimated-service blocks. The reader in this repository takes a TLV of nine
+ * bytes, so the count is where it expects it; the presence byte is kept because the vendor's own layout carries it
+ * and a frame shorter than that is one its extractor may read past. */
+#define AP_METRICS_TLV_BYTES 13
+
+size_t ap_metrics_response_build(uint8_t *frame, size_t capacity, const uint8_t dest[6], const uint8_t source[6],
+                                 unsigned int message_id, const struct ap_bss_metric *bsses, unsigned int count)
+{
+    size_t needed = CONTROLLER_1905_HEADER + (size_t)count * AP_METRICS_TLV_BYTES + 3, used = CONTROLLER_1905_HEADER, k;
+    if (needed < 60)
+        needed = 60;                                    /* the raw socket does not pad an Ethernet frame */
+    if (!frame || !dest || !source || !bsses || !count || capacity < needed)
+        return 0;
+    memcpy(frame, dest, 6);
+    memcpy(frame + 6, source, 6);
+    frame[12] = (uint8_t)(CONTROLLER_1905_ETHER >> 8);
+    frame[13] = (uint8_t)CONTROLLER_1905_ETHER;
+    frame[14] = 0;                                    /* revision, reserved */
+    frame[15] = 0;
+    frame[16] = (uint8_t)(CONTROLLER_MSG_AP_METRICS_RESPONSE >> 8);
+    frame[17] = (uint8_t)CONTROLLER_MSG_AP_METRICS_RESPONSE;
+    frame[18] = (uint8_t)(message_id >> 8);
+    frame[19] = (uint8_t)message_id;                  /* the id of the query this answers */
+    frame[20] = 0;                                    /* fragment id */
+    frame[21] = 0x80;                                 /* last fragment, and not relayed: it goes over the direct link */
+    for (k = 0; k < count; k++) {
+        frame[used++] = CONTROLLER_TLV_AP_METRICS;
+        frame[used++] = 0;
+        frame[used++] = AP_METRICS_TLV_BYTES - 3;
+        memcpy(frame + used, bsses[k].bssid, 6);
+        used += 6;
+        frame[used++] = 0;                            /* channel utilisation: not measured here, so not reported */
+        frame[used++] = (uint8_t)(bsses[k].stations >> 8);
+        frame[used++] = (uint8_t)bsses[k].stations;
+        frame[used++] = 0;                            /* presence bitmap: no estimated-service block follows */
+    }
+    frame[used++] = 0;
+    frame[used++] = 0;
+    frame[used++] = 0;                                /* End of Message */
+    if (used < 60) {
+        memset(frame + used, 0, 60 - used);
+        used = 60;
+    }
+    return used;
+}

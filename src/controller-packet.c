@@ -16,6 +16,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "controller-actions.h"
+#include "controller-1905.h"
 #include "controller-packet.h"
 #include "controller-steer.h"
 
@@ -341,6 +342,52 @@ done:
     saved = errno;
     if (fd >= 0) close(fd);
     memset(reply, 0, sizeof(reply));
+    errno = saved;
+    return result;
+}
+
+/* Ask one agent how many clients sit on each BSS it runs: AP Metric Query (CMDU 0x800b) with an empty BSSID list,
+ * built by ap_metrics_query_build() and sent from the daemon's own port with this controller's AL MAC as the source.
+ *
+ * Nothing is read back here. The answer comes to the AL MAC the query was sent from, so it arrives on the daemon's
+ * socket, and the frame hook in controller-trace.c files it in the peers directory like any other frame the daemon
+ * receives. That is the whole point of sending it this way: an OpenWrt child answers from the stand-in, a factory
+ * child answers from its own driver, and the master tells them apart by nothing. 0 = sent, -1 = local error (no
+ * private port, no AL MAC, the socket refused). */
+int controller_ap_metrics_query(const uint8_t agent[6])
+{
+    static uint16_t message_id = 0xb000;
+    struct sockaddr_ll target = { .sll_family = AF_PACKET, .sll_protocol = htons(0x893a), .sll_halen = 6 };
+    struct ifreq interface;
+    uint8_t frame[64], source[6];
+    size_t used;
+    int fd, result, saved, probe;
+    const char *private = getenv("ZTE_MESH_DB_SANDBOX");
+    if (!agent || !private || strcmp(private, "1"))
+        return -1;
+    target.sll_ifindex = (int)if_nametoindex("veth-lab"); /* the daemon's actual port */
+    if (!target.sll_ifindex)
+        return -1;
+    memset(&interface, 0, sizeof(interface));
+    strcpy(interface.ifr_name, "br0"); /* the private identity bridge carries the AL MAC this node is known by */
+    probe = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (probe < 0)
+        return -1;
+    saved = ioctl(probe, SIOCGIFHWADDR, &interface);
+    close(probe);
+    if (saved || interface.ifr_hwaddr.sa_family != 1)
+        return -1;
+    memcpy(source, interface.ifr_hwaddr.sa_data, 6);
+    used = ap_metrics_query_build(frame, sizeof(frame), agent, source, (unsigned int)(message_id++ & 0xffff));
+    if (!used)
+        return -1;
+    memcpy(target.sll_addr, agent, 6);
+    fd = socket(AF_PACKET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, htons(0x893a));
+    if (fd < 0)
+        return -1;
+    result = sendto(fd, frame, used, 0, (struct sockaddr *)&target, sizeof(target)) == (ssize_t)used ? 0 : -1;
+    saved = errno;
+    close(fd);
     errno = saved;
     return result;
 }

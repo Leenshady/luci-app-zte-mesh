@@ -1425,5 +1425,22 @@ for needle in 'sync_runs()' '&& sync_runs "$role" "$apply_local"' \
 	fi
 done
 
+# The station counts an OpenWrt child answers an AP Metric with are measured on the host -- the radios are in /sys and
+# ns-run keeps /sys out of the private root -- so a loop writes them to $RUNDIR/ap-sta for the responder inside. Only
+# a child runs it (the controller is the one asking), and a stopped service must not leave a table beside a daemon
+# that no longer reads it. start_service() again lives outside what this harness can run, so the judgement is pinned
+# in the source.
+for needle in 'STA_COLLECT=${ZTE_MESH_STA_COLLECT:-/usr/libexec/zte-mesh/sta-collect}' \
+	'if ! role_is_master "$role" && [ -x "$STA_COLLECT" ]; then' \
+	'procd_open_instance sta-collect' \
+	'procd_set_param command "$STA_COLLECT" "$RUNDIR/ap-sta"' \
+	'"$RUNDIR/wlan-plan" "$RUNDIR/ap-sta"'; do
+	if grep -q -F -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL station count collection: $needle"
+	fi
+done
+
 echo "init test: $pass passed, $fail failed"
 [ "$fail" = 0 ]

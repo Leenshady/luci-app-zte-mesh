@@ -81,10 +81,10 @@ $(LIBDIR)/libzte_controller_route.so: src/controller-route.c
 	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) $< \
 	  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o $@
 
-$(LIBDIR)/libzte_controller_trace.so: src/controller-trace.c src/controller-log.c src/controller-log.h src/controller-peer.c src/controller-peer.h src/controller-1905.c src/controller-1905.h src/controller-steer.c src/controller-steer.h
+$(LIBDIR)/libzte_controller_trace.so: src/controller-trace.c src/controller-log.c src/controller-log.h src/controller-peer.c src/controller-peer.h src/controller-1905.c src/controller-1905.h src/controller-steer.c src/controller-steer.h src/agent-ap-metrics.c src/agent-ap-metrics.h
 	$(ARMCC) $(COMMON) -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
 	  -Wl,-z,defs -Wl,-soname,libzte_controller_trace.so \
-	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) src/controller-trace.c src/controller-log.c src/controller-peer.c src/controller-1905.c src/controller-steer.c \
+	  -L$(LIBDIR) -Wl,-rpath-link,$(LIBDIR) src/controller-trace.c src/controller-log.c src/controller-peer.c src/controller-1905.c src/controller-steer.c src/agent-ap-metrics.c \
 	  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o $@
 
 # The child-side configuration-manager stand-in. Only the two WLAN setters are interposed, and each of them only
@@ -163,11 +163,17 @@ $(ARTIFACTS)/tests/controller-wsc-crypto-codec: tests/controller-wsc-crypto-code
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
 	  tests/controller-wsc-crypto-codec.c src/controller-wsc-crypto.c -Wl,--gc-sections $(HOSTCRYPTO) -o $@
 
+# The agent's station-count stand-in: the query it recognises, the table it reads and the frame it writes are all
+# functions of bytes and one file, so the master's own reader can be pointed at the answer it produces.
+$(ARTIFACTS)/tests/agent-ap-metrics-codec: tests/agent-ap-metrics-codec.c src/agent-ap-metrics.c src/agent-ap-metrics.h src/controller-1905.c src/controller-1905.h src/controller-peer.c src/controller-peer.h src/controller-steer.c src/controller-steer.h | $(ARTIFACTS)/tests
+	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror tests/agent-ap-metrics-codec.c src/agent-ap-metrics.c \
+	  src/controller-1905.c src/controller-peer.c src/controller-steer.c -o $@
+
 # The agent synchroniser's pure part (plan text + change detection); the vendor symbols are stubbed in the test.
 $(ARTIFACTS)/tests/agent-sync-codec: tests/agent-sync-codec.c src/agent-sync.c src/agent-sync.h src/wlan_cfg.def src/wlan_psk.def | $(ARTIFACTS)/tests
 	$(HOSTCC) -O2 -std=c11 -Wall -Wextra -Werror -Isrc tests/agent-sync-codec.c src/agent-sync.c -o $@
 
-test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-1905-codec $(ARTIFACTS)/tests/controller-steer-codec $(ARTIFACTS)/tests/controller-peer-codec $(ARTIFACTS)/tests/controller-log-codec $(ARTIFACTS)/tests/controller-actions-test $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-sync-codec
+test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/tests/libshim-host.so $(ARTIFACTS)/ns-run $(ARTIFACTS)/tests/bridge-codec $(ARTIFACTS)/tests/cm-profile-codec $(ARTIFACTS)/tests/controller-packet-codec $(ARTIFACTS)/tests/controller-1905-codec $(ARTIFACTS)/tests/controller-steer-codec $(ARTIFACTS)/tests/controller-peer-codec $(ARTIFACTS)/tests/controller-log-codec $(ARTIFACTS)/tests/controller-actions-test $(ARTIFACTS)/tests/controller-wsc-codec $(ARTIFACTS)/tests/controller-wsc-crypto-codec $(ARTIFACTS)/tests/agent-ap-metrics-codec $(ARTIFACTS)/tests/agent-sync-codec
 	$(ARTIFACTS)/tests/controller-wsc-codec
 	$(ARTIFACTS)/tests/controller-wsc-crypto-codec
 	$(ARTIFACTS)/tests/controller-packet-codec
@@ -177,6 +183,7 @@ test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/
 	$(ARTIFACTS)/tests/controller-log-codec
 	$(ARTIFACTS)/tests/controller-actions-test
 	sh tests/test_steer_tshark.sh $(abspath $(ARTIFACTS))/tests/controller-steer-codec
+	$(ARTIFACTS)/tests/agent-ap-metrics-codec
 	$(ARTIFACTS)/tests/agent-sync-codec
 	$(ARTIFACTS)/tests/cm-profile-codec
 	$(ARTIFACTS)/tests/bridge-codec
@@ -190,6 +197,7 @@ test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/
 	sh tests/test_init.sh
 	sh tests/test_rpcd.sh
 	sh tests/test_wlan_sync.sh
+	sh tests/test_sta_collect.sh
 	sh tests/test_verify_install.sh
 	python3 tests/test_i18n.py
 	python3 tests/test_runtime.py

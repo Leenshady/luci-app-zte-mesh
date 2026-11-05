@@ -23,6 +23,12 @@ int controller_wsc_m2_matches(const uint8_t *, size_t, const uint8_t[6], const u
  * in *code, 0 = accepted), -2 on timeout, -1 on any local error. */
 int controller_radio_select(const uint8_t agent[6], unsigned int radio, int channel, int power, int *code);
 
+/* AP Metric Query (CMDU 0x800b) with an empty BSSID list - "tell me the client count of every BSS you run" - sent
+ * to one agent from the daemon's private port with this controller's AL MAC as the source. The answer is not read
+ * here: it comes back to that MAC and the daemon's frame hook writes the per-BSS files, so the page fills the same
+ * way it does when a factory controller does the asking. 0 = sent, -1 = local error. */
+int controller_ap_metrics_query(const uint8_t agent[6]);
+
 /* One frame the daemon sent, with nothing of its body kept. */
 struct controller_frame {
     unsigned int cmdu, mid, wsc_message, bytes, band;

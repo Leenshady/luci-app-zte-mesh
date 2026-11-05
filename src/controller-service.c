@@ -800,6 +800,12 @@ struct radio_agent { char mac[18]; time_t since; };
 #define MLO_NODES 8U
 struct mlo_push { char mac[18]; time_t since, next; int sent; unsigned int attempts; };
 
+/* One node this controller asks for its client counts, and when it asked last. */
+#define AP_METRIC_PEERS 8U
+#define AP_METRIC_SETTLE 15
+#define AP_METRIC_INTERVAL 10
+struct ap_metric_query { char mac[18]; time_t since, next; };
+
 static void al_mac(char out[18])
 {
     struct ifreq request;
@@ -1269,6 +1275,67 @@ static void mlo_reconcile(const struct service_config *cfg, struct mlo_push push
         if (!status)
             p->sent = cfg->mlo_enable;
         return;
+    }
+}
+
+/* How many clients sit on a child's access points is not something this controller can see: it is measured on the
+ * child and only leaves that router in answer to an AP Metric Query (CMDU 0x800b). A factory master asks on its own
+ * schedule and the daemon here does not, so the service asks - one node per call, every AP_METRIC_INTERVAL seconds.
+ * That is well inside the 30 seconds the reader gives a per-BSS file, so a node that stays online is never shown as
+ * silent between two asks, and one send per call keeps the loop that writes state.json every second.
+ *
+ * The settle delay is the one the radio push uses: an agent drops what we send until it has learned this controller,
+ * so a query before that is a query with no answer. A node that leaves the topology stops being asked, and its files
+ * age out by themselves - which is what tells "this child reports nothing" from "this child is gone". */
+static void ap_metrics_reconcile(struct ap_metric_query peers[AP_METRIC_PEERS], time_t now)
+{
+    struct controller_node nodes[MAX_NODES];
+    unsigned int count, i, j, k, octets[6];
+    char self[18];
+    int online, asked = 0;
+    al_mac(self);
+    count = topology_ready() ? controller_read_nodes(nodes, MAX_NODES) : 0;
+    for (k = 0; k < AP_METRIC_PEERS; k++) {
+        if (!peers[k].mac[0])
+            continue;
+        for (i = 0, online = 0; i < count; i++)
+            if (nodes[i].active && !strcmp(nodes[i].mac, peers[k].mac)) {
+                online = 1;
+                break;
+            }
+        if (!online)
+            peers[k].mac[0] = 0;
+    }
+    for (i = 0; i < count && !asked; i++) {
+        uint8_t mac[6];
+        int status;
+        if (!nodes[i].active || !strcmp(nodes[i].mac, self))
+            continue;
+        if (sscanf(nodes[i].mac, "%x:%x:%x:%x:%x:%x", &octets[0], &octets[1], &octets[2],
+                   &octets[3], &octets[4], &octets[5]) != 6)
+            continue;
+        for (j = 0; j < 6; j++)
+            mac[j] = (uint8_t)octets[j];
+        for (k = 0; k < AP_METRIC_PEERS; k++)
+            if (peers[k].mac[0] && !strcmp(peers[k].mac, nodes[i].mac))
+                break;
+        if (k == AP_METRIC_PEERS) {
+            for (k = 0; k < AP_METRIC_PEERS; k++)
+                if (!peers[k].mac[0])
+                    break;
+            if (k == AP_METRIC_PEERS)
+                return; /* every slot holds a node still marked online; the next tick will ask one of those */
+            snprintf(peers[k].mac, sizeof(peers[k].mac), "%s", nodes[i].mac);
+            peers[k].since = now;
+            peers[k].next = 0;
+        }
+        if (now - peers[k].since < AP_METRIC_SETTLE || now < peers[k].next)
+            continue;
+        status = controller_ap_metrics_query(mac);
+        peers[k].next = now + AP_METRIC_INTERVAL;
+        printf("ZTE_MESH_SERVICE ap_metric_query mac=%s status=%d epoch=%ld\n", nodes[i].mac, status, (long)time(NULL));
+        fflush(NULL);
+        asked = 1;
     }
 }
 
@@ -1960,7 +2027,9 @@ int controller_service(void)
     struct radio_push radio_push[2] = {{0, 0, 0}, {0, 0, 0}};
     struct radio_agent radio_agent = {{0}, 0};
     struct mlo_push mlo_push[MLO_NODES];
+    struct ap_metric_query metric_query[AP_METRIC_PEERS];
     memset(mlo_push, 0, sizeof(mlo_push));
+    memset(metric_query, 0, sizeof(metric_query));
     for (;;) {
         memset(&info, 0, sizeof(info));
         if (waitid(P_PID, child, &info, WEXITED | WNOHANG | WNOWAIT)) {
@@ -2023,6 +2092,7 @@ int controller_service(void)
             state.notify_pending = 0;
             state.notify_attempts = 0;
             memset(mlo_push, 0, sizeof(mlo_push));
+            memset(metric_query, 0, sizeof(metric_query));
             memset(radio_push, 0, sizeof(radio_push));
             radio_agent.mac[0] = 0;
         }
@@ -2046,6 +2116,7 @@ int controller_service(void)
             if (!slave) {
                 radio_reconcile(&config, &state, radio_push, &radio_agent, now.tv_sec);
                 mlo_reconcile(&config, mlo_push, now.tv_sec);
+                ap_metrics_reconcile(metric_query, now.tv_sec);
                 if (!state.respawn_pending)
                     action_reconcile(1);
                 policy_notify_reconcile(&state, now.tv_sec);

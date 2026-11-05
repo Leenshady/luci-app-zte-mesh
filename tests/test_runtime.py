@@ -95,7 +95,8 @@ def main():
     # made from these sources (config-reject from controller-service.c, wlan-plan from agent-sync.c).
     probe = blobs.get("root/bin/db-engine-probe", b"")
     for marker in (b"config-reject", b"wlan-plan",
-                   b"bss_detail"):  # the per-BSS rows state.json prints since the 逐路 batch
+                   b"bss_detail",        # the per-BSS rows state.json prints since the 逐路 batch
+                   b"ap_metric_query"):  # the controller asks for those counts itself since the 终端数 batch
         check(f"db-engine-probe in the archive carries {marker.decode()}", marker in probe,
               "the packed copy predates the current sources; rebuild prebuilt/db-engine-probe with "
               "build-lab-tools.yml and repack with openwrt/repack-runtime.py --replace")
@@ -111,6 +112,11 @@ def main():
     check("libzte_controller_trace.so in the archive carries the per-BSS file name", marker in trace,
           "the packed library predates controller-peer.c's write_bss(); rebuild the ARM32 shim and repack "
           "with openwrt/repack-runtime.py --replace root/lib/libzte_controller_trace.so=...")
+    # The same library is where the AP Metric Query is answered now, so one packed .so carries both halves of
+    # the terminal count: the writer of the per-BSS files and the reader of /run/zte-mesh/ap-sta.
+    check("libzte_controller_trace.so in the archive answers an AP Metric Query", b"ap_metrics_answer" in trace,
+          "the packed library predates agent-ap-metrics.c; the child stays silent and the master reads "
+          "stations=-1 for a node that has the counts")
 
     # The compiled halves are machine code, so they cannot ride in an arch:all apk: on the
     # x86_64 lab box an aarch64 ns-run would not exec at all. zte-mesh is arch:all (scripts

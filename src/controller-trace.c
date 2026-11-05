@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include "controller-log.h"
 #include "controller-peer.h"
+#include "agent-ap-metrics.h"
 #define EXPORT __attribute__((visibility("default")))
 
 static struct log_gate gate;
@@ -133,6 +134,40 @@ EXPORT ssize_t sendto(int fd, const void *data, size_t length, int flags,
     }
     errno = saved; return result;
 }
+/* The station-count stand-in. The vendor agent answers an AP Metric Query with nothing, because the numbers it
+ * would report come from cspd and the driver layer and neither exists in this sandbox; what the child host
+ * measured is in /run/zte-mesh/ap-sta. The reply goes out on the socket the query arrived on, which is the only
+ * one on the right interface with the right source MAC - and, unlike a sendto() call from here, it does not go
+ * through this file's own wrapper, so the daemon sees one transaction and the trace line says what it was. */
+static void answer_ap_metrics(int fd, const uint8_t *frame, size_t bytes, const struct sockaddr_storage *address)
+{
+    static ssize_t (*send_real)(int, const void *, size_t, int, const struct sockaddr *, socklen_t);
+    uint8_t reply[256], dest[6];
+    struct sockaddr_ll target;
+    ssize_t sent;
+    size_t used;
+    int saved;
+    if (!send_real) {
+        send_real = (ssize_t (*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))
+                    dlsym(RTLD_NEXT, "sendto");
+        if (!send_real)
+            return;
+    }
+    used = agent_ap_metrics_answer(frame, bytes, reply, sizeof(reply), dest);
+    if (!used)
+        return;
+    memset(&target, 0, sizeof(target));
+    target.sll_family = AF_PACKET;
+    target.sll_protocol = htons(CONTROLLER_1905_ETHER);
+    target.sll_ifindex = ((const struct sockaddr_ll *)address)->sll_ifindex;
+    target.sll_halen = 6;
+    memcpy(target.sll_addr, dest, 6);
+    sent = send_real(fd, reply, used, 0, (struct sockaddr *)&target, sizeof(target));
+    saved = errno;
+    message("ZTE_CONTROLLER_TRACE ap_metrics_answer bytes=%u ifindex=%d sent=%d errno=%d\n",
+            (unsigned int)used, target.sll_ifindex, (int)sent, sent < 0 ? saved : 0);
+    errno = saved;
+}
 EXPORT ssize_t recvfrom(int fd, void *data, size_t length, int flags,
                         struct sockaddr *source, socklen_t *source_size)
 {
@@ -143,8 +178,10 @@ EXPORT ssize_t recvfrom(int fd, void *data, size_t length, int flags,
     socklen_t size = sizeof(address);
     if (data && result >= 22 && !getsockname(fd, (struct sockaddr *)&address, &size) && address.ss_family == AF_PACKET) {
         const unsigned char *bytes = data;
-        if (bytes[12] == 0x89 && bytes[13] == 0x3a)
+        if (bytes[12] == 0x89 && bytes[13] == 0x3a) {
             controller_peer_note(bytes, (size_t)result);
+            answer_ap_metrics(fd, bytes, (size_t)result, &address);
+        }
         if (bytes[12] == 0x89 && bytes[13] == 0x3a)
             message("ZTE_CONTROLLER_TRACE rx1905 cmdu=%u bytes=%u ifindex=%d protocol=%u\n",
                     ((unsigned int)bytes[16] << 8) | bytes[17], (unsigned int)result,
