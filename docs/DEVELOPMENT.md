@@ -224,6 +224,17 @@ gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 - tag 要指对着提交——发布出来的字节和 tag 上的代码必须是同一件事，所以先装机验证、再在**那个**提交上打 tag。
 - 包**没有签名**，装的时候要 `apk add --allow-untrusted`；release 说明里也要写清这一条，不然新的人只会看到"装不上"。
 - **tag 名与包版本串是两件事**：`v0.2.0` 是 tag，apk 里仍写 `0.1.0-r22`（`PKG_VERSION` 从 2026-10 起没动过，每批只升 `PKG_RELEASE`）。说明第一行就要把这两个数都写出来，否则按 tag 去找文件名的人会以为发错了。
+- **同一棵树重编，apk 的 sha 不一定相同，所以"sha 不同"不等于"内容变了"**。2026-11-05 发完 `v0.2.0` 当天在 `main`（`b2c5e4b`，与发布那棵 `d9ce19d` 只差文档）又跑一次 `Build APK`（run #60）：`zte-mesh-0.1.0-r22.apk` **逐字节相同**（`8778aac6…`、5 101 814 B），两个 LuCI 包的容器却变了（`10 206 → 10 207 B`；i18n 大小不变、sha 变了）。把四份推到 `owrt` 上解——**`.apk` 是 libadb 容器，本机与构建机的 `tar -t` 一个成员也列不出来**——`luci-app` 4 个、`i18n` 3 个成员的 sha256 与大小两边**逐一相同**，唯一的区别是成员 mtime 变成新的构建时刻（`17:16:44 +0800` 对 `19:20:07 +0800`）：**时间戳进了 tar 头，内容没变**。两边的差别在时间戳从哪来：`zte-mesh` 解出来的成员全是同一个时刻 `17:13:40`，等于 `git log -1 --format=%ct -- openwrt/zte-mesh/`（`d9ce19d` 的提交时刻，epoch `1793870020`）——**那一侧有时间戳钳制**，两次构建只要那个包目录没动，apk 就一模一样；LuCI 那两个包没有钳制，成员跟每次构建的墙上时钟走（`openwrt/luci-app-zte-mesh/` 的最后一次改动是 `0b25ca1`，可 mtime 不是它）。要比内容就这样读：
+
+  ```sh
+  # 测试机上有 apk-tools 3.0.5；--allow-untrusted 不给就是四行 UNTRUSTED signature 加一个空目录
+  mkdir -p /tmp/apkcmp/a /tmp/apkcmp/b
+  cd /tmp/apkcmp/a && apk --allow-untrusted extract /tmp/apkcmp/one.apk
+  cd /tmp/apkcmp/b && apk --allow-untrusted extract /tmp/apkcmp/two.apk
+  for d in a b; do (cd /tmp/apkcmp/$d && find . -type f | sort | xargs sha256sum); done
+  ```
+
+  **这条对既有判据的意思是**：好几批写的是"某个包与上一批**逐字节相同**"——那句在 `zte-mesh` 上是真有意义的（它的时间戳钳在包目录的最后一次改动上，改了 `openwrt/` 里别的地方不会让它变），但**判"这两份是不是同一批"不能拿 LuCI 那两个包的容器哈希当依据**，它们每次重编都换哈希。钳制发生在 `apk mkpkg` 还是 OpenWrt 按包目录算 `SOURCE_DATE_EPOCH`，没查（`mkpkg` 那一行的原文在 `build.log:4026`）。
 
 ## 9. 界面文案与中文翻译
 
