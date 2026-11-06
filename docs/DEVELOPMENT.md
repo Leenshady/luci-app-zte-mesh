@@ -240,7 +240,9 @@ make package/feeds/zte_mesh/zte-mesh/compile \
 
 **版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，日常只有 `main` 一条长期分支（`feat/child-node` 是给上游提 PR 用的）。
 批末的那次 CI 走**一次性分支** `ci/batchN`：`main` 直连 ImmortalWrt feed 不能随便推，所以把这一批推成临时分支再在
-那个 ref 上触发，两台测试机装机读回之后就把临时分支删掉（细节见 [PLAN](PLAN.md) 第 6.1 节）。
+那个 ref 上触发，两台测试机装机读回之后就把临时分支删掉（细节见 [PLAN](PLAN.md) 第 6.1 节）。**删的动作只管到 origin**，
+本地那条 `ci/batchN` 要另外 `git branch -d`：先确认 `main..ci/batchN` 为空（临时分支的 tip 本来就是从 `main` 推上去的那棵，
+删掉不丢提交），再看 `git branch --list 'ci/*'` 空不空——2026-11-06 清的就是这样一条留在本地的 `ci/batch23`。
 `out/`、`evidence/`、pcap、`*.i64`、apk、tar.gz 在 `.gitignore` 里，提交前确认没有原厂二进制、证据或密钥混进来。
 
 **取产物**：artifact 下载要认证（匿名 401），本机没有 `gh`，走 `git credential fill` 拿到的 token 拼 API——

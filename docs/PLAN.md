@@ -214,6 +214,9 @@ sha256 与 artifact 里那份 `SHA256SUMS.txt` 逐字对上之后才传上机。
   `ci/batchN`，在该 ref 上触发，**装机读完就删**。`workflow_dispatch` 跑的是**选中的那个 ref**，
   点错在旧提交上会"构建成功但产物不含本批"，只能靠装机读回的 `PKG_RELEASE` 发现——
   **发起前核对 ref 的 SHA 与本地一致。**
+  清场那句只对 origin 成立，**本地那份分支不会跟着没**：`git ls-remote --heads` 读不到 `ci/*` 不等于清完，
+  `git branch --list 'ci/*'` 也要空（批 23/24 之后本地一直留着 `ci/batch23`，2026-11-06 才 `git branch -d` 删掉——
+  它的 tip `5f723fe` 是 `main` 的祖先，删的时候 `main..ci/batch23` 为空，一个提交都没丢）。
 - **CI 不创建 GitHub Release**。发布是人的决定：确认某一版要对外，再手工
   `gh release create <tag> dist/*.apk dist/SHA256SUMS.txt`。流水线按批跑，跑出来的字节是"这一批的中间态"，
   不该自动变成对外承诺。**第一个按批发出去的 release 是 `v0.2.0`**（2026-11-05，批 21 那三个 apk + 校验和；
