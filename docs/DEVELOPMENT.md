@@ -217,6 +217,9 @@ make package/feeds/zte_mesh/zte-mesh/compile \
    `_apt`（700），而 workflow 里那句 `chown -R` 排在 `apt-get` **之前**管不到下载之后；批末已在 `Install host dependencies`
    末尾补一次 `chown -R`。**这一条的判据只在 job log 里**：`Save` 不再出现 `Failed to save`，且再下一轮的 `Restore`
    报 `Cache hit for: apt-<同一个哈希>`——两行缺任何一个都不许把那一步的秒数当成提速。
+   **`ci/batch24` 读到第一行成了**：同一轮先 `Cache not found for input keys: apt-f84f2aa7a576df42`（还没命中），
+   末尾 `Cache saved with key: apt-f84f2aa7a576df42`，那句 `Permission denied` 与 `##[warning]Cache save failed.` 都不在日志里了；
+   这一轮 apt 下载 `Fetched 50.5 MB in 2s (20.2 MB/s)`——是镜像当天快，**不是命中**。第二行要等再下一轮。
 3. **工具链与 `tools/install`**——冷构建 30–45 分钟，由上游 revision 锁住缓存。**批 22 读出一条旧注释是错的**：
    它写"缓存命中后几分钟就到打包"，实际命中的那一轮 `tools/install` 仍跑了 **14m5s**、71 000 行日志。
    现在这一步拆成 `run_stage`，对 `tools/install` 与 `toolchain/install` 各报**秒数、退出码、日志行数、
@@ -227,6 +230,10 @@ make package/feeds/zte_mesh/zte-mesh/compile \
    **所以计时判据把自己批里那句假设否掉了：这一步不是 stamp 驱动的空转，772 个目录真的又走了一遍**，
    1115 秒的那一步里 1043 秒归它——这一轮 23 分 42 秒中它占 17 分钟，第二大的一项才是 `Build packages` 的 114 秒。
    下一批要读的是它的 `build_dir/hostpkg` 与 stamp 有没有活过缓存恢复（在不在缓存 path 里）。
+   **`ci/batch24` 第二次读到**：`== tools/install: 848s, exit 0, 57472 log lines, 772 directory visits`、
+   `== toolchain/install: 59s, exit 0, 14286 log lines, 65 directory visits`，整轮 **19 分 44 秒**。
+   目录访问次数与上一轮一字未动，日志行数只差 2 行，秒数却少了 195（1043→848）——**同一批目录走两遍，快慢是镜像与磁盘的，不是"少走了什么"**；
+   这一轮没有新的提速改动，所以这 195 秒不能算成成果，第 111 项那个"stamp 与 `build_dir/hostpkg` 在不在缓存 path 里"仍然是唯一能解释它的读法。
 
 `runs-on` 从 `ubuntu-latest` 固定为 `ubuntu-24.04` 是为的第 2 条：`ubuntu-latest` 换代时 apt 缓存的 key 会整批作废，
 而这一批的 key 里带着 `ImageOS` 与 `/image_version`——两条都要动。镜像实际见过的两个版本是 `20261025.353.1` 与 `20261101.360.1`。

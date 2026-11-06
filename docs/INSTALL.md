@@ -32,7 +32,7 @@
 把本仓库登记成 feed、在 ImmortalWrt 树里编出来，或者从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 取
 （下载 artifact 要认证，匿名 401；取法见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节）。仓库当前构建的包版本串是
 三个包同一个号 `0.1.0-r23`（2026-11-06 起 `r` 号对齐，一批一个号，规矩见 [PLAN](PLAN.md) 第 6.3 节）；
-**这一轮 CI 还没跑**，`ci/batch23` 出的两个 LuCI apk 文件名仍是 `0.1.0-r11`，下一次构建才会变成 `r23`。
+`ci/batch24` 那一轮已经按这个号出过产物，三个文件名都带 `0.1.0-r23`，两台测试机装完读回三行同为 `0.1.0-r23`。
 包没签名，所以要 `--allow-untrusted`：
 
 ```sh

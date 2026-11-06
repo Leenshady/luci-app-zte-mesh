@@ -30,7 +30,7 @@ ARCHIVE = REPO / "openwrt/zte-mesh/zte-mesh-runtime.tar.gz"
 
 
 def text(path):
-    return (REPO / path).read_text()
+    return (REPO / path).read_text(encoding="utf-8")
 
 # member name in the archive -> the file it must be a copy of
 SOURCES = {
@@ -145,7 +145,7 @@ def main():
           not (REPO / "openwrt/zte-mesh-launcher").exists(),
           "the split was merged away; a leftover Makefile would build an apk whose files belong to zte-mesh too")
 
-    init = (REPO / "openwrt/zte-mesh/files/zte-mesh.init").read_text()
+    init = (REPO / "openwrt/zte-mesh/files/zte-mesh.init").read_text(encoding="utf-8")
     check("the init script starts the search helper", "MESH_SEARCH" in init and "procd_open_instance search" in init)
 
     print(f"\n{len(failures)} failure(s)")
