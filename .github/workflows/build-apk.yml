@@ -210,6 +210,12 @@ jobs:
           tr -s '[:space:]' '\n' < "$RUNNER_TEMP/apt-packages" | sed '/^$/d' \
             | xargs -r -x sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
                  -o Dir::Cache::archives="$RUNNER_TEMP/apt/archives/" install -y --no-install-recommends
+          # apt re-owns `lock` and `partial` to the _apt user (mode 700) while it fetches, so the
+          # chown above does not survive the install: the save step then tries to read exactly
+          # those two paths and tar answers `Cannot open: Permission denied` -- measured on the
+          # ci/batch23 run, where the save failed and the key apt-f84f2aa7a576df42 therefore
+          # cannot hit next time either. Take the directory back once apt is done with it.
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/apt"
           echo "cached debs: $(ls -1 "$RUNNER_TEMP/apt/archives"/*.deb 2>/dev/null | wc -l), $(du -sh "$RUNNER_TEMP/apt/archives" | cut -f1)"
 
       - name: Save the apt download cache
