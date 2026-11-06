@@ -250,7 +250,8 @@ M2 侧 `MessageType=0x5`，`EnrolleeNonce` 与对应 M1 逐字节相同——配
 
 > `acdSetMapCfgVersionMode`（`0x89d74`）在整个二进制里**没有调用者** —— `g_mapCfg` 是启动时
 > 整体填的。所以改 `uci set zte_mesh.main.mesh_v2=1` **不会**改变 `versionMode`（2026-11-01 实测
-> 改完重启，state 仍然停在 3），别拿这个开关去试。
+> 改完重启，state 仍然停在 3），别拿这个开关去试。**2026-11-06**：这句里的选项名也已不用——UCI 里换成了
+> `mesh_compatible`（极性相反），本条实测结论不变。
 
 ### Vendor 阶段到底在干什么
 

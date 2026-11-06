@@ -120,7 +120,7 @@ Management Request）那条路默认是关的。做 D7 时这决定了我们该�
 | `Policy` | 1 | 策略档位 |
 | `DropNum` | 0 | 丢弃计数（0 = 没丢过） |
 | `MarketConfEn` | 1 | 市场配置使能 |
-| `MarketSign` | `8000` | 市场标识（运营商/区域档，`8000` 应为默认） |
+| `MarketSign` | `8000` | 市场标识（运营商/区域级别，`8000` 应为默认） |
 | `DropRoam` | 0 | 丢弃时是否触发重选 |
 | `A1Enable` | 0 | A1 口（1905 拓扑里的第一个口）相关，出厂关 |
 
@@ -480,7 +480,7 @@ sendcmd 1 DB all             # 276 张表名全集（见 E2631_DB_TABLES）
 实测 `CurHop=2`、`MaxHop=2`、`EnMasterOnly=0`。SCHEMA 记的是「`CurHop` 默认 -2；`EnMasterOnly`
 为 1 时 `multi_ap_slave_main` 跳过 `slave_init`，所以 `CurHop` 不会被设成 `MaxHop`」。
 
-实测正好是**反面情形**：`EnMasterOnly=0` ⇒ `slave_init` 会跑 ⇒ `CurHop` 被设成 `MaxHop`，
+实测正好是**相反的情形**：`EnMasterOnly=0` ⇒ `slave_init` 会跑 ⇒ `CurHop` 被设成 `MaxHop`，
 而实测两者都等于 2。**这条待办可以结了**，而且不是"读到一个值"式的结案——是
 「SCHEMA 的条件句 + 实测的开关状态 + 实测的两个值」三者自洽。
 
@@ -807,7 +807,7 @@ ZTE 没给 `PortState` 的枚举值，4 的含义是**推断**（桥自身与 WA
 > 4 = 在跑。`DomainUsed=0` 的 domain3 与它不矛盾——两个值量的是不同的事。
 >
 > **第八轮物理验证命中**（§12.3）：用户确认 LAN 口**只有 LAN2 插着网线**——与本节"若 4 真是 up，
-> 则应是只有 LAN2 插着线"的预测逐字一致。`PortState` 的语义就此钉死。
+> 则应是只有 LAN2 插着线"的预测逐字一致。`PortState` 的语义就此确定。
 
 ### 9.7 顺带读出的一条：1905 走 `br0`，业务走 `br1`
 
@@ -1202,7 +1202,7 @@ sendcmd 1 DB p AclCfg            # RowCount=0
 `WLANCfg.ACLPolicy` 的值（六个 1、两个 0）到底怎么解释仍不定——列表为空时 1 是"全放行"还是
 "全拒绝"，枚举没解，只登记。
 
-### 12.3 「只有 LAN2 插着网线」——§9.6 的预测命中，`PortState` 钉死
+### 12.3 「只有 LAN2 插着网线」——§9.6 的预测命中，`PortState` 的语义确定
 
 §9.6 当时写的是可检验的预测：
 

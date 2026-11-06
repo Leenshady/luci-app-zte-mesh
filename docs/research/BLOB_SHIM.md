@@ -427,9 +427,9 @@ multiapd ──► libcmapi / libcfapi / libmultiapcfapi / liboss（原样搬，
 
 按"投入产出"排，不建议一上来做 P3：
 
-1. **先做 P2 的探针**：写 20 行 C，`dlopen("libcmapi.so")` 调 `CmWLANKickOutSta`，
+1. **先做 P2 的探测程序**：写 20 行 C，`dlopen("libcmapi.so")` 调 `CmWLANKickOutSta`，
    在一台能随便重启的机器上试。成功就证明"旁路控制"这条路通，后面所有 mesh 动作都能复用原厂执行器。
-   > 看完 §3.2 后这条更值了：`CmWLAN*` 是**纯 DB 客户端**，意味着这个探针不需要碰驱动，
+   > 看完 §3.2 后这条更值了：`CmWLAN*` 是**纯 DB 客户端**，意味着这个探测程序不需要碰驱动，
    > 只要 DB 服务端在跑就能成功——比原先估计的更好调试。
 2. ~~**做"DB 表 → 无线"的映射表**~~ —— **本轮已完成（表级）**，见 §3.3：29 张表、116 个函数、
    `multiapd` 侧写入口只有 4 个。`python3 tools/lab/cmapi-tables.py <libdir> --db-users` 一条命令复现。

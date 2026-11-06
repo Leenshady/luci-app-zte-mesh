@@ -77,7 +77,7 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 | `controller-trace.c` | 沙箱，preload | 受限日志、ASEND 记录、把收到的 1905 帧交给 `controller-peer.c`，并把 `0x800b` 交给 `agent-ap-metrics.c` 应答（回帧从查询到达的那个 socket 直接发出，不走本文件的 `sendto` 包装）；每一行先过 `controller-log.c` 的预算 |
 | `controller-log.c`、`controller-log.h` | 沙箱，preload + 主机测试 | 纯函数：一段格式文本 + 调用方给的时钟 → 这一行打不打、打不成时发哪条提示（措辞固定，只有采样那句带一个累计丢弃数——值行打的是 daemon 格式化好的结果，提示里绝不掺它）。设备的日志落点是 logd 那圈 128 KiB 环，一次配置推送里原厂 daemon 重复的状态行能把它占满，所以按类分预算、重复行按分钟采样；带密钥/SSID/BSS 的格式永不展开值 |
 | `controller-peer.c`、`controller-peer.h` | 沙箱，preload | 一帧 → `peers/<MAC>.<kind>`：指示灯、终端数、BSS 数、直连还是中继、动作回执；终端数还**按 BSSID 各存一个 `peers/<MAC>.<BSSID>.sta`**（各自的时间戳，服务读 `controller_peer_bss_load()` 把没过期的一路一路加起来，并拿到按 BSSID 的明细去拼 `state.json` 的 `bss_detail`——摘要只留最后一帧的总数，按射频分别上报时会互相顶掉）；落盘目录是 `ZTE_MESH_PEERS_DIR`，所以主机测试能在临时目录上验整条链 |
-| `agent-ap-metrics.c`、`agent-ap-metrics.h` | 沙箱，preload | 子节点终端数的替身应答：一帧 `0x800b` + `/run/zte-mesh/ap-sta` → 一帧 `0x800c`（点名的那几路各回一条 `0x94`，空列表＝本机跑的每一路）。没有表、表超过 30 秒没刷新、`epoch` 在未来、查询点名的 BSSID 一个都不认识 ⇒ 回 0 字节＝不吭声；认得的路数照答，**没测到的那一路不补 0**。自己不开 socket，发回哪儿由 `controller-trace.c` 决定；表的路径是 `ZTE_MESH_AP_STA_FILE`，所以主机测试能喂一张自己的表 |
+| `agent-ap-metrics.c`、`agent-ap-metrics.h` | 沙箱，preload | 子节点终端数的替身应答：一帧 `0x800b` + `/run/zte-mesh/ap-sta` → 一帧 `0x800c`（指定的那几路各回一条 `0x94`，空列表＝本机跑的每一路）。没有表、表超过 30 秒没刷新、`epoch` 在未来、查询指定的 BSSID 一个都不认识 ⇒ 回 0 字节＝不吭声；认得的路数照答，**没测到的那一路不补 0**。自己不开 socket，发回哪儿由 `controller-trace.c` 决定；表的路径是 `ZTE_MESH_AP_STA_FILE`，所以主机测试能自备一张表 |
 | `controller-1905.c`、`controller-steer.c` | 沙箱 + 主机测试 | 纯函数解码与组帧：CMDU 头与 TLV 走查、原厂 vendor 容器（0x0b/0x21）、`0x94` 按 BSSID 的 `{BSSID, 终端数}`（拆不出可信的一份就整体返回 0，宁缺毋滥）、`0x93` 的查询解码与 `0x800b`/`0x800c` 的组帧、终端引导三类报文 |
 | `controller-packet.c`、`controller-wsc*.c` | 沙箱 + 测试环境 | 合成对端和独立的 M2 校验器（只用公开测试值）；主控侧发 `0x800b` 查询（`controller_ap_metrics_query()`：从 `veth-lab` 发、源取 `br0` 的 AL MAC、发出即不读——应答按那个 MAC 回到 daemon 自己的 socket） |
 | `config-bridge-probe.c`、`exec-check.c`、`zte-debugcmd.c` | 测试环境 | 早期桥接测试、加载检查、原厂 `sendcmd` 调试通道客户端 |
@@ -132,8 +132,8 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
   shell 入口——按 `$0` 的最后一截选程序、按 `uname -m` 选目录，选中就 `exec`（换程序不换 pid，procd 与 `attach` 的
   `sandbox_pid()` 盯的都是它）。以前它是第二个包（`zte-mesh-launcher`），为的是"一个 Makefile 只给一个 `PKGARCH`"；两边都成了
   `arch: all` 之后那句话说不到什么了，剩下的只是两次事务——升级时先换 `zte-mesh` 还是先换 launcher，中间那几秒服务已经按新脚本重启过一次。
-  **换掉的还有装机时的架构判决**：以前那句 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 在一台不匹配的
-  机器上会把整串 `apk add` 一起带走（apk 求解全有或全无），现在什么机器都收，"这台不在包里"由入口脚本自己说，
+  **换掉的还有装机时的架构判定**：以前那句 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 在一台不匹配的
+  机器上会让整串 `apk add` 一起失败（apk 求解全有或全无），现在什么机器都收，"这台不在包里"由入口脚本自己说，
   `zte-mesh.init` 在把实例交给 procd 之前问一次 `--launcher-check`——**只有 127 算这一问的答案**，其余非零另说一行。
   布局、映射表与构建脚本见 [LAB](LAB.md) 第 4.3 节。
 - 内核要 `CONFIG_COMPAT`（AArch32 用户态）、SysV IPC（原厂数据库是 SysV 共享内存）与 raw socket（`CONFIG_PACKET`，
@@ -141,7 +141,7 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 - 私有根里保留原厂 loader 和 glibc，不碰 OpenWrt 的 `/lib`；原厂进程看不到 MTD、厂商设备和宿主配置。
 - chroot 和 preload 都不是完整的安全边界。沙箱靠命名空间：私有 network/IPC/mount，宿主可写的只有 `/run/zte-mesh`，
   只读字符设备只有内核 urandom。
-- `SSEND`/`ASEND` 区分内部任务和外部服务，有同步应答语义，不能一律吞掉。只替身确实发给 `cspd` 而控制器需要应答的消息
+- `SSEND`/`ASEND` 区分内部任务和外部服务，有同步应答语义，不能一律忽略。只替身确实发给 `cspd` 而控制器需要应答的消息
   （例如启动计数 `0xa96e`），其余照原样走原厂 OSS。
 - 外部进程不能直接调 `ASEND/SSEND`（需要 OSS 身份）：`zte-meshctl` 用 `liboss_pub.so` + `InitAppComm`，由服务 fork/exec。
 - 守护进程环境里只能有一个变量（`ZTE_MESH_START_COUNT`），多一个 `setenv` 会让原厂 ld.so 断言失败（exit 127）。

@@ -239,7 +239,7 @@ dump 里那个 22.25 MiB 的密文 rootfs 在这台上**依然解不开**（密�
 
 | 事项 | 为什么值得做 | 需要什么 |
 |---|---|---|
-| ~~取 `/kmodule/bin/multiapd` 原件~~ **已完成（2026-11-01 深夜，2026-11-04 记）** | 同一批固件解包 `_analysis/kmodule` 里就有：983 141 B。差多少已量出来——已 strip、21 个 `NEEDED` 全命中 `/kmodule/lib`、225 个导入里 220 个由随包库导出（闭包性与垫片覆盖面的判据只需要导入表，见 [BLOB_SHIM](BLOB_SHIM.md) §1/§2）。**没做到的**：strip ⇒ 函数级读不了，那份分析仍只能用 SR1010 版；"M2 是否被接受"取决于运行时行为，仍然要么拿真机要么看线上帧 | 已在本地 `_analysis/kmodule`，**不需要停机窗口** |
+| ~~取 `/kmodule/bin/multiapd` 原件~~ **已完成（2026-11-01 深夜，2026-11-04 记）** | 同一批固件解包 `_analysis/kmodule` 里就有：983 141 B。差多少已量出来——已 strip、21 个 `NEEDED` 全命中 `/kmodule/lib`、225 个导入里 220 个由随包库导出（闭包性与垫片覆盖面的判据只需要导入表，见 [BLOB_SHIM](BLOB_SHIM.md) §1/§2）。**没做到的**：strip ⇒ 函数级读不了，那份分析仍只能用 SR1010 版；"M2 是否被接受"取决于运行时行为，仍然要么上真实路由器要么看线上帧 | 已在本地 `_analysis/kmodule`，**不需要停机窗口** |
 | **在 multiapd 里开 `pktdump 1`** | 它自带 1905 抓包，存到 `/var/tmp/<pid>_<proc>`——设备没有 tcpdump，这条比 static 编 `spark` 便宜一个量级，见 [MULTIAPD](MULTIAPD.md) §5。**注意**：那张命令表出自未 strip 的 SR1010 版，E2631 这份只剩 `sendcmd multiapd..master` 外壳，命令面在不在要先确认 | 找到进 debug CLI 的口（stdin 还是消息） |
 | 把它拉成我们控制器的 slave，看 M2 是否被接受 | 第二个中兴原厂路由器样本；E2631 的 `MarketSign`/`VersionMode` 可能和 Z506 的 `8000` 不同 | 改它 Wi-Fi（会断网），需停机窗口 |
 | 抓 `0x893a` 看有没有 Steering / Assoc Control | 第 4 节的接收路径是否真被触发，只有线上证据算数 | 先用 `pktdump`；退路才是 static 编 `spark`（armv7l musl）+ 限时 promisc |

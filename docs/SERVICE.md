@@ -14,7 +14,7 @@
 
 - 配置键 `mlo.enable=0|1`（默认 1，与原厂 `WLANSetting.MLOEnable=1` 一致），启动时写库，可热更新；`wifi.dual_band_sync` 同时写 `WLANSetting.DualBandSync`（只是启动值）。
 - 原厂 `cspd.wlan_manage.wlan_mgr` 在设备上线（及 MLO 开关变化）时，经 `CfIeee1905TunnelToDevice` **异步**发事件 `0xa97e` 给 `multiapd.topo.topo`，daemon 把它作为厂商 TLV `0200fe` 发给子节点：体 = `{u16 BE 36, 名字[36]="cspd.wlan_manage.wlan_mgr", u32 BE 1, u32 BE 4, u32 BE 值=MLOEnable}`。服务在 ZTE 子节点在线满 15 秒后调 `zte-meshctl wlan-mgr <AL MAC> <0|1>`（每个子节点各自计时，最多 8 个，每个最多重试 4 次）。**`0200fe` 必须用 `ASEND`**（`ASEND(0xa97e)`）：同步 `SSEND` 走请求表，表里不含 `0xa97e`，**返回 0 但线上没有帧**。
-- 原厂入网时发 3 条，shim 每个会话发 1 条；Z506 的 `WLANSetting` 没有 `MLOEnable` 字段，所以对它是无操作。启动时还要注册三张空视图/小表（`MultiAPRoamCatonCfg`、`WLANSetting`、`MultiAPCacheMac`），否则第一条 `PolicyConfigReq` 的厂商体会塌成 1 字节。
+- 原厂入网时发 3 条，shim 每个会话发 1 条；Z506 的 `WLANSetting` 没有 `MLOEnable` 字段，所以对它是无操作。启动时还要注册三张空视图/小表（`MultiAPRoamCatonCfg`、`WLANSetting`、`MultiAPCacheMac`），否则第一条 `PolicyConfigReq` 的厂商体会只剩 1 字节。
 
 ## CM 通知层：策略类设置的热更新
 
@@ -68,7 +68,7 @@
 | `wifi_5g_suffix` | `wifi.essid_suffix` | 1 到 8 个可打印字符，默认 `-5G`；派生名超 31 字节被拒 |
 | `wifi_*_hidden` / `_security` | `radioN.hidden` / `beacon_type` | `none`=0、`psk2`=3、`psk-mixed`=6、`sae`=10、`sae-mixed`=12；`none` 会让真实网络变成开放网络 |
 | `wifi_*_beacon_interval`、`_channel`、`_tx_power`、`_acl_policy` | `radioN.*` | 范围同 REAL_CHILD 第 3 节（信道按频段白名单，0 = 自动） |
-| `mesh_compatible`、`mesh_role`、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_compatible` 即原厂 MESH 开关（页面标签「MESH 兼容」）：开 = 接受任何子路由（默认），关 = 只接受市场码相同的中兴原厂路由器。服务键 `mesh.v2` 问的是反面的问题（`P1905ComCfg.Enable` = 严格的中兴准入），所以**只有 init 写这一行时反一次**，别处不再翻。旧的 UCI 选项 `mesh_v2` 已删除，写了也被忽略 |
+| `mesh_compatible`、`mesh_role`、`mlo_enable` | `mesh.v2`、`mesh.role`、`mlo.enable` | `mesh_compatible` 即原厂 MESH 开关（页面标签「MESH 兼容」）：开 = 接受任何子路由（默认），关 = 只接受市场码相同的中兴原厂路由器。服务键 `mesh.v2` 问的是相反的问题（`P1905ComCfg.Enable` = 严格的中兴准入），所以**只有 init 写这一行时反一次**，别处不再翻。旧的 UCI 选项 `mesh_v2` 已删除，写了也被忽略 |
 | `backhaul` | **不写进服务配置**：`wlan-sync` 自己读这个 UCI 选项 | 回程模式，`off`（默认）或 `multi_ap`；其余取值 `write_config` 拒绝（`multi-ap` 会被当成 `off`，等于一个"设了却不动"的开关）。按角色写成两端之一，见下面"设备角色"一节 |
 | `extra_slots`、`wifi_2g`、`wifi_5g` | **不写进服务配置**：同上，`wlan-sync` 自己读 | 额外网络开关 + 两块射频的指定（`wifi-device` 段名，如 `radio1`；只在"一个频段有两块射频"时需要）。页面上和 `backhaul` 同一批，只给跑 applier 的两个角色；改任何一项都会重启 applier，见下 |
 | `band_steer*`、`roam*` | `band_steer.*`、`roam.*` | 两个频段的阈值必须成对给出 |
@@ -91,7 +91,7 @@
 
 `sta-collect` 只在 `mesh_role=slave` 起（与 `search` 互斥：主控问，子节点答）。它把本机每个 AP 的关联终端数写进 `/run/zte-mesh/ap-sta`，沙箱里的应答读这张表回主控的 AP Metric Query——原厂 agent 那一份数来自驱动经 cspd，沙箱两样都没有，所以没有这张表就没有任何 OpenWrt 子节点报得出终端数（原理见 [ARCHITECTURE](ARCHITECTURE.md) 第 2 节，判据见 [FEATURE_STATUS](FEATURE_STATUS.md) A26）。`stop_service` 连同 `ap-sta` 一起删：一份没人刷新又留着的表会被当成刚测过的数答出去。
 
-这一条循环可以单独停：往同目录的 `collect-pause` 写点什么都行（`touch /run/zte-mesh/collect-pause`），脚本不再重写表，**表留着、`epoch=` 不再盖章**——30 秒后沙箱里的应答就不回主控，这正是"这台没人上报终端数"的样子；`rm -f` 那个文件，下一次 5 秒的循环恢复盖章。日志各说一次（`paused by …: leaving … as it is` / `collecting N access point(s) into …`）。为什么不用 procd 停这个实例：`ubus call service delete` 停得掉，但恢复只能走 `/etc/init.d/zte-mesh start`，那一下把守护进程也换了 pid、子节点从拓扑里掉出去十几秒——读回来的是"重启了一次"，不是"采集停了"。
+这一条循环可以单独停：往同目录的 `collect-pause` 写点什么都行（`touch /run/zte-mesh/collect-pause`），脚本不再重写表，**表留着、`epoch=` 不再更新时间戳**——30 秒后沙箱里的应答就不回主控，这正是"这台没人上报终端数"的样子；`rm -f` 那个文件，下一次 5 秒的循环恢复更新时间戳。日志各说一次（`paused by …: leaving … as it is` / `collecting N access point(s) into …`）。为什么不用 procd 停这个实例：`ubus call service delete` 停得掉，但恢复只能走 `/etc/init.d/zte-mesh start`，那一下把守护进程也换了 pid、子节点从拓扑里掉出去十几秒——读回来的是"重启了一次"，不是"采集停了"。
 
 第三个开关 `backhaul`（`off` / `multi_ap`，别的取值 `write_config` 直接拒——`multi-ap` 这种带连字符的写法会被 `wlan-sync` 当成 `off`，页面上一切正常、射频上什么也没建）也归 `wlan-sync` 管，但它落不落得下取决于上面两个：plan 里 `MapAccessAttr & 64` 的那一行**按角色写成两端的某一段**——`mesh_role=slave` 是客户端（`zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` + `wds 1`），`master` + `apply_local=1` 是回程 BSS（`zte_backhaul_<band>`，`multi_ap 2`，主 SSID 标 `multi_ap 1`）；`master` + `apply_local=0` 什么都不生成，所以 `start_service` 对这一组合明说一句，别让人以为"回程没生效"。4 地址为什么在客户端要写 `wds` 而不是只写 `multi_ap`，见 [research/AGENT_PROBE](research/AGENT_PROBE.md) §15。换角色时上一端的段会被回收，不会留下一个"页面看着正常、实际不通"的半条回程。
 

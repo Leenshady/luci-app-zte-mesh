@@ -10,7 +10,7 @@
 | 要做什么 | 先读 |
 |---|---|
 | 构建、跑控制器、测试、分支与 `prebuilt/` | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
-| 装机上手、页面两个开关怎么摆出三种拓扑、卸载与"设了没动静" | [docs/INSTALL.md](docs/INSTALL.md) |
+| 装机上手、页面两个开关怎么组合出三种拓扑、卸载与"设了没动静" | [docs/INSTALL.md](docs/INSTALL.md) |
 | 碰测试机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器清单的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
 | 上中兴原厂路由器（ZXHN Z506，又叫中兴小方糖） | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的上机红线 |
 | 改服务模式、UCI/LuCI 映射 | [docs/SERVICE.md](docs/SERVICE.md) |
@@ -29,7 +29,7 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 
 `tests/` 里 C 编解码、Python、shell、LuCI JS 各管一段，改哪层跑哪层的测试；CI（`.github/workflows/build-apk.yml`、`build-lab-tools.yml`）**全手动触发**——push 不会跑构建。
 
-节奏按 [docs/PLAN.md](docs/PLAN.md) 第 2 节与第 6 节：**攒够几项（一批 3–5 项）才触发一次 CI，装一次机验证**，不是每完成一项就跑；本机每改一项就把能跑的测试跑绿。需要上机的项**不阻塞**，登记到 PLAN 第 5 节（H-xx）后继续做主机可测的项。
+节奏按 [docs/PLAN.md](docs/PLAN.md) 第 2 节与第 6 节：**攒够几项（一批 3–5 项）才触发一次 CI，装一次机验证**，不是每完成一项就跑；本机每改一项就把能跑的测试跑通。需要上机的项**不阻塞**，登记到 PLAN 第 5 节（H-xx）后继续做主机可测的项。
 
 ## 红线
 

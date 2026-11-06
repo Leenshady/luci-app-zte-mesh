@@ -3,6 +3,7 @@
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
 
 > **路径说明（2026-10-18 迁入 sr1010-mesh 仓库）：** 本文写于迁移之前，文中路径按当时的布局：mac 上的 `zx279133/port/mesh-shim/` 即现在的仓库根目录，`out/mesh-shim/` 即 `out/`；`session/…`、pcap、`db-baseline-s000.txt`、`vendor-log-debug.txt` 在 `evidence/`（只在 mac 上，不入库）；`tools/<脚本>` 即 `tools/capture/<脚本>`；`/tmp/buildNN.sh` 由 `tools/build/container-make.sh` 取代；`/tmp/shim-bak-*` 备份已删除（由 git 历史取代）；当时手工编的 `ns-run-al` 即现在 Makefile 的 `ns-run-svctest` 目标（运行包内容逐字节相同），当时说的旧 `ns-run-svctest` 文件已不存在。
+> **路径说明（2026-11-06 目录整理之后）：** 仓库根下的 C 源码已集中到 `src/`，根目录那些一次性 Python 脚本搬到 `tools/dev/`；文中出现的 `src/*.c` 之外的裸文件名（如 `enroller.c`、`controller-db-engine.c`）都在 `src/`，`tools/probe/`、`tools/build/`、`tools/capture/` 三条路径没变。
 
 方法：在原厂 SR1010 的 Web 界面逐项改设置，`sendcmd 1 DB p` 每 7 秒整库快照差分，eth4 抓 1905 报文（Z506 子节点接在 eth4），
 `multiapd` 日志级别 8。每项记录：库里哪些表.字段变了、是否落盘（isSave）、线上发了什么、子节点读到了什么、有没有 cspd 事件。
@@ -32,7 +33,7 @@
   是 **SR1010 自己的 slave 模块**（`uMode=3` 主从合一，收自己主控的包）打印的，不是 Z506。它证明原厂 agent 侧的解析路径和字段名，但**没有证明 Z506 读到了**；
   前期文档已确认 Z506 固件不解析这个厂商 TLV。Z506 的日志本次没抓。
 - **事件：** 日志里没有 cspd 的 `a9xx` 异步事件；变更由网页路径的 CM 通知送到 `multiapd`，它随后发 0x8003（**直接写库不会触发**，见文首更正），另见 `master` 对 8 个 Domain 重新做 `msater_deal_bs_` 检查。
-- **移植要点：** 写这 8 行之后**还要补发 CM 通知**（直接写库不会推送，见文首更正）。验证项：同样的库喂 shim，比较 0x8003 的厂商 TLV 是否逐字节一致。
+- **移植要点：** 写这 8 行之后**还要补发 CM 通知**（直接写库不会推送，见文首更正）。验证项：同样的库传给 shim，比较 0x8003 的厂商 TLV 是否逐字节一致。
 
 ## 2. MESH 高级配置 → 5GHz 漫游阈值（-70 → -75）
 

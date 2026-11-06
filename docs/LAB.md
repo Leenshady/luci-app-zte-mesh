@@ -37,7 +37,7 @@ python tools/lab/rssh.py ubuntu put out/db-engine-probe /tmp/
 | 机器（别名 / 机型） | 地址 | 角色 | 关键事实 |
 |---|---|---|---|
 | `ax3600`：小米 AX3600，刷 ImmortalWrt 25.12.2 | 192.168.1.1 | OpenWrt 路由器（物理机），跑子节点角色 | aarch64 / 内核 6.12.103 / apk 包管理。**没有 `CONFIG_COMPAT`**：ARM32 程序 execve 得 ENOEXEC（shell 报 `syntax error: unexpected word`），也**没有 `BINFMT_MISC`**（`/proc/sys/fs/binfmt_misc` 不存在）；实际跑法是沙箱内那份 `/usr/lib/zte-mesh/root/qemu-arm-static`。**无线只剩一块射频在候选里**（`radio0.disabled=1` 关掉了 2.4G），所以"一个频段有两块射频、`wlan-sync` 放弃该频段"那条路径在这台上测不出来——"没报错"不等于"已验证" |
-| `owrt`：ImmortalWrt 虚拟机（x86_64） | 192.168.1.20 | 测试环境里的主控（master） | 内核与 `ax3600` 同一个版本。带启动器的那个包是 `arch:all`（合并前它是单独的 `zte-mesh-launcher`），所以这台装得上——包里带 aarch64 / armv7 / x86_64 各一份构建，`uname -m` 是 `x86_64` 就走进 `arch/x86_64/`（这一档 2026-11-05 起才有；以前它是 `aarch64_cortex-a53` + `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，这台**一个都装不上**，只能 `tools/lab/build-launcher.sh` 手工补）。`root/qemu-arm-static` 仍是手工放的——那是 ARM32 用户态的事，与启动器这一档无关 |
+| `owrt`：ImmortalWrt 虚拟机（x86_64） | 192.168.1.20 | 测试环境里的主控（master） | 内核与 `ax3600` 同一个版本。带启动器的那个包是 `arch:all`（合并前它是单独的 `zte-mesh-launcher`），所以这台装得上——包里带 aarch64 / armv7 / x86_64 各一份构建，`uname -m` 是 `x86_64` 就走进 `arch/x86_64/`（这种架构 2026-11-05 起才有；以前它是 `aarch64_cortex-a53` + `DEPENDS:=@(TARGET_zte\|\|TARGET_qualcommax)`，这台**一个都装不上**，只能 `tools/lab/build-launcher.sh` 手工补）。`root/qemu-arm-static` 仍是手工放的——那是 ARM32 用户态的事，与启动器这种架构无关 |
 | `ubuntu`：x86_64 Ubuntu 22.04 | 192.168.1.191 | 编译机 | 本文主角：`gcc-arm-linux-gnueabi` 11.4 + `gcc-aarch64-linux-gnu` 11.4，**不用 Docker**：`make ARMCC=arm-linux-gnueabi-gcc ROUTERCC=aarch64-linux-gnu-gcc database` |
 
 ## 3. 日常流程
@@ -90,11 +90,11 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 `--agent` 换成 `db-engine-probe --agent-startup`：daemon 以 `Mode=1 / SetRoleEnable=0 / EnMasterOnly=0` 启动，探针这一侧扮演合成主控，走完 Discovery → Topology Query → Search → Search Response → M1 → M2。关注前缀：`ZTE_AGENT_WIRE`（帧收发）、`ZTE_AGENT_WLAN`/`ZTE_AGENT_PSK`（库读回）、`ZTE_TRACE_VALUE`（M2 有没有触发 `cfgChg`、写到哪个 BSS、M2 多长、同步完成没有——四条一次性的证据行）、`ZTE_TRACE_POLL`（daemon 每隔几秒重复的状态行，受下面的采样预算管）。
 
-`--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()` 把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。重启后 M1 要十几秒才来（通常两次 topology retry），**不要**因此判断成"它记得自己已配置"。沙箱只给 daemon 一个环境变量（多传一个会让原厂 ld.so 断言），运行时开关一律用 `/run/zte-mesh` 下的 flag 文件（bind mount）：`trace-all` 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行），`mm-off` 关掉 `libzte_agent_mm.so` 的配置管理器替身、让两个 WLAN setter 报告原厂返回值（诊断用），`collect-pause` 只停 `sta-collect` 那一条循环（表留着不再盖章，见 [SERVICE](SERVICE.md)；停 procd 实例会连守护进程一起换 pid，读回来的是重启不是停采集）。
+`--seconds` 要给到 100 以上：一次完整运行约 50 秒，一半是"重启"阶段——两份 M2 落库后探针用 `controller_respawn_daemon()` 把 daemon 换掉（库与订阅池留在探针进程里，等同工厂 `multiapd_mgr` 的 restart），再观察新实例是否重新发 M1。重启后 M1 要十几秒才来（通常两次 topology retry），**不要**因此判断成"它记得自己已配置"。沙箱只给 daemon 一个环境变量（多传一个会让原厂 ld.so 断言），运行时开关一律用 `/run/zte-mesh` 下的 flag 文件（bind mount）：`trace-all` 打开 daemon 日志火管（`ZTE_TRACE_ALL`，上限 2 万行），`mm-off` 关掉 `libzte_agent_mm.so` 的配置管理器替身、让两个 WLAN setter 报告原厂返回值（诊断用），`collect-pause` 只停 `sta-collect` 那一条循环（表留着不再更新时间戳，见 [SERVICE](SERVICE.md)；停 procd 实例会连守护进程一起换 pid，读回来的是重启不是停采集）。
 
 **日志的落点只有一个：logd 那圈环**（两台测试机 `system.@system[0].log_size='128'`，单位 KiB）。服务不写会长大的文件——沙箱根只读、`/tmp` 与 `/var/tmp` 是 8 MiB tmpfs、`/run/zte-mesh` 下全是小文件原子替换——所以 `controller-log.c` 管的是**打进环的比例**，不是轮转。分类与预算：
 
-| 类别 | 预算 | 打光/采样时说哪一句 |
+| 类别 | 预算 | 额度用完／采样时说哪一句 |
 |---|---|---|
 | 替身自己的调用与返回（ordinary） | 每进程 160 行 | `log_budget=ordinary exhausted=1 limit=160` |
 | 1905 / WSC / 绑包等协议行（protocol） | 每进程 64 行 | `log_budget=packet exhausted=1 limit=64` |
@@ -167,7 +167,7 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
 ### 4.3 启动器与 CPU：一个 apk 带三份构建，入口脚本按 `uname -m` 选
 
-启动器和运行环境在同一个包里：`zte-mesh` 是 `PKGARCH:=all`（2026-11-05 之前它是单独的 `zte-mesh-launcher`，两半各一个 apk）。`package-pack.mk` 一个 Makefile 只读一个 `PKGARCH` 写进 `Architecture:`，而 ELF 只认一种机器，所以包里的做法是**按 CPU 各放一份**：
+启动器和运行环境在同一个包里：`zte-mesh` 是 `PKGARCH:=all`（2026-11-05 之前它是单独的 `zte-mesh-launcher`，两部分各一个 apk）。`package-pack.mk` 一个 Makefile 只读一个 `PKGARCH` 写进 `Architecture:`，而 ELF 只认一种机器，所以包里的做法是**按 CPU 各放一份**：
 
 ```
 /usr/libexec/zte-mesh/ns-run          # 入口脚本（同一份文件装成两个名字）
@@ -179,28 +179,28 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
 `uname -m` 决定进哪个目录（`arm64`→`aarch64`、`armv7l`→`armv7`），选中就 `exec`——换程序不换 pid，procd 盯的就是那个 pid，`attach` 的 `sandbox_pid()` 也还在 `/proc/*/cmdline` 里 grep 它。
 
-**代价是装机时不再挑机器**：以前的 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 会在 `apk add` 上失败（apk 求解全有或全无，一台不匹配的机器会把同一条命令里的其他包一起带走），现在什么机器都收，那句拒绝改由入口脚本在运行时说清（报本机 `uname -m` 与包里带的几档，`exit 127`），`zte-mesh.init` 在把实例交给 procd 之前先问一次 `--launcher-check`——否则 `respawn 3600 5 0` 会每 5 秒重开一个 127，而日志里从头到尾不出现"架构"两个字。**问的就是装机要跑的同一份代码**：CPU→目录那张映射表不在 init 里抄第二份，读回与人手工跑看到的是同一句第一行。**只有 127 才是"这一档不在包里"**：其余非零（例如 `/usr/libexec/zte-mesh/ns-run` 站着的是合并前手工放的旧 ELF，它不认识这个参数、只打 usage 并回 64）由 init 另记一行 `--launcher-check exited <码>`，不冒充架构判决。
+**代价是装机时不再挑机器**：以前的 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 会在 `apk add` 上失败（apk 求解全有或全无，一台不匹配的机器会让同一条命令里的其他包一起装不上），现在什么机器都收，那句拒绝改由入口脚本在运行时说清（报本机 `uname -m` 与包里带的几种架构，`exit 127`），`zte-mesh.init` 在把实例交给 procd 之前先问一次 `--launcher-check`——否则 `respawn 3600 5 0` 会每 5 秒重开一个 127，而日志里从头到尾不出现"架构"两个字。**问的就是装机要跑的同一份代码**：CPU→目录那张映射表不在 init 里抄第二份，读回与人手工跑看到的是同一句第一行。**只有 127 才是"这种架构不在包里"**：其余非零（例如 `/usr/libexec/zte-mesh/ns-run` 站着的是合并前手工放的旧 ELF，它不认识这个参数、只打 usage 并回 64）由 init 另记一行 `--launcher-check exited <码>`，不冒充架构判定。
 
-构建侧：`tools/build/launcher-arches.sh SRC OUT` 每档一次 `-static`（[DEVELOPMENT](DEVELOPMENT.md) 第 8 节；`zte-mesh` 的 `Build/Compile` 从运行包解出三个 `.c` 再调它）。`$(TARGET_CC)` 只保本目标那一档，脚本用 `-dumpmachine` 认它属于哪个目录名——不认 `ARCH_PACKAGES` 这类内部变量，因为目录名必须和产出它的那台编译器一致。其余两档要宿主的交叉编译器（CI 那一步装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf`；本机 `ubuntu` 那台两档都有，见第 2.1 节）。可用的环境变量：`ZTE_MESH_ARCHES`（编哪几档）、`ZTE_MESH_REQUIRE_ARCHES`（缺了哪档就报错，CI 设成三档全要，于是"少编一档"从绿日志里的一行变成红）、`ZTE_MESH_CC_<档>`（指定编译器）。armv7 先试 hard-float、退一步用 soft-float：`-static` 的程序自带 libc，浮点 ABI 在运行时不是任何人的事。
+构建侧：`tools/build/launcher-arches.sh SRC OUT` 每种架构一次 `-static`（[DEVELOPMENT](DEVELOPMENT.md) 第 8 节；`zte-mesh` 的 `Build/Compile` 从运行包解出三个 `.c` 再调它）。`$(TARGET_CC)` 只保本目标那种架构，脚本用 `-dumpmachine` 认它属于哪个目录名——不认 `ARCH_PACKAGES` 这类内部变量，因为目录名必须和产出它的那台编译器一致。其余两种架构要宿主的交叉编译器（CI 那一步装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf`；本机 `ubuntu` 那台两种架构都有，见第 2.1 节）。可用的环境变量：`ZTE_MESH_ARCHES`（编哪几种架构）、`ZTE_MESH_REQUIRE_ARCHES`（缺了哪种架构就报错，CI 设成三种架构全要，于是"少编一种架构"从绿日志里的一行变成红）、`ZTE_MESH_CC_<档>`（指定编译器）。armv7 先试 hard-float、退一步用 soft-float：`-static` 的程序自带 libc，浮点 ABI 在运行时不是任何人的事。
 
 测试环境上这三条各判什么：
 
 | 要做的 | 命令 | 看什么 |
 |---|---|---|
-| 这台机器的 CPU 在不在包里 | `/usr/libexec/zte-mesh/ns-run --launcher-check` | 退出码 0 且打印 `…/arch/<这一档>/ns-run`；非 0 时那一句会带上 `carries:` 后面包里的目录名 |
-| 包里的哪几档 | `ls /usr/libexec/zte-mesh/arch/` | feed 构建树里只带目标机那一档，属正常；CI 出的 apk 三个目录都在 |
-| 这档不在包里，非要这台跑 | `tools/lab/build-launcher.sh`（原生 gcc 编一份） | 它现在把二进制放进 `arch/<cpu>/`（目录名按上面那张映射，脚本自己读目标机的 `uname -m`）——**放到 `/usr/libexec/zte-mesh/` 那一层没用**：那两个名字属于包，`apk add` 会重写，而入口只往 `arch/` 下面找 |
+| 这台机器的 CPU 在不在包里 | `/usr/libexec/zte-mesh/ns-run --launcher-check` | 退出码 0 且打印 `…/arch/<这种架构>/ns-run`；非 0 时那一句会带上 `carries:` 后面包里的目录名 |
+| 包里的哪几种架构 | `ls /usr/libexec/zte-mesh/arch/` | feed 构建树里只带目标机那种架构，属正常；CI 出的 apk 三个目录都在 |
+| 这种架构不在包里，非要这台跑 | `tools/lab/build-launcher.sh`（原生 gcc 编一份） | 它现在把二进制放进 `arch/<cpu>/`（目录名按上面那张映射，脚本自己读目标机的 `uname -m`）——**放到 `/usr/libexec/zte-mesh/` 那一层没用**：那两个名字属于包，`apk add` 会重写，而入口只往 `arch/` 下面找 |
 
-**armv7 那一档目前没有测试机**（三台测试环境的 CPU 是 aarch64 / x86_64 / x86_64，中兴原厂路由器不吃 apk），所以那一档只有编译与打包级的证据，运行时读回来的是 [PLAN](PLAN.md) 的 H-16。ax3600 跑沙箱要靠私有根里那份 `qemu-arm-static`——那是 ARM32 用户态的事，与 `arch/aarch64/` 这两个二进制无关（它们本来就是 aarch64 机器码）。
+**armv7 那种架构目前没有测试机**（三台测试环境的 CPU 是 aarch64 / x86_64 / x86_64，中兴原厂路由器不吃 apk），所以那种架构只有编译与打包级的证据，运行时读回来的是 [PLAN](PLAN.md) 的 H-16。ax3600 跑沙箱要靠私有根里那份 `qemu-arm-static`——那是 ARM32 用户态的事，与 `arch/aarch64/` 这两个二进制无关（它们本来就是 aarch64 机器码）。
 
 
 ## 5. 从运行包重建 `out/`
 
-`tools/dev/prepare.py` 是 `out/` 的权威来源，但它要求原厂 `rootfs.jffs2`（带钉死的哈希）。没有镜像时用 `tools/lab/bootstrap-out.py`：解开 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` 并逐个核对 `SHA256SUMS` → 核对 `multiapd` 与 `prepare.MULTIAPD_SHA256` 一致（`a0ba6bee…`）→ 用 `vendor_elf` 走一遍 `DT_NEEDED` 闭包（27 个库）+ 符号审计 → 按它的权限规则写出 `out/runtime` 与带 `"source": "runtime-bundle"` 的合成 `manifest.json`。合成清单的 `rootfs_sha256` 为空，`prepare.verify_existing()` 会拒绝它，打包流程不可能误用；想让 `make-runtime.py` 通过的唯一办法是拿到原厂镜像跑真正的 `prepare.py`。**注意顺序**：`bootstrap-out.py` 会重建 `out/runtime`，把已编好的 `libzte_*.so` 一起清掉，之后再跑一次 `sh tools/lab/build.sh all database`（`mkroot.sh` 缺 shim 会直接报错）。
+`tools/dev/prepare.py` 是 `out/` 的权威来源，但它要求原厂 `rootfs.jffs2`（哈希固定）。没有镜像时用 `tools/lab/bootstrap-out.py`：解开 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` 并逐个核对 `SHA256SUMS` → 核对 `multiapd` 与 `prepare.MULTIAPD_SHA256` 一致（`a0ba6bee…`）→ 用 `vendor_elf` 走一遍 `DT_NEEDED` 闭包（27 个库）+ 符号审计 → 按它的权限规则写出 `out/runtime` 与带 `"source": "runtime-bundle"` 的合成 `manifest.json`。合成清单的 `rootfs_sha256` 为空，`prepare.verify_existing()` 会拒绝它，打包流程不可能误用；想让 `make-runtime.py` 通过的唯一办法是拿到原厂镜像跑真正的 `prepare.py`。**注意顺序**：`bootstrap-out.py` 会重建 `out/runtime`，把已编好的 `libzte_*.so` 一起清掉，之后再跑一次 `sh tools/lab/build.sh all database`（`mkroot.sh` 缺 shim 会直接报错）。
 
-## 6. 这台机器上的测试状态与还欠什么
+## 6. 这台机器上的测试状态与还缺什么
 
-**通过**：`controller-wsc-codec`、`controller-packet-codec`、`cm-profile-codec`、`bridge-codec`、`test_evidence.py`、`test_device_workspace.py`、`test_preload.py`、`test_sandbox.py`（沙箱真的 unshare 并 chroot 进 ARM32 root）、`test_init.sh`、`test_rpcd.sh`（shell 测试要先转 LF，`push.py` 已处理），以及 `tools/dev/cm-profile-evidence.py --verify src/cm-profile-layout.inc`（44 处 payload、2496 字节，与 `libcmapi.so`/`multiapd` 的实际布局一致）。**失败**：`test_schema`、`test_policies`、`test_profiles`、`test_startup`——全是同一个 `FileNotFoundError: out/analysis/cspd`，唯一补法是把原厂镜像放到 VM 上再 `python3 tools/dev/prepare.py --rootfs <镜像> --analysis-cspd`；没有镜像时它们只影响 `cspd` 证据，不影响别的。还欠一条：`WlanCfgDbWrite` 在 `db-engine-probe` 的库上是否成功，**未验**（[AGENT_PROBE](research/AGENT_PROBE.md) 第 6 节的运行时那一半；工具是 `shim.c` 记录全部 `CmWLAN*` 调用、`emulate.sh --strace` 跟踪系统调用）。**各套测试的条数基线只写在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节**，这里不维护数字；上面标"未验"的，不要在别的文档里写成已验，排期看 [PLAN](PLAN.md) 第 5 节。
+**通过**：`controller-wsc-codec`、`controller-packet-codec`、`cm-profile-codec`、`bridge-codec`、`test_evidence.py`、`test_device_workspace.py`、`test_preload.py`、`test_sandbox.py`（沙箱真的 unshare 并 chroot 进 ARM32 root）、`test_init.sh`、`test_rpcd.sh`（shell 测试要先转 LF，`push.py` 已处理），以及 `tools/dev/cm-profile-evidence.py --verify src/cm-profile-layout.inc`（44 处 payload、2496 字节，与 `libcmapi.so`/`multiapd` 的实际布局一致）。**失败**：`test_schema`、`test_policies`、`test_profiles`、`test_startup`——全是同一个 `FileNotFoundError: out/analysis/cspd`，唯一补法是把原厂镜像放到 VM 上再 `python3 tools/dev/prepare.py --rootfs <镜像> --analysis-cspd`；没有镜像时它们只影响 `cspd` 证据，不影响别的。还缺一条：`WlanCfgDbWrite` 在 `db-engine-probe` 的库上是否成功，**未验**（[AGENT_PROBE](research/AGENT_PROBE.md) 第 6 节的运行时那部分；工具是 `shim.c` 记录全部 `CmWLAN*` 调用、`emulate.sh --strace` 跟踪系统调用）。**各套测试的条数基线只写在 [DEVELOPMENT](DEVELOPMENT.md) 第 4 节**，这里不维护数字；上面标"未验"的，不要在别的文档里写成已验，排期看 [PLAN](PLAN.md) 第 5 节。
 
 ## 7. 踩过的坑
 
@@ -215,13 +215,13 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 | `trap: EXIT: bad trap` / `case … in` 语法错误 | 脚本被 CRLF 污染。`push.py` 现在会转 LF |
 | `wrong ELF class: ELFCLASS32`（LD_PRELOAD） | 只在沙箱外用 binfmt 跑时出现（宿主 ld.so 看到 ARM 库），无害 |
 | `cannot be preloaded` 之后出现 `ZTE_MESH_SHIM loaded` | shim 在 `root/lib` 里但 `out/runtime/lib` 已被 bootstrap 清掉。重跑 `build.sh all` |
-| `chroot: failed to run command '/bin/sh'` | 手写沙箱时用了宿主 `/bin/sh`；lab root 里只有原厂二进制，用 `chroot ROOT ./bin/...` |
+| `chroot: failed to run command '/bin/sh'` | 手工搭沙箱时指向了宿主 `/bin/sh`；沙箱根里只有原厂二进制，用 `chroot ROOT ./bin/...` |
 | `ash: -c requires an argument`（远端什么都没执行） | **`rssh.py` 没有 `--sh` 这个选项**：主机名之后以 `--` 开头的参数会被当成命令的一部分发给远端，于是远端收到 `--sh ls -l /tmp`（选项与命令现在手动切分）。要把管道和 `&&` 当一条远端命令送，就**整个用一个引号参数**（`rssh.py owrt 'a \| head'`）。反过来说：本地每个参数是被 `" ".join` 拼回去的，所以**引号会丢**——`rssh.py owrt grep "a b" f` 到了远端是 `grep a b f`（三个参数），带空格的匹配串要在本地那一层就写成远端语法的引号，而不是靠 shell 的引号 |
 | `echo HI` 返回 **127** | dropbear 带 pty 的 exec 会把命令当成登录 shell 的输入。`rssh.py` 默认不开 pty，需要时用 `--pty` |
 | `open_sftp()` 抛 `EOF during negotiation` | AX3600 的固件没有 `openssh-sftp-server`。`rssh.py` 自动退回 `cat` 管道（二进制安全） |
 | 本机 `scp`/参数里的 `/tmp/x` 变成 `C:/Users/.../Temp/x` | **Git Bash 的路径转换**。调用前 `export MSYS_NO_PATHCONV=1`（`MSYS2_ARG_CONV_EXCL='*'` 亦可） |
 | 构建机上冒出一份 `.local/lab-env.md`（测试机口令表）和一个 CI token | `push.py` 打的是**工作树**（`REPO.rglob`）不是 `git ls-files`，所以 `.gitignore` 挡不住它——gitignore 的目录只要不写进 `EXCLUDE` 就整份推过去。2026-11-04 清掉了构建机上那一份，并把 `.local`、`.workbuddy` 加进 `EXCLUDE`。**排除只挡新的推送**，已经推上去的要到机器上删，删完 `find . -name 'lab-env*' -o -name '*token*'` 复核一遍；那个 token 既然在第二台机器上待过就按已泄露处理，口令轮换同理（待办记在 `docs/journal/2026-11-04.md`） |
-| 构建机"能编"却被判定等于仓库 | 覆盖同步（`tar -xzf ... -C ~/zte-mesh`）**不删远端多余文件**：仓库里删掉的文档、临时实验目录（`cmp/`、`dist/`、根目录那些旧的 `.c`）会一直留着。判"这台机器等于仓库"要**比文件清单**（`git ls-files` 对 `find`），不是看 `make` 过不过；同理 `make` 只比 mtime，陈旧产物会混进哈希比对（见 [产物哈希基线](DEVELOPMENT.md) 第 4 节那条） |
+| 构建机"能编"却被判定等于仓库 | 覆盖同步（`tar -xzf ... -C ~/zte-mesh`）**不删远端多余文件**：仓库里删掉的文档、临时目录（`cmp/`、`dist/`、根目录那些旧的 `.c`）会一直留着。判"这台机器等于仓库"要**比文件清单**（`git ls-files` 对 `find`），不是看 `make` 过不过；同理 `make` 只比 mtime，陈旧产物会混进哈希比对（见 [产物哈希基线](DEVELOPMENT.md) 第 4 节那条） |
 | `ash: syntax error: unexpected word (expecting ")")` 执行 ARM32 程序时；或 `mount: mounting none on /proc/sys/fs/binfmt_misc failed: No such file or directory` | 内核没有 `CONFIG_COMPAT`，execve 返回 ENOEXEC，shell 把二进制当脚本读（AX3600 原厂固件就是这样）；同一条的另一面是内核也没编 `BINFMT_MISC`，透明执行这条路直接没有。两条出路见 [BLOB_SHIM](research/BLOB_SHIM.md) 的 qemu 分支和 `build-firmware.yml`，判定表见第 4.2 节 |
 | `error: ignoring return value of 'write' ... -Werror=unused-result` | `(void)write(...)` 从 GCC 9 起不算"用了返回值"。用 `emit()` 辅助函数真赋值再丢弃，别写 `(void)write` |
 | 装上的 `ns-run` 执行报 `not found`，`ls` 明明在 | 编译机 glibc、目标机 musl，动态链接的 ELF 找不到 `/lib64/ld-linux-x86-64.so.2`，`execve` 返回 ENOENT，shell 就报 `not found`。**加 `-static`**，别被 "not found" 骗成路径或权限问题。包里那三份构建全部 `-static`（`tools/build/launcher-arches.sh` 把它写死在 `FLAGS` 里，调用方拿不掉），理由就是这一条：apk 装到哪台机器都不保证那台机器的 libc 与编译器同一个 release |

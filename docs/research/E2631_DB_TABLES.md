@@ -246,7 +246,7 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 `DB all` 已经跑过，不必再跑。`MultiAPStaCfg` / `P1905StaBind` / `MultiAPCacheMac` / `WlanRoamingSta` /
 `EthVlan` / `PortBinding` / `AclCfg` **行空是常态**，要看到行得先配一条——那是改配置，不是取证。
 
-**一条通用判据**（第五轮读出，第七轮补了反面用法）：`isSave=0` 的列是运行时/派生值，写 DB 不落盘。
+**一条通用判据**（第五轮读出，第七轮补了对照用法）：`isSave=0` 的列是运行时/派生值，写 DB 不落盘。
 改配置前先看这一列，否则"改了不生效"会被误判成"固件不认"。**反向也要记住：`isSave=0` 的值只能用来
 读状态，不能拿来当配置比对**——第七轮就是因为拿 `WLANSSID.Enable`（全表 `isSave=0`）当配置开关，
 误判了 `PortState`。

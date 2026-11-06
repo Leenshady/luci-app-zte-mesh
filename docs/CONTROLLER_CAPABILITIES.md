@@ -143,6 +143,10 @@ STA 绑定、信道扫描/CAC、VBSS、MLO，以及**带宽**。要用这些得�
 | `CurHop` / `MaxHop` | 控制器告诉子节点的跳数预算 | 解析并采用 | 有 | `CurHop=2`、`MaxHop=2` |
 | `Mode`/`SetRoleEnable` | 角色（自适应/Slave/Master）与自适应开关 | 有 | 有 | 控制器固定 `Mode=2`、`SetRoleEnable=1`、`EnMasterOnly=1` |
 
+> **2026-11-06 更正**：最后一行写的是不写角色键时库里保持的那组固定值。现在主控显式写
+> `Mode=2`、`SetRoleEnable=0`、`EnMasterOnly=1`（[FEATURE_STATUS](FEATURE_STATUS.md) A13），子节点那侧读到
+> `Mode=1`、`SetRoleEnable=0`、`EnMasterOnly=0`（同表 B1）。
+
 ## 方法与局限
 
 函数集合取自 `radare2`（`afl`），按名字比对两边；同名不一定同行为，差异清单只说明"有没有对应代码"。事件编号表取自

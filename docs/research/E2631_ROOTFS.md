@@ -290,7 +290,7 @@ deauth/disassoc，而不是 11v 的 BTM Request。详见快照 §1.1。
 | 实测 | 意味着什么 |
 |---|---|
 | `Mode=1`、`SetRoleEnable=0`、`RoleElect=0`、`EnMasterOnly=0` | 按 [SCHEMA](../milestones/SCHEMA.md) 语义 `Mode` 1=Slave ⇒ **这台设备当前是子节点**，角色固定、不参与选举 |
-| `CurHop=2`、`MaxHop=2`、`EnMasterOnly=0` | **B16 待办结案**。SCHEMA 说 `EnMasterOnly=1` 时 `slave_init` 跳过、`CurHop` 不会被设成 `MaxHop`；实测是反面情形且两值相等，三者自洽 |
+| `CurHop=2`、`MaxHop=2`、`EnMasterOnly=0` | **B16 待办结案**。SCHEMA 说 `EnMasterOnly=1` 时 `slave_init` 跳过、`CurHop` 不会被设成 `MaxHop`；实测是相反的情形且两值相等，三者自洽 |
 | **`EnReportCenterChannel=1`** | **D3 的入口在 `MultiAPCfg`，而且出厂就开着**。D3 要做的不是"打开上报"，是"接收侧怎么用" |
 | **`En1905Msg=1`** | 1905 报文开关**是开的** ⇒ 上一轮"`En1905Msg` 没找到、这条取证路径落空"的说法作废 |
 | `EnAgentSteer=1`、`EnAgentBs=0` | 作为 agent 收 steering 请求，但不做 band steering 决策；与 `MultiAPMaster.EnBandSteer=0` 方向一致 |
@@ -482,7 +482,7 @@ sendcmd 1 DB p WLANPSK              # 8 行 × 4 列 —— 密钥被遮蔽，�
 sendcmd 1 DB p AclCfg               # RowCount=0（准入层第五张空表）
 ```
 
-**没有"还没跑的"了**——候选表全部 dump 完毕（22 张入档）。现场状态另确认一条：
+**没有"还没跑的"了**——候选表全部 dump 完毕（22 张已收录）。现场状态另确认一条：
 **LAN 口只有 LAN2 插着网线**，`PortState` 的物理侧验证命中（快照 §12.3）。
 
 ## 10. 局限

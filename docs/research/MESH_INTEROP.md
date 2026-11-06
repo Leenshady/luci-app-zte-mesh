@@ -98,7 +98,7 @@
 2. **NAND 控制器硬件透明解密** —— 编程器关 ECC 裸读拿到的是物理密文，设备通过控制器读同一页拿到明文。
    这一条能同时解释三件事：OOB 全 `0xFF`、rootfs 高熵、以及同型号活机器的 rootfs 是明文 JFFS2
    （最后这一条当时是从 `mount`/`df` 推的，实证判据与中兴原厂路由器侧做法见 §4.2）；
-3. eFuse/OTP 里的设备唯一密钥，运行时喂给上面两者之一。
+3. eFuse/OTP 里的设备唯一密钥，运行时传给上面两者之一。
 
 **这条判据已于 2026-11-01 在 E2631 上跑完，结果落在第 2 条**：
 `/dev/mtdblock8` 首 8 字节是 `85 19 01 e0 31 00 00 00`（JFFS2 magic + dirent 节点），
@@ -310,7 +310,7 @@ dd if=/dev/mem of=/var/m0.bin bs=1048576 count=16 skip=2048
 （`tools/lab/ecb-key-scan.py`，同一判据）把 `boot.bin`/`kernel-Image`/`kernel-uimage`/
 固件头/`kernel.config`/两个 telnet JS 做了全偏移滑窗，外加 358 个「机型+版本+日期」模式候选、
 SR1010 自己的 CSPBOOT ASCII 密钥和 4 条 hex-ASCII 串——**全部未命中**。
-「密钥是盘上明文常量」这一支就此排除，剩下的就是本节的 RAM 路线（或控制器/eFuse）；
+「密钥是盘上明文常量」就此排除，剩下的就是本节的 RAM 路线（或控制器/eFuse）；
 全部扫描面与候选数见 [E2633_FIRMWARE](E2633_FIRMWARE.md) §5.4。
 
 **2026-11-01 晚补：第二轮扫描（新构建 + 字节序变换 + 指令立即数），仍全负。**
@@ -323,7 +323,7 @@ AES 驱动，**CBC 用于配置/升级包，与 rootfs 的 ECB 不同路**），
 `model+"0x05100x0001"`）+ hex-ASCII 解码——**全负**；对解压内核 `vmlinux.bin` 补 5 遍变换扫
 （6 627 665 窗/遍）+ 39 720 个 movw/movt 与 62 176 个 `mov #imm` 立即数流（407 KB）——**全负**。
 
-由此钉死两条：① oracle 块在 E2631（2024-09）与 E2633 6B5 两台设备/两份固件里**逐字相同**
+由此确定两条：① oracle 块在 E2631（2024-09）与 E2633 6B5 两台设备/两份固件里**逐字相同**
 ⇒ 密钥是**平台全局常量**，§4.1 挂点 3 的「按设备 eFuse 唯一密钥」形态排除（若走熔丝也是全局
 出厂熔丝）；② 密钥不是任何 flash/软件产物中可静态构造的 16 字节——明文、字节序/排列变换、
 hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换混淆或未知 KDF」与「控制器/熔丝
@@ -374,7 +374,7 @@ hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换
 
 **还剩一个矛盾没闭合，别当已解决。** 运行系统说 rootfs 是明文，但 `e1630.raw` 的
 `0xd80000`（同尺寸 `0x1100000`）熵 8.00 是密文，而本地明文 `rootfs.jffs2` 在那份 dump 里
-**检索不到**（首 4K/中段/32B 边界探针全负）。三种解释并列，未决：
+**检索不到**（首 4K/中段/32B 边界检索全负）。三种解释并列，未决：
 
 1. dump 与 `rootfs.jffs2` 来自**不同设备/不同版本**（目录名是 `zte e1630`，而 tag 区字符串是
    `ZXHN E2631`——两型号混在一起，本身就要核）；
@@ -395,7 +395,7 @@ hex 编码、hash 派生、指令立即数五类全试尽 ⇒ 只剩「非置换
   这时「密钥」真的存在，但它在 `patch.ko` 的初始化路径里，反汇编它比搜 RAM 便宜得多；
 - 再补一条 `/kmodule/bin/busybox md5sum /dev/mtdblock8` 与本地 `rootfs.jffs2`
   （`835653325cafa1c73d52e2baadd8d973`）对比，一致就说明手上这份就是运行中的根，
-  **密钥问题可以直接关档**。
+  **密钥问题可以直接结案**。
 
 #### 4.2.5 真正值钱的不是密钥，是脚本
 
@@ -640,6 +640,10 @@ wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
 2. **不在自己节点之间新增控制通道**：角色协商、状态同步走 1905 或本机 UCI，不发明"插件内部协议"。
    一旦发明，装了这个插件的两台机器能组网、装一台就不行 —— 那就是独立 mesh 插件。
 3. **私有扩展必须可选、可降级**：`mesh_v2=0` 时只发标准 TLV，中兴设备照样能入网（现在就是这个行为）。
+   **2026-11-06 更正**：键名与极性都变了——UCI 里没有 `mesh_v2` 这个选项了，页面上是 `mesh_compatible`
+   （标签「MESH 兼容」，开＝接受任何子路由＝默认），写进服务配置的那一行 `mesh.v2` 问的是相反的问题
+   （开＝`mesh.v2=0`）。而"发不发中兴私有厂商 TLV"由 `VersionMode` 的 bit1 决定，不由这个开关决定
+   （见 [REAL_CHILD](../REAL_CHILD.md) 第 2 节与 [MULTIAPD](MULTIAPD.md)）。
 4. **验收门槛是中兴原厂路由器**：只有 Z506 上实测生效的功能才写"支持"；只在自己沙箱里成立的，写"沙箱"。
 5. **不碰对端身份**：发给子路由的身份（DevInfo 的 ZTE / `ZXSLC SR1010`）是为了过准入检查，
    **不要**换成宿主的真实型号 —— 换掉的表现是子路由直接不收（REAL_CHILD 第 2 节）。
@@ -655,7 +659,7 @@ wlan_multiap_trans_mac_read / trans_mac_last_read / is_wlan_multiap_trans_mac
 | 拿 **AX3000（E2631）** 当子路由，验 Steering / BTM | D7 的接收路径（`handle_wlan_multiap_steering_req`、`wnm_send_btm_req_raw`）在原厂 `cspd` 里是齐的，但线上没有证据 | 停机窗口 + 限时抓包，步骤见 [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md) 第 8 节 |
 | 找一台**非中兴**的标准 agent 做对照 | 证明我们不是"只会跟 ZTE 说话"；这是"兼容任意 OpenWrt"这句话的唯一证据 | 一台支持 Multi-AP 的 OpenWrt 设备（hostapd 带 multi_ap） |
 | `slave` 角色补 Topology Response 的 BSS/终端 TLV | 现在中兴主控看不到我们下面挂了哪些终端 | Z506 或任意主控做对照 |
-| 纯 OpenWrt 组网（无中兴设备）另开一档 | 想做就复用 prplMesh 当 agent，而不是自己再写一套控制面 | 明确的范围与独立验收 |
+| 纯 OpenWrt 组网（无中兴设备）另开一件事 | 想做就复用 prplMesh 当 agent，而不是自己再写一套控制面 | 明确的范围与独立验收 |
 
 ## 8. 参考
 

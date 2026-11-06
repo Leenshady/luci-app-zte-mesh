@@ -50,7 +50,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 三种方式（现役那台 `ubuntu` 上跑服务用 `sudo sh tools/lab/run-service.sh`，见 [LAB](LAB.md) 第 3 节；下面这几条是容器/离线那条路径的入口）：
 
 1. **测试环境（不碰子节点）**：`python3 tools/dev/dev-service-smoke.py --no-attach --seconds 24`——路由器私有命名空间里跑服务，
-   验证配置、热更新、守护进程重启，不把线接进 `br-lan`。`tools/dev/dev-config-check.py DIR` 批量喂配置看接受/拒绝，
+   验证配置、热更新、守护进程重启，不把线接进 `br-lan`。`tools/dev/dev-config-check.py DIR` 批量传入配置看接受/拒绝，
    `tools/dev/dev-sched-check.py` 用真实时钟测定时窗口和访客限时（约 5 分钟）。
 2. **中兴原厂路由器当子节点**：`python3 tools/capture/mreplay.py --config <0600 配置> --expect-macs <允许的 MAC> --out <证据目录> --seconds N`。
    接进 `br-lan`，触发子节点重新入网（默认把子节点端口 down/up），抓两侧的包、服务日志和 `state.json`；`--swap 秒:文件` 中途换配置，
@@ -66,7 +66,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
   启动视图、init 158 条、终端数采集 32 条、启动器入口 20 条、启动器架构构建 26 条、rpcd 24 条、装机验收 278 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
-  **本机（Windows + Git Bash）跑启动器入口那组会 skip 2 条**：`chmod 644` 清不掉执行位，"文件在但不可 exec"这一支在这套文件系统上表达不出，
+  **本机（Windows + Git Bash）跑启动器入口那组会 skip 2 条**：`chmod 644` 清不掉执行位，"文件在但不可 exec"这一个分支在这套文件系统上表达不出，
   计数里那两条不是回归（owrt 的 busybox ash 上能跑全）。架构构建那组的编译器是 stub——它判的是 `tools/build/launcher-arches.sh` 的选址顺序、
   `-dumpmachine` 映射与 `ZTE_MESH_REQUIRE_ARCHES`，不是真编译；真编译在 CI 那一步，产物成员清单是它的判据（第 8 节）。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
@@ -74,14 +74,14 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
   测试必须把这两值导出成 `1` 和 `0`，否则每个"这台没有数"的用例都真睡满 10 秒——同一套测试实测没导出要 4 分 57 秒、导出后 3 分 7 秒，
   睡出来的绿不算绿。
   装机验收脚本在设备上会**等主控的 SSID 在本机生效**（`SSID_WAIT` 默认 60 秒、每 `SSID_POLL`=3 秒看一次），等不到才判 FAIL 并列出
-  `ssid_pending=`；测试用 `SSID_WAIT=0` 把等待关掉，另有一条用例喂"第三次才出现"的 uci 桩来守这段。uci 桩处理 `uci -q get` 是
+  `ssid_pending=`；测试用 `SSID_WAIT=0` 把等待关掉，另有一条用例传入"第三次才出现"的 uci 桩来守这段。uci 桩处理 `uci -q get` 是
   **按最后一个键名去查一个文件**——以前不分键，任何键都回角色那一行，新加的读回会"看起来总是对的"；`iw`/`ip` 同样是桩
   （各自 cat 一份 fixture），因为脚本对射频侧只 grep 不作判定。同一类"问得太早"
   在跳数那一列也犯过一次（见 [INSTALL](INSTALL.md) 第 3 节的 `cur_hop_age`），所以脚本读时钟的 `date` 也是桩——
   年龄窗口是秒级的，跟着主机墙钟跑就变成"什么时候跑这套就算什么时候"。
 - 没有原厂镜像的机器（构建机 `ubuntu`、测试环境的 ImmortalWrt 虚拟机）也能跑绝大多数：`make test-host` 直接在 `$PWD/out`
   上跑。要 `out/analysis/cspd` 的只有 `cspd` 证据那几组——`test_schema.py` 4 条、`test_policies.py` 5 条、
-  `test_profiles.py` 6 条、`test_startup.py` 整组卡在 `setUpClass`（`cspd` 只从哈希钉住的原厂镜像提取，`evidence/`
+  `test_profiles.py` 6 条、`test_startup.py` 整组卡在 `setUpClass`（`cspd` 只从哈希固定的原厂镜像提取，`evidence/`
   不入库），所以 `make test-host` 会停在 `test_schema` 就退出；要看这四组之后的结果就单独跑，别拿"make 停在第几行"当回归。
   这几组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，`container-make.sh` 的 noexec 注意项在这里不适用。
 - LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；PATH 里没有 `node`，测试环境那两台机器也没装）。
@@ -89,12 +89,12 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
   `"<本机那个 node.exe 的绝对路径>" tests/test_luci.js`（v24.21.0）。
   这个测试只读仓库里的 `zte-mesh.js` 与 `tests/test_init.sh`，不需要 LuCI 运行时，所以不必上开发机。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
-- 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`（它真的**执行** init 里的函数：`write_config()` 与预检 `launcher_ready()`。后者是 2026-11-06 从 `start_service()` 里拆出来的——`start_service` 先要 `/sys/class/net/<桥>/bridge` 再要 procd，主机上跑不动，于是那三段判断以前只能被 grep 字符串，"入口不在"那一行搬到 `--launcher-check` 后面也不会红。拆出来的这段只用 `ZTE_MESH_ROOT`/`ZTE_MESH_NSRUN` 那两个已有的环境变量就能喂各种形状，**判据读的是日志落到哪一句**，反面跑"删掉 `[ -x "$NSRUN" ]`"那份 init 能读到装机时那句假诊断）、`python tests/test_runtime.py`（31 条，守的是"tarball 成员与仓库文件逐字节一致"，另加两条"包里的库认不认得这条新帧路"）、`python tests/test_i18n.py`。
+- 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`（它真的**执行** init 里的函数：`write_config()` 与预检 `launcher_ready()`。后者是 2026-11-06 从 `start_service()` 里拆出来的——`start_service` 先要 `/sys/class/net/<桥>/bridge` 再要 procd，主机上跑不动，于是那三段判断以前只能被 grep 字符串，"入口不在"那一行搬到 `--launcher-check` 后面也不会红。拆出来的这段只用 `ZTE_MESH_ROOT`/`ZTE_MESH_NSRUN` 那两个已有的环境变量就能传入各种输入，**判据读的是日志里出现哪一句**，对照组跑"删掉 `[ -x "$NSRUN" ]`"那份 init 能读到装机时那句假诊断）、`python tests/test_runtime.py`（31 条，守的是"tarball 成员与仓库文件逐字节一致"，另加两条"包里的库认不认得这条新帧路"）、`python tests/test_i18n.py`。
   `sh tests/test_rpcd.sh` 也能本机跑，但它的 `jsonfilter` 桩写死调 `python3`——这台机器上只有 `python`，没有那个名字时**七条用例全回 `{"result":-2}`**
   （看着像校验把合法参数也拒了，其实是桩没跑起来）。本机这样给它一个名字：`mkdir -p /tmp/pyshim && printf '#!/bin/sh\nexec "<本机 python.exe 的绝对路径>" "$@"\n' > /tmp/pyshim/python3 && chmod +x /tmp/pyshim/python3 && PATH=/tmp/pyshim:$PATH sh tests/test_rpcd.sh`——24 条全绿；要么上测试主机跑这一组。
 - 容器把 `/tmp` 挂成 noexec：测试不能执行自己写到 `/tmp` 的脚本（`tests/test_rpcd.sh` 用 shell 函数和 `sh -c`），
   dash 的 `.` 不接受额外参数（先 `set --`）。
-- **判"某次改动不该影响产物"要现编现比**：`out/` 不入库，`make` 又只比 mtime，陈旧产物会静悄悄混进哈希比对。
+- **判断"某次改动不该影响产物"要当场重新编译再逐字节比对**：`out/` 不入库，`make` 又只比 mtime，陈旧产物会静悄悄混进哈希比对。
   2026-11-04 那次"三个产物与基线不符"就是这个——基线抄的是 11-01 用 `ROUTERCC=cc` 留下的 x86 版，而比对走的是
   `aarch64` 那条命令行。同一命令行、同一台机器上现编两份来比才算比过；拿 `out/` 里的历史文件当基线不算。
 
@@ -148,7 +148,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 
 **feed**：本仓库是 ImmortalWrt 的一个 feed，包在 `openwrt/` 下。构建机的树（25.12，目标 `zte/zx279133`，apk 包管理，
 分支 `sr1010-zx279133`）里登记两处：`feeds.conf.default`（已提交，`src-git zte_mesh https://github.com/cnjn/zte-mesh.git`，
-不钉版本，每次 `feeds update` 取最新 `main`）和 `feeds.conf`（不受 git 跟踪、存在时优先，`src-link zte_mesh <本地克隆>/openwrt`）。
+不固定版本，每次 `feeds update` 取最新 `main`）和 `feeds.conf`（不受 git 跟踪、存在时优先，`src-link zte_mesh <本地克隆>/openwrt`）。
 
 **打包**：
 
@@ -175,19 +175,19 @@ make package/feeds/zte_mesh/zte-mesh/compile \
 - **`src-link` 与 `src-git` 对启动器构建脚本的可见性不一样**：`src-link zte_mesh <克隆>/openwrt` 时包目录是指向克隆的符号链接，
   `$(CURDIR)/../../tools/build/launcher-arches.sh` 就落在克隆根上（CI 用的正是这一种，`.github/workflows/build-apk.yml` 的 Install feeds 一步）；
   `src-git` 会把包**复制**进 `package/feeds/zte_mesh/`，那里没有仓库根的 `tools/`，于是 `Build/Compile` 直接停在一条写明原因的报错上——
-  这种构建树要 `make … ZTE_MESH_LAUNCHER_BUILD=~/zte-mesh/tools/build/launcher-arches.sh`。两种情况下构建树里都只有目标机那一档工具链，
-  所以 feed 构建出的 apk 通常只带一档；另外两档要宿主的 `gcc-aarch64-linux-gnu` / `gcc-arm-linux-gnueabihf` 在场。
+  这种构建树要 `make … ZTE_MESH_LAUNCHER_BUILD=~/zte-mesh/tools/build/launcher-arches.sh`。两种情况下构建树里都只有目标机那种架构工具链，
+  所以 feed 构建出的 apk 通常只带一种架构；另外两种架构要宿主的 `gcc-aarch64-linux-gnu` / `gcc-arm-linux-gnueabihf` 在场。
 - 大小：合并前那两份 CI 产物是 `zte-mesh` 3 882 850 字节 + `zte-mesh-launcher` 1 221 700 字节（2026-11-05，r21 / launcher r2）；
   **合并后的那一份 `zte-mesh-0.1.0-r22.apk` 是 5 101 814 字节**（`ci/batch21`），比合并前那一份大 1.2 MB，但比两份相加（5 104 550）还小 2 736 字节——**合包在磁盘上不花钱**。
   LuCI 与中文包同一批合计 18 KB。要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**：装 r22 后两台都读 **10 MiB**
-  （合并前 `zte-mesh` r21 单独是 8 034 KiB、launcher r2 是 2 413 KiB；更早文档里那个 8 007 KiB 只覆盖运行环境那一半，别再拿它当合并后的数）。
+  （合并前 `zte-mesh` r21 单独是 8 034 KiB、launcher r2 是 2 413 KiB；更早文档里那个 8 007 KiB 只覆盖运行环境那部分，别再拿它当合并后的数）。
 - 包没签名：`apk add --allow-untrusted`；卸载 `apk del <三个包名>`。运行包含原厂二进制，随这个公开仓库一起发布
   （2026-10-19 决定）；`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享软件源。
 - **读 apk 的成员要用 SDK 自己编出来的那份 `apk`**（`staging_dir/host/bin/apk --allow-untrusted extract`，解到临时目录再 `find`）：
   `.apk` 是 ADBD/libadb 容器，`tar -t` 换四种压缩标志都回 2，一个成员也列不出来。
-- **Actions 的 `run:` 是 `bash -e`**，`var=$(会失败的命令)` 就是这一步的退出码——探针写成 `if cmd; then ...` 才不会带走整步；
-  `2>/dev/null` 还会让它一句都不留。r21 第一次跑就栽在这两条上：读成员的 `members=$(tar ...)` 排在构建那一步的尾巴上，
-  四个包都编好了（那时 launcher 还是单独一个包），步骤红在第 2 秒且日志是空的。**读包这一步现在单独成步，排在 `Upload packages` 之后**——判定的工具坏了只红一次运行，不吞掉一批能装的包。
+- **Actions 的 `run:` 是 `bash -e`**，`var=$(会失败的命令)` 就是这一步的退出码——探测用的命令写成 `if cmd; then ...` 才不会让整步一起失败；
+  `2>/dev/null` 还会让它一句都不留。r21 第一次跑就栽在这两条上：读成员的 `members=$(tar ...)` 排在构建那一步的遗留部分上，
+  四个包都编好了（那时 launcher 还是单独一个包），步骤红在第 2 秒且日志是空的。**读包这一步现在单独成步，排在 `Upload packages` 之后**——判定的工具坏了只红一次运行，不连累一批能装的包。
 - **包里没有 ARM32 模拟器**（2026-10-31 定）：x86_64 设备和没开 `CONFIG_COMPAT` 的 arm64 设备必须自己准备 `qemu-arm-static`——
   放进私有根，或把 `zte_mesh.main.emulator` 指到**这台机器上的任意绝对路径**（init 比 sha256 后拷进私有根的 `usr/bin/`，2026-11-05 起），
   否则 controller 实例每 5 秒以 `execv errno=8` 退出。理由与三条出路见 [LAB.md](LAB.md) 第 4.2 节。
@@ -196,28 +196,28 @@ make package/feeds/zte_mesh/zte-mesh/compile \
 
 | workflow | 产物 | 说明 |
 |---|---|---|
-| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（批 23 起钉死镜像，理由见下面第 3 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三档全要（少编一档直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这一档的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两档每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary，**批 24 起同一份六行还 `echo` 到 stdout，所以 job log 里读得到**），再确认运行环境那半（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
+| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（批 23 起固定镜像，理由见下面第 3 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三种架构全要（少编一种架构直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这种架构的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两种架构每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary，**批 24 起同一份六行还 `echo` 到 stdout，所以 job log 里读得到**），再确认运行环境那部分（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 路由器摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 
 **一轮的墙钟时间有三个互不相干的成本**（批 22 的 run `42137910790` 把它们分开量出来了，批 23 对每一个动了一处）：
 
 1. **apt 装宿主包**——那轮 37.8 分钟，其中 45.1 MB 是 `gcc-13-aarch64-linux-*` 四个包，而**这份清单根本不会被调用**：
-   CI 的目标架构就是 aarch64，`launcher-arches.sh` 对 `arch` 等于 `TARGET_ARCH` 的那一档只用目标工具链的 `$(TARGET_CC)`，
-   宿主 cross gcc 只在架构不同时才是候选。armv7 与 x86_64 两档的编译器照旧留着。
+   CI 的目标架构就是 aarch64，`launcher-arches.sh` 对 `arch` 等于 `TARGET_ARCH` 的那种架构只用目标工具链的 `$(TARGET_CC)`，
+   宿主 cross gcc 只在架构不同时才是候选。armv7 与 x86_64 两种架构的编译器照旧留着。
    现在清单里已无 `gcc-aarch64-linux-gnu` / `libc6-dev-arm64-cross`。**代价**：拿这个 feed 给非 aarch64 目标构建时，
-   `arch/aarch64` 不在包里，而 `ZTE_MESH_REQUIRE_ARCHES` 会把那一步直接判红——是响的失败，不是静默少一档。
+   `arch/aarch64` 不在包里，而 `ZTE_MESH_REQUIRE_ARCHES` 会把那一步直接判红——是响的失败，不是静默少一种架构。
 2. **apt 的下载本身**——同一份清单，一次 57 s（1 628 kB/s），一次 37min 28s（41.4 kB/s），差别只在镜像当天快不快。
    现在 `$RUNNER_TEMP/apt/archives` 用 `actions/cache/restore` + `save` 配成一份下载缓存，key 取
-   「排序后的包名 + `ImageOS` + `/image_version`」的 sha256 前 16 位；命中就把网络那一半整段跳过。
-   写缓存那一步 `continue-on-error`，且只在未命中时跑，不会因为缓存服务坏了带走一批包。
+   「排序后的包名 + `ImageOS` + `/image_version`」的 sha256 前 16 位；命中就把网络那部分整段跳过。
+   写缓存那一步 `continue-on-error`，且只在未命中时跑，不会因为缓存服务坏了连累一批包。
    **`ci/batch23` 读出这一条到现在还没生效过一次**：save 那步报
    `tar: ../../_temp/apt/archives/lock: Cannot open: Permission denied`（`partial` 同一句）加 `##[warning]Cache save failed.`，
    restore 于是回 `Cache not found for input keys: apt-f84f2aa7a576df42`。根因是 apt 下载时把 `lock` 与 `partial` 重新收归
    `_apt`（700），而 workflow 里那句 `chown -R` 排在 `apt-get` **之前**管不到下载之后；批末已在 `Install host dependencies`
    末尾补一次 `chown -R`。**这一条的判据只在 job log 里**：`Save` 不再出现 `Failed to save`，且再下一轮的 `Restore`
    报 `Cache hit for: apt-<同一个哈希>`——两行缺任何一个都不许把那一步的秒数当成提速。
-3. **工具链与 `tools/install`**——冷构建 30–45 分钟，由上游 revision 钉住缓存。**批 22 读出一条旧注释是错的**：
+3. **工具链与 `tools/install`**——冷构建 30–45 分钟，由上游 revision 锁住缓存。**批 22 读出一条旧注释是错的**：
    它写"缓存命中后几分钟就到打包"，实际命中的那一轮 `tools/install` 仍跑了 **14m5s**、71 000 行日志。
    现在这一步拆成 `run_stage`，对 `tools/install` 与 `toolchain/install` 各报**秒数、退出码、日志行数、
    `Entering directory` 次数与前 8 个目录的访问计数**，job log 与 run summary 各写一份（后者 REST 读不到，见本节末"发布 release"那条），
@@ -228,7 +228,7 @@ make package/feeds/zte_mesh/zte-mesh/compile \
    1115 秒的那一步里 1043 秒归它——这一轮 23 分 42 秒中它占 17 分钟，第二大的一项才是 `Build packages` 的 114 秒。
    下一批要读的是它的 `build_dir/hostpkg` 与 stamp 有没有活过缓存恢复（在不在缓存 path 里）。
 
-`runs-on` 从 `ubuntu-latest` 钉成 `ubuntu-24.04` 是为的第 2 条：`ubuntu-latest` 换代时 apt 缓存的 key 会整批作废，
+`runs-on` 从 `ubuntu-latest` 固定为 `ubuntu-24.04` 是为的第 2 条：`ubuntu-latest` 换代时 apt 缓存的 key 会整批作废，
 而这一批的 key 里带着 `ImageOS` 与 `/image_version`——两条都要动。镜像实际见过的两个版本是 `20261025.353.1` 与 `20261101.360.1`。
 
 **版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，日常只有 `main` 一条长期分支（`feat/child-node` 是给上游提 PR 用的）。
@@ -251,7 +251,7 @@ gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 ```
 
 - **本机没有 `gh`**，2026-11-05 发 `v0.2.0` 走的是同一套 API 的三次调用：`POST /repos/<owner>/<repo>/releases`（`tag_name` + **`target_commitish` 填本次构建的那个 commit**，tag 由这一步建出来，不用先 `git push` tag）→ 对每个文件 `POST <upload_url>?name=<文件名>`，`Content-Type: application/octet-stream` + `--data-binary @文件` → **回到公开 URL 再下一个副本，在临时目录里 `sha256sum -c SHA256SUMS.txt`**（上传把字节弄坏了只有这一步会发现，而这一句正是 release 说明里让新用户执行的那一句）。`v0.2.0` 的 tag 指 `d9ce19d`（`ci/batch21` 的 tip，也就是那次构建吃的树），**不是**它上面那份只改文档的批末提交。
-- workflow 的权限是 `contents: read`：它写不了仓库，也建不了 tag，跑绿了对外什么都不会发生。
+- workflow 的权限是 `contents: read`：它写不了仓库，也建不了 tag，跑通了对外什么都不会发生。
 - tag 要指对着提交——发布出来的字节和 tag 上的代码必须是同一件事，所以先装机验证、再在**那个**提交上打 tag。
 - 包**没有签名**，装的时候要 `apk add --allow-untrusted`；release 说明里也要写清这一条，不然新的人只会看到"装不上"。
 - **tag 名与包版本串是两件事**：`v0.2.0` 是 tag，apk 里仍写 `0.1.0-r22`（`PKG_VERSION` 从 2026-10 起没动过，每批只升 `PKG_RELEASE`）。说明第一行就要把这两个数都写出来，否则按 tag 去找文件名的人会以为发错了。
@@ -292,9 +292,41 @@ gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
 | 机器与环境 | 测试主机、测试环境、测试机 | 实验台、实验室、实验机 |
 | 那台 ImmortalWrt 虚拟机 | 「ImmortalWrt 虚拟机」（`owrt` 只是 `rssh.py` 的别名） | 把 `owrt` 当成系统名 |
 | 机型 | `ZXHN Z506`（又叫中兴小方糖）、`ZXSLC SR1010`（又叫中兴星云 MAX）、小米 AX3600 | "中兴 Z506"、第一次出现只写 `Z506` / `SR1010` |
+| 跑一份故意做坏的代码，证明判据会红 | 对照组（"对照组跑 HEAD 的 init"） | 反面、反面跑 |
+| 一条判据给不给结论 | 判定、下结论、不作判定 | 判决、弃权 |
+| `epoch` 那一行跟着时钟刷新 | 更新时间戳 | 盖章、`epoch` 不再动 |
+| `collect-pause` 那个开关 | 打开／关闭暂停开关、创建／删除那个文件 | 摆闸、摆/删 |
+| 读数不够，再来一次 | 复测、待复测 | 复读 |
+| 一条线读完、写进结论 | 结案 | 结掉 |
+| `case` 里的一条 | 一个分支 | 一支 |
+| aarch64 / armv7 / x86_64 | 架构、三种架构、这种架构 | 档、档位、这一档 |
+| 目录整理那两条线 | A 组、B 组 | A 档、B 档 |
+| 还差哪几次上机读数 | 上机遗留项、还缺 | 尾巴、欠 |
+| apk 命令失败 / 文件被删 | 装不上、删掉 | 带走 |
+| glob 匹配到几个包 | 匹配到、命中 | 吞 |
+| 日志额度花完 | 额度用完 | 打光 |
+| 顺带做一次实测读出答案 | 顺带也是一次实测 | 探针（`db-engine-probe` 那个程序除外） |
+| 写死在代码/脚本里的值 | 固定、写死 | 钉死、钉住 |
+| 一条判据能不能抓到问题 | 判据、抓得住 | 针头、咬得住 |
+| 测试全部通过 | 跑通、跑过了 | 跑绿 |
+| 动手前先问用户要不要 | 先征得同意 | 点头（"要点头的动作"） |
+| 同一个值分成几类各记一份 | 分开统计、分开记 | 记账 |
+| 把一份数据交给程序 | 传入、送给 | 喂（"喂一张表"） |
+| 把版本／镜像／路径写成固定值 | 固定为、锁住 | 钉成、钉住 |
+| 用假实现冒充某个命令的返回值 | 冒充成 | 桩成 |
+| 结构被压缩到只剩几字节 | 只剩 | 塌成 |
 
 这套称呼**只读资料也跟着改**（`docs/research/`、`docs/milestones/`、`docs/journal/` 里旧的那些）：改的是称呼，不是结论，
 所以不违背"冻结"。存档里当时没写明是哪一台的，泛指用「真实路由器」，不要替它猜型号。
+
+批量换词有两条硬规矩（2026-11-04 与 2026-11-06 两轮都是靠回读才发现问题的）：
+
+1. **先排除规则表所在的那些行再跑**——本节的表、`AGENTS.md` 的「用词」段、日志里当天记录改名规则的那几张表，
+   它们的"不要写"那一列本身就是旧词，被自己的规则改掉就等于把规则删了。跳过哪几行要按**换词前后的行号**核对一遍：
+   `glob` 在 Windows 上返回的是反斜杠路径，写成 `"docs/journal/…"` 的键会一条都不命中。
+2. **改完逐条回看上下文窗口**，机械改名会造出史实错误。这轮抓出的三类：`和 19–25 分钟同一档` 说的是构建耗时不是 CPU 架构；
+   `失败的阶段以非零退出带走整步` 的"带走"是"让整步一起失败"，不是"删掉"；`重复交代的那半句` 换成"那部分句"就成了病句。
+   还有一条判"这次跑没跑"的：换词表里凡是**新词包含旧词**的（`后半` → `后半部分`）都不能留，同一行重跑会叠成"后半部分部分"。
 
 界面上**所有**给用户看的文字都要走 `_()`，msgid 就是那句英文本身（LuCI 用 msgid 当键，没有别名字符串）。改文案时
 `.po` 里那条旧 msgid 就失效了——它不会报错，只会安静地变回英文，所以有一条测试盯着这件事。
@@ -327,19 +359,19 @@ cp /tmp/zte-mesh.zh-cn.lmo /usr/lib/lua/luci/i18n/     # 不需要重启服务�
 
 ## 10. 分支与 `prebuilt/`
 
-仓库只有 `main` 一条分支，1.7 MB 的 `prebuilt/` 是 lab 主机用的宿主二进制：
+仓库只有 `main` 一条分支，1.7 MB 的 `prebuilt/` 是测试主机用的宿主二进制：
 
 | 文件 | 是什么 | 谁用 |
 |---|---|---|
-| `db-engine-probe` | ARM32、`-nostdlib` 链原厂 glibc 2.26 的沙箱宿主程序 | **产线**：`repack-runtime.py --replace` 把它塞进 `zte-mesh-runtime.tar.gz` 的 `root/bin/`，随 apk 分发 |
-| `ns-run-x86_64` / `ns-run-aarch64` | 两份宿主架构的沙箱启动器 | 只剩 lab 主机 `wget` 取（包里按 CPU 各带一份，[LAB](LAB.md) 第 4.3 节） |
-| `libzte_mesh_shim.so` / `libzte_agent_mm.so` | ARM32 的原厂符号 shim | lab 里挂给 probe 用 |
+| `db-engine-probe` | ARM32、`-nostdlib` 链原厂 glibc 2.26 的沙箱宿主程序 | **打包进 apk 的那一步**：`repack-runtime.py --replace` 把它塞进 `zte-mesh-runtime.tar.gz` 的 `root/bin/`，随 apk 分发 |
+| `ns-run-x86_64` / `ns-run-aarch64` | 两份宿主架构的沙箱启动器 | 只剩在测试主机上 `wget` 取（包里按 CPU 各带一份，[LAB](LAB.md) 第 4.3 节） |
+| `libzte_mesh_shim.so` / `libzte_agent_mm.so` | ARM32 的原厂符号 shim | 测试主机上挂给 probe 用 |
 | `*.sha256`、`*-build.log` | 校验和与构建日志 | 追溯（构建失败也发布日志，这是无 token 时读失败日志的唯一通道） |
 
 **它为什么存在**：`db-engine-probe` 是 ARM32、`-nostdlib`、要对准原厂 glibc 2.26，**在 mac/Windows/路由器上都编不了**，
 只能在 CI 的 `debian:bookworm` 容器里用 `arm-linux-gnueabi-` 交叉编。所以流通路径是
 `build-lab-tools.yml`（容器编）→ `prebuilt/`（提交回仓库）→ `repack-runtime.py --replace` → tarball → apk。
-`build-apk.yml` 完全不碰 `prebuilt/`，它只通过 tarball 间接影响 ARM32 那一半。
+`build-apk.yml` 完全不碰 `prebuilt/`，它只通过 tarball 间接影响 ARM32 那部分。
 
 **怎么更新**：手动跑 `Build lab tools`，它编完自己 `git add -f prebuilt/ && commit && push`；然后在 mac 上
 `python3 openwrt/repack-runtime.py --replace root/bin/db-engine-probe=prebuilt/db-engine-probe`（参数见脚本头部注释）

@@ -779,6 +779,10 @@ SR1010 这类机器是**有线网关、没有射频**，当年给它做主的正
 以前 LuCI 把 `master` 叫作"主路由"，现在 `master` 是"仅主控"——它在**行为上**和以前一样（以前也没人改本机
 无线），只是名字改了；想真的把网络发出去，得选"主路由"。
 
+**2026-11-06 更正**：这张三值表已作废。现在 `mesh_role` 只有 `master`/`slave`，
+"要不要把这份 Wi-Fi 配置也发到本机"改由独立开关 `apply_local` 决定，`main`/`auto` 在 init 里折算成
+`master` + `apply_local=1`（见 [SERVICE](../SERVICE.md)「设备角色（两个开关）」与 [FEATURE_STATUS](../FEATURE_STATUS.md) A13）。
+
 ### 14.2 一个 plan 只能有一个生产者
 
 子路由的 plan 是 `agent-sync.c` 从 `WLANCfg`/`WLANPSK` 读出来的（第 11 节），主路由没有 M2 可等——它就是
@@ -790,7 +794,7 @@ SR1010 这类机器是**有线网关、没有射频**，当年给它做主的正
 - `main`/`auto`：写 `$RUNDIR/wlan-plan`（0600）。
 - `slave`：**一个字节都不碰**。`write_config` 在 reload 时也会跑，删掉它等于把正在用的 plan 抽走，而服务只在
   行变化时才重发（`agent_sync_reset()` 只在启动时调）——子路由会安静地停止应用。`tests/test_init.sh` 的
-  `role-slave-keeps-plan` 就是钉这个的。
+  `role-slave-keeps-plan` 就是防这个的。
 - 其余（`master`、空）：`rm -f`。上一步角色留下的 plan 不该被一个已经不跑的 `wlan-sync` 应用。
 
 ### 14.3 5 GHz 的派生值要写第二遍，这是这次改动里唯一的知识重复
@@ -799,7 +803,7 @@ daemon 自己会用 `wifi.dual_band_sync` / `wifi.essid_suffix` 派生 5G 的名
 第二遍推导就是漂移的来源，所以：`emit_band_options` 顺手把该频段的 `hidden` / `beacon_type` 读回给调用方
 （`BAND_HIDDEN` / `BAND_BEACON`），5G 的名称/密钥只在 `write_config` 里算一次（`s1_air` / `k1_air`），
 emit 与 plan 都用它。测试用 `role-main`（sync 关、5G 全空 → `home-5G` / 2.4G 的密钥）和 `role-main-sync`
-（sync 开、`wifi_5g_ssid` 写了也被忽略、隐藏与加密跟随 2.4G）两条用例把它钉住。
+（sync 开、`wifi_5g_ssid` 写了也被忽略、隐藏与加密跟随 2.4G）两条用例把它固定住。
 
 ### 14.4 设备证据
 
@@ -835,6 +839,9 @@ rc=0   /tmp/r2/wlan-plan 316 B -rw-------
 不要"的组合，而这两种状态在页面上没法解释。仅主控要是还有射频，启动日志里会明说一句
 （`controller-only role: the Wi-Fi profile goes to the child routers only ...`），因为这是最容易看成"plan
 没生效"的一种配置。
+
+**2026-11-06 更正**：这个布尔值后来还是加了，就是上面那条更正说的 `apply_local`；这里记的"角色本身就是那个开关"
+已经不成立。
 
 ## 15. 2026-11-02 回程的另一半：backhaul STA 需要两个选项，不是一个
 

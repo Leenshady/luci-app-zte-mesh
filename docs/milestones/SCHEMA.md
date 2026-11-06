@@ -166,7 +166,7 @@ E2631 中兴原厂路由器 dump 出 `MultiAPCfg` 的 **50 列**（原文见
    不服从 `36+32n`。`1540 - 1444 = 96`，暗示 `IFLink` 是 96 字节的路径字符串槽；
    这一段要算宽度得读 `dbDefMultiAPCfg` 的初始化。
 
-另外验证了本文那句"`EnMasterOnly` 为 1 时 `CurHop` 不会被设成 `MaxHop`"的**反面情形**：
+另外验证了本文那句"`EnMasterOnly` 为 1 时 `CurHop` 不会被设成 `MaxHop`"的**相反的情形**：
 该机 `EnMasterOnly=0`、`CurHop=2`、`MaxHop=2`，三者自洽（`Mode=1` 即 Slave）。
 
 **教训**：`P1905ComCfg` 那 8 个字段的偏移本文早就写对了，后来却从 `cspd` 字符串表重新推断并切错了表。

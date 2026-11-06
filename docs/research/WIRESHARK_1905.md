@@ -132,6 +132,10 @@ dst 组地址、src 是本机 AL MAC。字节与字段一一对应（offset 从�
 3. **它每 10 秒一轮 `0x000a` renew 且永不停止** —— renew 是"我还没被配置"。lab 里没有人给它 M2，
    所以它一直循环；这也说明 **M1/M2 在 lab 里走不通**（要 cspd 把 search 标志置位），
    M2 只能到中兴原厂路由器上验。
+   **2026-11-06 更正**：这句只对这半个场景成立。沙箱里 agent 那一侧的 M1/M2 后来走通了
+   （[LAB](../LAB.md) 第 3.1 节：`db-engine-probe --agent-startup` 走完 Discovery → … → M1 → M2），
+   装机子节点也读回过 `config M2[0]`（[FEATURE_STATUS](../FEATURE_STATUS.md) A3/B2）。留到上机的还是
+   **中兴原厂路由器那一侧收不收 M2**，不是 M1/M2 本身能不能跑。
 
 ## 5. 差异清单与处置
 
@@ -151,6 +155,8 @@ dst 组地址、src 是本机 AL MAC。字节与字段一一对应（offset 从�
   lab 的 `state.json` 永远 `nodes: []`，所以这一帧没有线上证据。要抓它，得先让沙箱的拓扑里
   出现一个节点（中兴原厂路由器，或者给沙箱造一个假节点）。
 - **M1/M2 没验**：这块要 cspd 把 search 标志置位，lab 里它是无限 renew。
+  **2026-11-06 更正**：agent 那一侧的沙箱运行与装机读回都成立（见第 4 节第 3 条那条更正），本条只对
+  原厂对端在 lab 里的那次抓包成立。
 - 抓到的 pcap 里有 SSID/PSK 相关的 lab 配置，按仓库规矩不入库（`*.pcap` 在 `.gitignore` 里）。
 
 ## 7. 环境
