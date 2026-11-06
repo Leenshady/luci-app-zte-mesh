@@ -219,6 +219,11 @@ sha256 与 artifact 里那份 `SHA256SUMS.txt` 逐字对上之后才传上机。
   不该自动变成对外承诺。**第一个按批发出去的 release 是 `v0.2.0`**（2026-11-05，批 21 那三个 apk + 校验和；
   tag 指本次构建的 `d9ce19d`，`ci/batch21` 装完机读完就删）。本机没有 `gh`，所以走 API：建 release 时用 `target_commitish`
   把 tag 打在那个提交上，再逐个资产 `POST ?name=`，最后**从公开 URL 下载回来核 `sha256sum -c`**——发布成没成只看这一条。
+- **第一个按新规矩发出去的是 `v0.1.0-r23`**（2026-11-06，`ci/batch24` run `42209996117` 那三个 apk + 校验和；
+  tag 指本次构建吃的树 `9696812`）。这一轮多出一条以前没有的前置：`ci/batchN` 装机读完就删，那棵树因此在 origin 上
+  没有分支指向，**不先 `git push origin main` 就没有那个对象，API 会拒绝建 tag**——所以发布前要推一次 `main`
+  （推的是本机的 fork，不是 feed 那条 `upstream`）。发完的核对：四个文件匿名重下，`sha256sum -c` 三条 `OK`
+  （上传返回 201 只证明请求被接受）。release 页 <https://github.com/Leenshady/luci-app-zte-mesh/releases/tag/v0.1.0-r23>。
 - **2026-11-06 改了两件事**：tag 名不再是和包无关的 `v0.x.y` 序号，而是完整版本串（`v0.1.0-r23` 这种，与三个 apk 的文件名一字不差）；
   三个包的 `r` 号从此对齐、批末一起加一（第 6.3 节）。旧的 `v0.1.0`、`v0.2.0` 两个 tag 已从 origin 删除——
   它们指的树是 `feaac56`、`d9ce19d`，要复现那两批字节按 SHA 取，不需要靠 tag 名留住。
@@ -263,7 +268,9 @@ sha256 与 artifact 里那份 `SHA256SUMS.txt` 逐字对上之后才传上机。
 **release 的 tag 写完整版本串**（`v<PKG_VERSION>-r<对齐后的号>`，如 `v0.1.0-r23`），不再用 `v0.x.y` 那套和包无关的序号：
 以前 tag 与 apk 里的数从来对不上（`v0.1.0`→r10、`v0.2.0`→r22），正文第一段还得专门解释"两个身份"。
 旧的 `v0.1.0`、`v0.2.0` 两个 tag 已于 2026-11-06 从 origin 删除（对应的树是 `feaac56`、`d9ce19d`，SHA 记在当天日志里，
-需要复现那两批字节还能按 SHA 取）。
+需要复现那两批字节还能按 SHA 取）。**第一个按这个号发出去的 release 就是 `v0.1.0-r23`**：tag 指 `9696812`，
+四个资产匿名重下核过 `sha256sum -c`，发布那一步（含要先推 `main` 那条前置）在上面第 6.1 节末与
+[DEVELOPMENT](DEVELOPMENT.md) 第 8 节。
 
 **改过包里的内容就要升，哪怕那一批不跑 CI**——同一个 `PKG_RELEASE` 在 CI 上只能有一种内容。2026-11-04 的实例：
 `ci/batch14` 出的 `luci-app-zte-mesh-0.1.0-r10.apk` 与 `ci/batch13` 的同名包**不同字节**，差在 `po/zh_Hans/zte-mesh.po`

@@ -258,6 +258,7 @@ gh release create v0.1.0-r23 dist/*.apk dist/SHA256SUMS.txt
 ```
 
 - **本机没有 `gh`**，2026-11-05 发 `v0.2.0` 走的是同一套 API 的三次调用：`POST /repos/<owner>/<repo>/releases`（`tag_name` + **`target_commitish` 填本次构建的那个 commit**，tag 由这一步建出来，不用先 `git push` tag）→ 对每个文件 `POST <upload_url>?name=<文件名>`，`Content-Type: application/octet-stream` + `--data-binary @文件` → **回到公开 URL 再下一个副本，在临时目录里 `sha256sum -c SHA256SUMS.txt`**（上传把字节弄坏了只有这一步会发现，而这一句正是 release 说明里让新用户执行的那一句）。`v0.2.0` 的 tag 指 `d9ce19d`（`ci/batch21` 的 tip，也就是那次构建吃的树），**不是**它上面那份只改文档的批末提交。
+- **`target_commitish` 填的提交必须在远端存在**——批末走临时分支就把这条变成了前置：`ci/batchN` 装机读完即删，那棵树因此在 origin 上没有任何分支指向，API 直接拒建 tag。2026-11-06 发 `v0.1.0-r23`（run `42209996117` 的三个 apk，tag 指 `9696812`）之前先 `git -c http.sslBackend=schannel push origin main`，`ls-remote --heads` 读到 `main` 之后才发；推的是本机的 fork，不是 feed 那条 `upstream`。同一轮还留了一条判据可复用的读数：四个资产上传各回 201，匿名重下三条 `OK`，`releases/tags/v0.1.0-r23` 里 `draft=false`、四个资产大小与 `SHA256SUMS.txt` 一字不差。
 - workflow 的权限是 `contents: read`：它写不了仓库，也建不了 tag，跑通了对外什么都不会发生。
 - tag 要指对着提交——发布出来的字节和 tag 上的代码必须是同一件事，所以先装机验证、再在**那个**提交上打 tag。
 - 包**没有签名**，装的时候要 `apk add --allow-untrusted`；release 说明里也要写清这一条，不然新的人只会看到"装不上"。

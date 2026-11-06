@@ -26,21 +26,31 @@
 | `luci-app-zte-mesh` | `all` | 配置页面（`网络 → ZTE Mesh`） |
 | `luci-i18n-zte-mesh-zh-cn` | `all` | 中文文案。**装应用包不会自动带上它**，要中文就单独装 |
 
-**手工装（最常用）**：**目前没有对外发布的 GitHub Release**——`v0.1.0`、`v0.2.0` 两个 release 已删除，
-那两个 tag 也在 2026-11-06 一并删掉（release 核对：两个 `releases/tags/<tag>` 都回 404，`releases` 列表为空）。
-所以拿这一批的包有两条路：
-把本仓库登记成 feed、在 ImmortalWrt 树里编出来，或者从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 取
-（下载 artifact 要认证，匿名 401；取法见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节）。仓库当前构建的包版本串是
-三个包同一个号 `0.1.0-r23`（2026-11-06 起 `r` 号对齐，一批一个号，规矩见 [PLAN](PLAN.md) 第 6.3 节）；
+**手工装（最常用）**：这一批发在 **[GitHub Release `v0.1.0-r23`](https://github.com/Leenshady/luci-app-zte-mesh/releases/tag/v0.1.0-r23)**，
+四个文件都能匿名下载（2026-11-06 发布；tag 指本次构建吃的树 `9696812`，不是它上面那份只改文档的提交）。
+更早那两个 `v0.1.0`、`v0.2.0` 的 release 与 tag 已删除。另一条路是把本仓库登记成 feed、在 ImmortalWrt 树里编出来，
+或者从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 取（下载 artifact 要认证，匿名 401；取法见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节）。
+仓库当前构建的包版本串是三个包同一个号 `0.1.0-r23`（2026-11-06 起 `r` 号对齐，一批一个号，规矩见 [PLAN](PLAN.md) 第 6.3 节）；
 `ci/batch24` 那一轮已经按这个号出过产物，三个文件名都带 `0.1.0-r23`，两台测试机装完读回三行同为 `0.1.0-r23`。
 包没签名，所以要 `--allow-untrusted`：
 
 ```sh
+# 1) 从 release 页面取这一批的四个文件（匿名可下），先在本机校验
+mkdir -p /tmp/zte-apk && cd /tmp/zte-apk
+BASE=https://github.com/Leenshady/luci-app-zte-mesh/releases/download/v0.1.0-r23
+for f in SHA256SUMS.txt zte-mesh-0.1.0-r23.apk luci-app-zte-mesh-0.1.0-r23.apk luci-i18n-zte-mesh-zh-cn-0.1.0-r23.apk; do
+  curl -sfLO "$BASE/$f"
+done
+sha256sum -c SHA256SUMS.txt                   # 三条 OK 才往下走
+
+# 2) 推到路由器并装
 ssh root@<这台路由器的IP> 'mkdir -p /tmp/zte-apk'
 scp dist/*.apk root@<这台路由器的IP>:/tmp/zte-apk/     # 只放这一批；目标目录不存在时 scp 会把文件写成那个名字
 ssh root@<这台路由器的IP> 'cd /tmp/zte-apk && sha256sum -c SHA256SUMS.txt'
 ssh root@<这台路由器的IP> 'apk add --allow-untrusted /tmp/zte-apk/zte-mesh-[0-9]*.apk /tmp/zte-apk/luci-*.apk'
 ```
+
+上面第 2 步的 `dist/*.apk` 是本机或 CI 构建出来的那份；从 release 下的四个文件在 `/tmp/zte-apk`，scp 那一行换成 `scp /tmp/zte-apk/*.apk` 就行。
 
 - **`zte-mesh-[0-9]` 那个 `-` 加数字不是排版**：`zte-mesh*.apk` 会把这一台机器上**上一批留下的** `zte-mesh-launcher-*.apk`（合并前那个独立的启动器包）一并匹配进来，那条命令于是当场多装一个包——它装的是旧一半的启动器，而新的 `zte-mesh` 已经带着这些文件。装机读回 `verify-install.sh` 现在用同一条 glob，并且专门有一行会拒绝"这个目录里还有 launcher 包"。
 
