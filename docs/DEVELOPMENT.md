@@ -196,9 +196,29 @@ make package/feeds/zte_mesh/zte-mesh/compile \
 
 | workflow | 产物 | 说明 |
 |---|---|---|
-| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-latest` 交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-aarch64-linux-gnu` + `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释），`ZTE_MESH_REQUIRE_ARCHES` 设成三档全要（少编一档直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这一档的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两档每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary），再确认运行环境那半（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
+| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（批 23 起钉死镜像，理由见下面第 3 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三档全要（少编一档直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这一档的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两档每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary），再确认运行环境那半（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 路由器摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
+
+**一轮的墙钟时间有三个互不相干的成本**（批 22 的 run `42137910790` 把它们分开量出来了，批 23 对每一个动了一处）：
+
+1. **apt 装宿主包**——那轮 37.8 分钟，其中 45.1 MB 是 `gcc-13-aarch64-linux-*` 四个包，而**这份清单根本不会被调用**：
+   CI 的目标架构就是 aarch64，`launcher-arches.sh` 对 `arch` 等于 `TARGET_ARCH` 的那一档只用目标工具链的 `$(TARGET_CC)`，
+   宿主 cross gcc 只在架构不同时才是候选。armv7 与 x86_64 两档的编译器照旧留着。
+   现在清单里已无 `gcc-aarch64-linux-gnu` / `libc6-dev-arm64-cross`。**代价**：拿这个 feed 给非 aarch64 目标构建时，
+   `arch/aarch64` 不在包里，而 `ZTE_MESH_REQUIRE_ARCHES` 会把那一步直接判红——是响的失败，不是静默少一档。
+2. **apt 的下载本身**——同一份清单，一次 57 s（1 628 kB/s），一次 37min 28s（41.4 kB/s），差别只在镜像当天快不快。
+   现在 `$RUNNER_TEMP/apt/archives` 用 `actions/cache/restore` + `save` 配成一份下载缓存，key 取
+   「排序后的包名 + `ImageOS` + `/image_version`」的 sha256 前 16 位；命中就把网络那一半整段跳过。
+   写缓存那一步 `continue-on-error`，且只在未命中时跑，不会因为缓存服务坏了带走一批包。
+3. **工具链与 `tools/install`**——冷构建 30–45 分钟，由上游 revision 钉住缓存。**批 22 读出一条旧注释是错的**：
+   它写"缓存命中后几分钟就到打包"，实际命中的那一轮 `tools/install` 仍跑了 **14m5s**、71 000 行日志。
+   现在这一步拆成 `run_stage`，对 `tools/install` 与 `toolchain/install` 各报**秒数、退出码、日志行数、
+   `Entering directory` 次数与前 8 个目录的访问计数**，job log 与 run summary 各写一份（后者 REST 读不到，见本节末"发布 release"那条），
+   下一轮才分得清"没重编"和"重编了一遍"。
+
+`runs-on` 从 `ubuntu-latest` 钉成 `ubuntu-24.04` 是为的第 2 条：`ubuntu-latest` 换代时 apt 缓存的 key 会整批作废，
+而这一批的 key 里带着 `ImageOS` 与 `/image_version`——两条都要动。镜像实际见过的两个版本是 `20261025.353.1` 与 `20261101.360.1`。
 
 **版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，日常只有 `main` 一条长期分支（`feat/child-node` 是给上游提 PR 用的）。
 批末的那次 CI 走**一次性分支** `ci/batchN`：`main` 直连 ImmortalWrt feed 不能随便推，所以把这一批推成临时分支再在

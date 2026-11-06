@@ -44,12 +44,21 @@ name: Build APK
 # placeholder files in the kernel tree make it a zero-second no-op if it enters
 # the graph anyway (package/Makefile hardcodes `package-y += kernel/linux`).
 #
-# SPEED: the cross toolchain (binutils -> gcc/initial -> musl -> gcc/final) is
-# by far the most expensive part (~30-45 min) and always produces the same
-# bytes for a given upstream commit. staging_dir + the host/toolchain build
-# trees are therefore cached, keyed on the upstream revisions only, so editing
-# our own packages never invalidates it. First run after a key change is slow;
-# later runs reach the package build in a couple of minutes.
+# SPEED: three separate costs, three separate answers.
+#   * The cross toolchain (binutils -> gcc/initial -> musl -> gcc/final) is the expensive one
+#     (~30-45 min cold) and always produces the same bytes for a given upstream commit, so
+#     staging_dir + the host/toolchain build trees are cached, keyed on the upstream revisions
+#     only -- editing our own packages never invalidates it.
+#   * Host packages come from apt, ~92 MB. That download is the runner's mirror, not ours: the
+#     identical list took 57 s at 1628 kB/s on 2026-11-05 and 37min 28s at 41.4 kB/s on
+#     2026-11-06, and that one difference is the gap between a 25-minute and a 58-minute batch.
+#     The archives are therefore cached under their own key (package list + image version), and
+#     the aarch64 host cross compiler left the list entirely -- the target toolchain builds that
+#     architecture, so those 45.1 MB were never read (see "Resolve the apt package list").
+#   * What is left is `tools/install`, which on r23 still cost 14m5s of real time with the cache
+#     restored. The step that runs it now reports its own seconds and its directory visits, so
+#     the next round can tell a stamp-driven no-op from a rebuild instead of trusting this
+#     comment. "later runs reach the package build in a couple of minutes" was not true.
 #
 # Trigger: manual only (workflow_dispatch), and it builds only. Pushes and pull
 # requests used to build as well, but a documentation or memory commit then cost
@@ -105,7 +114,10 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: the image moves under that alias and this job's two cache
+    # keys (the apt list below, the toolchain tree further down) both depend on what
+    # is preinstalled in it. Two recent runs were 20261025.353.1 and 20261101.360.1.
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
 
     steps:
@@ -135,27 +147,78 @@ jobs:
             echo "the role lookup no longer reads through uci.get()" >&2; exit 1; }
           echo "view ok: $(wc -c < "$JS") bytes"
 
+      - name: Resolve the apt package list and cache key
+        id: aptlist
+        run: |
+          set -eu -o pipefail
+          # One file holds the list, so the cache key and the install read the same bytes:
+          # adding a package changes the key and costs exactly one cold run.
+          #
+          # gcc-aarch64-linux-gnu and libc6-dev-arm64-cross are gone from this list (45.1 MB
+          # of the 93.2 MB it used to fetch, 14 lib*-arm64-cross plus gcc/cpp/binutils-13).
+          # They were never called: the aarch64 launcher build comes from the target toolchain
+          # (zte-mesh's Build/Compile passes ZTE_MESH_TARGET_CC, an aarch64-openwrt-linux-musl-gcc
+          # for cortex-a53), and launcher-arches.sh only reaches for a host compiler when an
+          # architecture is NOT what $(TARGET_CC) emits. What stays is what actually runs:
+          # armv7 from the hard-float cross compiler, x86_64 from musl-gcc -- every one of these
+          # binaries carries its own libc and the glibc build is ~10x the musl one for the same
+          # code (r22: the x86_64 pair weighed 1 590 648 bytes built by the host gcc, 155 232
+          # built by musl-gcc -- the pair the owrt test machine, 15 MB free, installs for its own
+          # CPU). linux-libc-dev is here because musl-gcc compiles with -nostdinc and asks the
+          # host gcc where the kernel UAPI headers are; the host gcc needs that package itself to
+          # see <linux/if_link.h>.
+          #
+          # The cost of the removal is a future case: build this feed for a non-aarch64 target and
+          # arch/aarch64 is not in the apk. launcher-arches.sh then prints "no compiler for aarch64"
+          # and ZTE_MESH_REQUIRE_ARCHES turns that into a red run -- a missing build never ships as
+          # a silent gap.
+          cat > "$RUNNER_TEMP/apt-packages" <<'PKGS'
+          build-essential gawk unzip file wget python3
+          rsync subversion git zstd libncurses-dev
+          swig libssl-dev python3-dev lua5.1 liblua5.1-0-dev
+          meson ninja-build xz-utils
+          gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+          linux-libc-dev musl-tools musl-dev
+          PKGS
+          { tr -s '[:space:]' '\n' < "$RUNNER_TEMP/apt-packages" | sed '/^$/d' | sort
+            echo "os=${ImageOS:-unknown}"
+            echo "image=$(cat /image_version 2>/dev/null || echo unknown)"
+          } > "$RUNNER_TEMP/apt-key"
+          echo "hash=$(sha256sum "$RUNNER_TEMP/apt-key" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "apt cache key suffix: $(tr '\n' ' ' < "$RUNNER_TEMP/apt-key")"
+
+      - name: Restore the apt download cache
+        id: aptcache
+        uses: actions/cache/restore@v4
+        with:
+          # The mirror is the one part of this job that is not ours to control: the same ~92 MB
+          # list took 57 s at 1628 kB/s on 2026-11-05 and 37min 28s at 41.4 kB/s on 2026-11-06,
+          # and that difference alone is the gap between a 25-minute batch and a 58-minute one.
+          # Cached, a hit installs from local files and the batch-end budget stops depending on
+          # azure.archive.ubuntu.com's mood.
+          path: ${{ runner.temp }}/apt/archives
+          key: apt-${{ steps.aptlist.outputs.hash }}
+
       - name: Install host dependencies
         run: |
-          sudo apt-get update
-          # Three compilers build the launcher, which lives in the zte-mesh apk and is
-          # architecture-independent: that apk carries one build per CPU, and inside this SDK only the target's
-          # own (aarch64) toolchain exists. armv7 comes from the hard-float cross compiler and x86_64 from
-          # musl-gcc, because every one of these binaries carries its own libc and the glibc one is ~10x the
-          # musl one for the same code (r22: the x86_64 pair weighed 1 590 648 bytes built by the host gcc,
-          # 155 232 built by musl-gcc -- the pair the owrt test machine, 15 MB free, installs for its own CPU).
-          # linux-libc-dev is there because musl-gcc compiles with -nostdinc and asks the host gcc where the
-          # kernel UAPI headers are; the host gcc itself needs that package to see <linux/if_link.h>.
-          # A machine that is not the board this target runs on still gets a binary either way, rather than
-          # the dispatcher's "no build for this machine".
-          sudo apt-get install -y --no-install-recommends \
-            build-essential gawk unzip file wget python3 \
-            rsync subversion git zstd libncurses-dev \
-            swig libssl-dev python3-dev lua5.1 liblua5.1-0-dev \
-            meson ninja-build xz-utils \
-            gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
-            gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
-            linux-libc-dev musl-tools musl-dev
+          set -eu -o pipefail
+          # archives/partial is where apt stages a download before renaming it; without it
+          # Dir::Cache::archives is rejected and every fetch goes to the default /var/cache.
+          sudo mkdir -p "$RUNNER_TEMP/apt/archives/partial"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/apt"
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update
+          tr -s '[:space:]' '\n' < "$RUNNER_TEMP/apt-packages" | sed '/^$/d' \
+            | xargs -r -x sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
+                 -o Dir::Cache::archives="$RUNNER_TEMP/apt/archives/" install -y --no-install-recommends
+          echo "cached debs: $(ls -1 "$RUNNER_TEMP/apt/archives"/*.deb 2>/dev/null | wc -l), $(du -sh "$RUNNER_TEMP/apt/archives" | cut -f1)"
+
+      - name: Save the apt download cache
+        if: steps.aptcache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/apt/archives
+          key: apt-${{ steps.aptlist.outputs.hash }}
 
       - name: Check out ImmortalWrt tree
         run: |
@@ -440,10 +503,32 @@ jobs:
           # kernel-headers is part of that chain and now links the external
           # kernel tree instead of downloading a tarball kernel.org never had.
           #
-          # On a cache hit both are stamp-driven no-ops; they are still invoked
-          # so a partially restored cache is repaired rather than silently used.
-          time make -j"$(nproc)" V=s tools/install
-          time make -j"$(nproc)" V=s toolchain/install
+          # On a cache hit both are meant to be stamp-driven no-ops, and they are still invoked so
+          # a partially restored cache is repaired rather than silently used. r23's run says the
+          # first half of that sentence is not true: the step reported cache hit true and still
+          # spent 14m5s (real) of its 15.1 minutes in tools/install, over 71 000 log lines. So this
+          # step now measures itself. "Entering directory" is the proxy -- make prints it every time
+          # it walks into a package directory, so a no-op is a short list and a rebuild names the
+          # tools it redid. Both numbers go to the log AND the step summary, because the summary is
+          # not readable through the REST API and a reading nobody can fetch is not a reading.
+          run_stage() {
+            local name=$1 target=$2 log="$RUNNER_TEMP/$1.log" start rc elapsed dirs
+            start=$(date +%s)
+            set +e
+            time make -j"$(nproc)" V=s "$target" 2>&1 | tee "$log"
+            rc=${PIPESTATUS[0]}
+            set -e
+            elapsed=$(( $(date +%s) - start ))
+            dirs=$(grep -c 'Entering directory' "$log" || true)
+            {
+              echo "== $target: ${elapsed}s, exit $rc, $(wc -l < "$log") log lines, ${dirs} directory visits"
+              grep 'Entering directory' "$log" | awk -F"'" '{print $2}' | sed 's#.*/##' |
+                sort | uniq -c | sort -rn | head -8 | sed 's/^/    /'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            [ "$rc" = 0 ] || exit "$rc"
+          }
+          run_stage tools-install tools/install
+          run_stage toolchain-install toolchain/install
 
       - name: Save build cache
         # actions/cache's own save step runs as a post step guarded by
