@@ -99,10 +99,10 @@
 ## 上手
 
 三个 apk（`zte-mesh` / `luci-app-zte-mesh` / `luci-i18n-zte-mesh-zh-cn`）与 `SHA256SUMS.txt`：**目前没有对外发布的
-GitHub Release**——`v0.1.0`、`v0.2.0` 两个 release 已删除，tag 还在（2026-11-06 核对，两个 `releases/tags/<tag>` 都回
-404）。要拿到包有两条路：按 [DEVELOPMENT](docs/DEVELOPMENT.md) 第 8 节取最近一轮 CI 的 artifact（下载要认证，匿名 401），
-或把本仓库登记成 feed、在 ImmortalWrt 树里自己编。仓库当前构建的包版本串是 `zte-mesh 0.1.0-r23` +
-两个 LuCI 包 `0.1.0-r11`；包没签名，装的时候要 `apk add --allow-untrusted`。
+GitHub Release**——`v0.1.0`、`v0.2.0` 两个 release 已删除，2026-11-06 起那两个 tag 也删掉了（release 核对，两个
+`releases/tags/<tag>` 都回 404）。要拿到包有两条路：按 [DEVELOPMENT](docs/DEVELOPMENT.md) 第 8 节取最近一轮 CI 的 artifact（下载要认证，匿名 401），
+或把本仓库登记成 feed、在 ImmortalWrt 树里自己编。仓库当前构建的包版本串是**三个包同一个号** `0.1.0-r23`
+（`r` 号从 2026-11-06 起对齐，release 的 tag 就写这个完整串，如 `v0.1.0-r23`）；包没签名，装的时候要 `apk add --allow-untrusted`。
 
 ```sh
 # 装：把三个 apk 放到机器上，一条命令装完 + 读回 + 冒烟

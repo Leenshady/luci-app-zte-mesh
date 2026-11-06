@@ -246,15 +246,17 @@ token 只留在 shell 变量里，不回显、不落盘。zip 解开是三个 ap
 ```sh
 # 1) 下载 zte-mesh-apk 这个 artifact，解开就是 dist/
 # 2) 两台测试机装机验证，核对 sha256sum -c SHA256SUMS.txt
-# 3) 成立才发布，tag 打在本次构建的那个提交上
-gh release create v0.1.0 dist/*.apk dist/SHA256SUMS.txt
+# 3) 成立才发布，tag 打在本次构建的那个提交上，名字用完整版本串（v0.1.0-r23 这种）
+gh release create v0.1.0-r23 dist/*.apk dist/SHA256SUMS.txt
 ```
 
 - **本机没有 `gh`**，2026-11-05 发 `v0.2.0` 走的是同一套 API 的三次调用：`POST /repos/<owner>/<repo>/releases`（`tag_name` + **`target_commitish` 填本次构建的那个 commit**，tag 由这一步建出来，不用先 `git push` tag）→ 对每个文件 `POST <upload_url>?name=<文件名>`，`Content-Type: application/octet-stream` + `--data-binary @文件` → **回到公开 URL 再下一个副本，在临时目录里 `sha256sum -c SHA256SUMS.txt`**（上传把字节弄坏了只有这一步会发现，而这一句正是 release 说明里让新用户执行的那一句）。`v0.2.0` 的 tag 指 `d9ce19d`（`ci/batch21` 的 tip，也就是那次构建吃的树），**不是**它上面那份只改文档的批末提交。
 - workflow 的权限是 `contents: read`：它写不了仓库，也建不了 tag，跑通了对外什么都不会发生。
 - tag 要指对着提交——发布出来的字节和 tag 上的代码必须是同一件事，所以先装机验证、再在**那个**提交上打 tag。
 - 包**没有签名**，装的时候要 `apk add --allow-untrusted`；release 说明里也要写清这一条，不然新的人只会看到"装不上"。
-- **tag 名与包版本串是两件事**：`v0.2.0` 是 tag，apk 里仍写 `0.1.0-r22`（`PKG_VERSION` 从 2026-10 起没动过，每批只升 `PKG_RELEASE`）。说明第一行就要把这两个数都写出来，否则按 tag 去找文件名的人会以为发错了。
+- **tag 名 = 完整版本串**（2026-11-06 起的规矩）：`v<PKG_VERSION>-r<三个包对齐后的 PKG_RELEASE>`，例如 `v0.1.0-r23`，
+  和三个 apk 的文件名一字不差。以前是 `v0.x.y` 那套和包无关的序号，结果 tag 与 apk 里的数从来没对上过
+  （`v0.1.0`→r10、`v0.2.0`→r22），说明第一段还要专门解释"两个身份"；规矩与对齐过程见 [PLAN](PLAN.md) 第 6.3 节。
 - **同一棵树重编，apk 的 sha 不一定相同，所以"sha 不同"不等于"内容变了"**。2026-11-05 发完 `v0.2.0` 当天在 `main`（`b2c5e4b`，与发布那棵 `d9ce19d` 只差文档）又跑一次 `Build APK`（run #60）：`zte-mesh-0.1.0-r22.apk` **逐字节相同**（`8778aac6…`、5 101 814 B），两个 LuCI 包的容器却变了（`10 206 → 10 207 B`；i18n 大小不变、sha 变了）。把四份推到 `owrt` 上解——**`.apk` 是 libadb 容器，本机与构建机的 `tar -t` 一个成员也列不出来**——`luci-app` 4 个、`i18n` 3 个成员的 sha256 与大小两边**逐一相同**，唯一的区别是成员 mtime 变成新的构建时刻（`17:16:44 +0800` 对 `19:20:07 +0800`）：**时间戳进了 tar 头，内容没变**。两边的差别在时间戳从哪来：`zte-mesh` 解出来的成员全是同一个时刻 `17:13:40`，等于 `git log -1 --format=%ct -- openwrt/zte-mesh/`（`d9ce19d` 的提交时刻，epoch `1793870020`）——**那一侧有时间戳钳制**，两次构建只要那个包目录没动，apk 就一模一样；LuCI 那两个包没有钳制，成员跟每次构建的墙上时钟走（`openwrt/luci-app-zte-mesh/` 的最后一次改动是 `0b25ca1`，可 mtime 不是它）。要比内容就这样读：
 
   ```sh

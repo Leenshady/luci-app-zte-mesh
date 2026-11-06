@@ -219,6 +219,9 @@ sha256 与 artifact 里那份 `SHA256SUMS.txt` 逐字对上之后才传上机。
   不该自动变成对外承诺。**第一个按批发出去的 release 是 `v0.2.0`**（2026-11-05，批 21 那三个 apk + 校验和；
   tag 指本次构建的 `d9ce19d`，`ci/batch21` 装完机读完就删）。本机没有 `gh`，所以走 API：建 release 时用 `target_commitish`
   把 tag 打在那个提交上，再逐个资产 `POST ?name=`，最后**从公开 URL 下载回来核 `sha256sum -c`**——发布成没成只看这一条。
+- **2026-11-06 改了两件事**：tag 名不再是和包无关的 `v0.x.y` 序号，而是完整版本串（`v0.1.0-r23` 这种，与三个 apk 的文件名一字不差）；
+  三个包的 `r` 号从此对齐、批末一起加一（第 6.3 节）。旧的 `v0.1.0`、`v0.2.0` 两个 tag 已从 origin 删除——
+  它们指的树是 `feaac56`、`d9ce19d`，要复现那两批字节按 SHA 取，不需要靠 tag 名留住。
 - **发布之后从 `main` 复现构建一次**（2026-11-05，run #60 @ `b2c5e4b`，与发布那棵树只差文档）：`zte-mesh` 那份 apk
   **逐字节相同**，两个 LuCI 包的容器 sha 却变了——解出来每个成员的 sha256 与大小都相同，只差成员的 mtime。
   两边不同是因为 `zte-mesh` 的成员时间戳钳在 `git log -1 --format=%ct -- openwrt/zte-mesh/`（那两次的答都是 `d9ce19d`），
@@ -246,8 +249,19 @@ sha256 与 artifact 里那份 `SHA256SUMS.txt` 逐字对上之后才传上机。
 
 ### 6.3 版本号
 
-`make-runtime.py` / 包 `PKG_RELEASE` 在批末递增一位，让"这台机器上装的是哪一批"能从 `apk list` 读出来；
-**只给这一批改过的包加一**。不做自动版本号。
+`make-runtime.py` / 包 `PKG_RELEASE` 在批末递增一位，让"这台机器上装的是哪一批"能从 `apk list` 读出来。
+**从 2026-11-06 起：三个包的 `r` 号对齐，批末一起加一**（不再"只给这一批改过的包加一"）——不管那一批动没动某个包的内容，
+`zte-mesh`、`luci-app-zte-mesh`、`luci-i18n-zte-mesh-zh-cn` 都升到同一个数，于是一批只有一个版本号，
+`apk list | grep zte` 三行末尾那个数一样就是"这一套是同一批"。不做自动版本号。
+
+**对齐的起点**：2026-11-06 把 `luci-app-zte-mesh/Makefile` 的 `PKG_RELEASE` 从 11 直接写到 23，和 `zte-mesh` 那份对上。
+这一次对齐只改 Makefile 一行（`git grep` 过 `*.sh` / `*.py` / `*.yml` / `*.js` / `Makefile`：文档以外没有第二处写死 `r11`），
+但**产物要重出一轮**——`out/ci/batch23` 那两个 LuCI apk 还是 `0.1.0-r11` 的字节，装机的三行版本串要等下一轮 CI 才能读到 `r23 / r23 / r23`。
+
+**release 的 tag 写完整版本串**（`v<PKG_VERSION>-r<对齐后的号>`，如 `v0.1.0-r23`），不再用 `v0.x.y` 那套和包无关的序号：
+以前 tag 与 apk 里的数从来对不上（`v0.1.0`→r10、`v0.2.0`→r22），正文第一段还得专门解释"两个身份"。
+旧的 `v0.1.0`、`v0.2.0` 两个 tag 已于 2026-11-06 从 origin 删除（对应的树是 `feaac56`、`d9ce19d`，SHA 记在当天日志里，
+需要复现那两批字节还能按 SHA 取）。
 
 **改过包里的内容就要升，哪怕那一批不跑 CI**——同一个 `PKG_RELEASE` 在 CI 上只能有一种内容。2026-11-04 的实例：
 `ci/batch14` 出的 `luci-app-zte-mesh-0.1.0-r10.apk` 与 `ci/batch13` 的同名包**不同字节**，差在 `po/zh_Hans/zte-mesh.po`

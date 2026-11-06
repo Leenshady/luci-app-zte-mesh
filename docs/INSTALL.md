@@ -26,11 +26,14 @@
 | `luci-app-zte-mesh` | `all` | 配置页面（`网络 → ZTE Mesh`） |
 | `luci-i18n-zte-mesh-zh-cn` | `all` | 中文文案。**装应用包不会自动带上它**，要中文就单独装 |
 
-**手工装（最常用）**：**目前没有对外发布的 GitHub Release**——`v0.1.0`、`v0.2.0` 两个 release 已删除，tag 还在
-（2026-11-06 核对：两个 `releases/tags/<tag>` 都回 404，`releases` 列表为空）。所以拿这一批的包有两条路：
+**手工装（最常用）**：**目前没有对外发布的 GitHub Release**——`v0.1.0`、`v0.2.0` 两个 release 已删除，
+那两个 tag 也在 2026-11-06 一并删掉（release 核对：两个 `releases/tags/<tag>` 都回 404，`releases` 列表为空）。
+所以拿这一批的包有两条路：
 把本仓库登记成 feed、在 ImmortalWrt 树里编出来，或者从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 取
 （下载 artifact 要认证，匿名 401；取法见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节）。仓库当前构建的包版本串是
-`zte-mesh 0.1.0-r23` + 两个 LuCI 包 `0.1.0-r11`。包没签名，所以要 `--allow-untrusted`：
+三个包同一个号 `0.1.0-r23`（2026-11-06 起 `r` 号对齐，一批一个号，规矩见 [PLAN](PLAN.md) 第 6.3 节）；
+**这一轮 CI 还没跑**，`ci/batch23` 出的两个 LuCI apk 文件名仍是 `0.1.0-r11`，下一次构建才会变成 `r23`。
+包没签名，所以要 `--allow-untrusted`：
 
 ```sh
 ssh root@<这台路由器的IP> 'mkdir -p /tmp/zte-apk'
