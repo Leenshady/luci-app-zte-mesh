@@ -781,6 +781,13 @@ jobs:
             expect_weight x86_64 "$name" 204800
             expect_weight armv7 "$name" -
           done
+          # These six lines are the only reading that separates a musl build from a glibc one at the
+          # same path, so they go to stdout as well as the run summary: the summary is not readable
+          # through the REST API (…/checks/<run>/summary answers 404) and job logs only carry what the
+          # script echoes. r23's numbers came back from the installed arch/ trees instead, one build
+          # and two machine round-trips later.
+          echo "launcher build weights:"
+          cat "$WEIGHTS"
           rm -rf "$MEMBERS_DIR"
           echo "zte-mesh apk: $MESH_APK carries the entry script, all three architectures and the runtime"
 
