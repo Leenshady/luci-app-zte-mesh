@@ -103,7 +103,7 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 | `ZTE_TRACE_POLL` 重复状态行 | **每 60 秒 4 行** | `log_budget=poll sampled=1 limit=4 window=60s dropped_total=N`，每个超额窗口一句 |
 | `ZTE_TRACE_ALL` 火管 | 2 万行 | 不说 |
 
-两件事别记反：**展开的是值**，所以带密钥 / SSID / BSS 的格式在 `controller_log_shape()` 里先被否决，永不展开；**每进程的预算重启就重来**（崩溃循环每次只付一小段），**poll 那一路按 `CLOCK_MONOTONIC` 的分钟采样**，进程重启也变不成无界。装机后要看的判据是"推送过去七分钟，`logread` 里还剩不剩用户自己的行"。`dropped_total=` 是**这个进程开始以来累计丢掉**的 poll 行数：某一分钟丢了多少，看**相邻两句的差**；最后一句之后还在涨，所以它是下界不是总量。**读设备日志先按 pid 切代**——logd 的环不随升级或重启清空，旧一代与新一代的行会同时在环里，混在一起读会得出"采样没生效"的反结论。
+两件事别记反：**展开的是值**，所以带密钥 / SSID / BSS 的格式在 `controller_log_shape()` 里先被否决，永不展开；**每进程的预算重启就重来**（崩溃循环每次只付一小段），**poll 那一路按 `CLOCK_MONOTONIC` 的分钟采样**，进程重启也变不成无界。装机后要看的判据是"推送过去七分钟，`logread` 里还剩不剩用户自己的行"。**`owrt` 那台的 `logread` 会崩**（2026-11-06 装 r23 那趟，`RESULT=PASS` 之后紧跟一行 `Segmentation fault`，`dmesg` 指 `traps: logread[…] general protection fault … in libc.so`；连发五次又全 rc=0，重跑整份验收逐行相同）。**看到崩的是 `logread` 就先看 `dmesg`，别把它读成沙箱里哪个进程死了**——我们的东西崩了会在 `log_error_lines=` 那行露出来，那一趟是 0。`dropped_total=` 是**这个进程开始以来累计丢掉**的 poll 行数：某一分钟丢了多少，看**相邻两句的差**；最后一句之后还在涨，所以它是下界不是总量。**读设备日志先按 pid 切代**——logd 的环不随升级或重启清空，旧一代与新一代的行会同时在环里，混在一起读会得出"采样没生效"的反结论。
 
 `libzte_agent_mm.so` 已在 `spawn_daemon()` 的 `LD_PRELOAD` 里：它只接管 `CmWLANSetAPConfig` / `CmWLANSetPsk`，并且**先把刚写的行读回来比对**，库里已是调用方要的值才把 -3 报成 0（`ZTE_AGENT_MM ... row_applied=1`）。两处读库的坑：`WLANPSK` 必须按实例 id 用 `dbAPIGetView("WLANPSK","DEV.WIFI.AP1.PSK1",…)` 读（密钥在行内偏移 260），用 `dbGetValComm()` 按行号读永远是空值；`CmWLANSetAPConfig` 写库发生在 `cm_wlan_send_cmapi_set_msg` **之前**，所以没有 cspd 时库已经变了、返回值仍是 -3，两者要分开看。
 

@@ -210,7 +210,7 @@ token 只留在 shell 变量里，不回显、不落盘。zip 解开是三个 ap
 
 **发布 release**：`Build APK` **只构建，不发布**（2026-11-01 起；以前那个 `release_tag` 输入把"开始构建"和"把这些字节承诺给外面"
 做成同一个按钮，而一批的包要先在两台测试机上装机验过才谈得上发布）。它产出两个 artifact：`zte-mesh-apk`（三个 apk +
-`SHA256SUMS.txt`）和 `build-log`，run summary 里每个文件一行，不下载也能认出这一批是什么。发布是另一次手工动作，用的就是这份产物：
+`SHA256SUMS.txt`）和 `build-log`，run summary 里每个文件一行，不下载也能认出这一批是什么——**但那一页只有人在浏览器里读得到**：`$GITHUB_STEP_SUMMARY` 不走 REST API，`…/checks/<run>/summary` 那条 HTML 路径回 404，job log 里只有脚本自身的回显（判据**红**的时候那句 `>&2` 在，**绿**的时候的读数不在）。批 22 那一轮的六个重量字节数因此是装机后从 `arch/` 读回来的（见 [PLAN](PLAN.md) 第 6.1 节与 [journal](journal/2026-11-06.md)）。发布是另一次手工动作，用的就是这份产物：
 
 ```sh
 # 1) 下载 zte-mesh-apk 这个 artifact，解开就是 dist/
