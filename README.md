@@ -220,14 +220,19 @@ ubus call luci.zte-mesh status
    换不换由 flash 决定。
 
    ```sh
-   # 在构建机（Ubuntu）上取一份
-   apt-get download qemu-user-static && dpkg-deb -x qemu-user-static_*.deb /tmp/q
+   # 在构建机（Ubuntu/Debian）上取一份：按设备的 CPU 二选一，别两行都跑
+   curl -O http://archive.ubuntu.com/ubuntu/pool/universe/q/qemu/qemu-user-static_8.2.2+ds-0ubuntu1.18_amd64.deb   # 设备是 x86_64
+   curl -O http://ports.ubuntu.com/ubuntu-ports/pool/universe/q/qemu/qemu-user-static_8.2.2+ds-0ubuntu1.18_arm64.deb  # 设备是 aarch64
+   dpkg-deb -x qemu-user-static_8.2.2+ds-0ubuntu1.18_*.deb /tmp/q
    ls -l /tmp/q/usr/bin/qemu-arm-static        # 要看到几 MB 的真文件；只有符号链接就是上面那档过渡包
    # 推到设备的私有根里（私有根默认 /usr/lib/zte-mesh/root，ZTE_MESH_ROOT 可改）
    scp /tmp/q/usr/bin/qemu-arm-static root@<这台路由器的IP>:/usr/lib/zte-mesh/root/qemu-arm-static
    ssh root@<这台路由器的IP> 'chmod 755 /usr/lib/zte-mesh/root/qemu-arm-static'
    ssh root@<这台路由器的IP> 'ls -l /usr/lib/zte-mesh/root/qemu-arm-static'   # 存在且可执行
    ```
+
+   在 24.04 上 `apt-get download qemu-user-static` 取到的就是上面这一档；发行版更新之后它取到的是那个只剩符号链接的过渡包，
+   所以要指定架构时照上面的链接拿文件。
 
    或者不动文件，指个宿主上的绝对路径过去——init 会先比 sha256，不同才拷进私有根的 `usr/bin/`
    （相同就不重复拷那 11 MB），重启服务时日志里留一句 `copied … into the private root as …`：

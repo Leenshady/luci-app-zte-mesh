@@ -156,7 +156,9 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
    取哪一份 deb 与"新版包里只有符号链接"这个坑写在 [README](../README.md) 的「qemu-arm-static 安装指南」里，2026-11-06 逐个下载量过。放好后确认下面两条：
 
    ```sh
-   apt-get download qemu-user-static && dpkg-deb -x qemu-user-static_*.deb /tmp/q
+   # 按设备 CPU 取上面 README 表里那一份 deb（24.04 上 apt-get download 取到的就是它，更新的发行版取到的是过渡包）
+   curl -O http://ports.ubuntu.com/ubuntu-ports/pool/universe/q/qemu/qemu-user-static_8.2.2+ds-0ubuntu1.18_arm64.deb
+   dpkg-deb -x qemu-user-static_8.2.2+ds-0ubuntu1.18_*.deb /tmp/q
    ls -l /tmp/q/usr/bin/qemu-arm-static                              # 要看到几 MB 的真文件，不是符号链接
    scp /tmp/q/usr/bin/qemu-arm-static root@<设备>:/usr/lib/zte-mesh/root/qemu-arm-static
    ssh root@<设备> chmod 755 /usr/lib/zte-mesh/root/qemu-arm-static
