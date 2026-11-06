@@ -4,6 +4,8 @@
 
 > **路径说明（2026-10-18 迁入 sr1010-mesh 仓库）：** 本文写于迁移之前，文中路径按当时的布局：mac 上的 `zx279133/port/mesh-shim/` 即现在的仓库根目录，`out/mesh-shim/` 即 `out/`；`session/…`、pcap、`db-baseline-s000.txt`、`vendor-log-debug.txt` 在 `evidence/`（只在 mac 上，不入库）；`tools/<脚本>` 即 `tools/capture/<脚本>`；`/tmp/buildNN.sh` 由 `tools/build/container-make.sh` 取代；`/tmp/shim-bak-*` 备份已删除（由 git 历史取代）；当时手工编的 `ns-run-al` 即现在 Makefile 的 `ns-run-svctest` 目标（运行包内容逐字节相同），当时说的旧 `ns-run-svctest` 文件已不存在。
 
+> **照抄前要补的两条（2026-11-06）**：①上面那句"`tools/<脚本>` 即 `tools/capture/<脚本>`"只管抓包与回放那几个；本文还裸写过的 `dev-service-smoke.py`、`dev-sched-check.py`、`device-controller-smoke.py`、`startup-schema.py` 现在在 `tools/dev/` 下，照抄要加前缀。②文中 `--extra mesh.role=master --then mesh.role=auto` 那种角色值是当时的写法：现在页面与服务配置用 `mesh_role`（`master`／`slave`）加 `apply_local`，`auto`、`main` 仍被读、等于 `master` + `apply_local=1`，但新配置不再写这两个值（见 [SERVICE](../SERVICE.md)、[FEATURE_STATUS](../FEATURE_STATUS.md)）。那天读到的对比结论不受这两条影响。
+
 日期 2026-10-16 晚。基准：`vendor-master-coldjoin-eth4.pcap` 的 12:33:37.5 起（原厂最初基线配置：MLO 开、双频合一开、V2 开、阈值 -60/-70，子节点由物理拔插触发）。
 shim 在主线 f66c96d8（首次冷启动成功）上，由 `tools/mreplay.py` 在 mac 上驱动，子节点在 `lan1`。
 

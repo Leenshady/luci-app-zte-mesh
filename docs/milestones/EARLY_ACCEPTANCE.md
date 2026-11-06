@@ -8,6 +8,12 @@
 > [REAL_CHILD](../REAL_CHILD.md)，跨里程碑的结论看 [FINDINGS](../FINDINGS.md)。字段级还原仍以
 > [SCHEMA](SCHEMA.md)、[POLICIES](POLICIES.md) 为准（这两份是查表用的参考资料，不在本文范围）。
 
+> **照抄前要补的两条（2026-11-06）**：本文按 2026-10-10 到 10-12 那天的布局把脚本名裸写——`device-db-smoke.py`、
+> `device-bridge-smoke.py`、`device-controller-smoke.py`、`profile_schema.py`、`bridge_evidence.py`、
+> `cm-profile-evidence.py` 这批在 2026-11-04 的目录整理里全进了 `tools/dev/`，照抄要加这个前缀（`sh build.sh` 不变）。
+> 另一条：命令里的 `--host root@192.168.5.1` 是那台已经不在的机器的默认值，现在按 [LAB](../LAB.md) 第 2.1 节填，
+> 原因见 [DEVELOPMENT](../DEVELOPMENT.md) 第 1 节。那天读到的输出、字段偏移与验收结论不受这两条影响。
+
 ## B.1 / B.2：原厂数据库引擎与配置实验
 
 **通过的是 DB 服务端/客户端与八表逻辑配置边界，不是 Controller 启动验收。**

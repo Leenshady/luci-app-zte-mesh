@@ -2,6 +2,8 @@
 
 > **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
 
+> **照抄前要补的两条（2026-11-06）**：本文的脚本名按 2026-10-12 那天的布局裸写（`schema.py`、`prepare.py`、`startup-schema.py`、`device-db-smoke.py`），这批在 2026-11-04 的目录整理里挪进了 `tools/dev/`——照抄要加前缀，例如文末"复现"那段是 `python3 tools/dev/device-db-smoke.py`；`sh build.sh` 不变。另一条：`--host root@192.168.5.1` 是当时那台机器的默认值，那台已经不在，现在按 [LAB](../LAB.md) 第 2.1 节的三台填，原因见 [DEVELOPMENT](../DEVELOPMENT.md) 第 1 节。本文的结论、表名与偏移量不受这两条影响。
+
 > **状态更新（2026-10-12）：** 本文记录 B.2.1 里程碑（`MultiAPCfg` 单表）。2026-10-12 的补充见文末"补充"一节：`MultiAPCfg` 里 `VersionMode`、`CurHop`、`SetRoleEnable` 等字段的实际含义、`P1905ComCfg` 的真实字段、`AclCfg` 表。
 
 本文保留最初单表阶段的验收；当前命令已扩展至八表/391 字段，

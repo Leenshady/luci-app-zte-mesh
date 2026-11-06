@@ -53,7 +53,7 @@
 | LuCI 页面，中英双语（中文随 CI 出 `zh-cn.lmo`） | ✅ |
 | 两个开关摆出三种拓扑，页面按角色只显示有效项 | ✅ |
 | 三个 apk：`zte-mesh`（运行环境 + 启动器）/ `luci-app-zte-mesh` / `luci-i18n-zte-mesh-zh-cn` | ✅ |
-| 启动器不挑机器：一个 apk 带 aarch64 / armv7 / x86_64 各一份构建，装机时不再有架构判决，"这台不在包里"由启动器在运行时说清 | ◐（x86_64 与 aarch64 两档已在两台测试环境读到，含反面那次改名；armv7 那一档没有机器，只有编译与打包级的证据，见 [PLAN](docs/PLAN.md) H-16） |
+| 启动器不挑机器：一个 apk 带 aarch64 / armv7 / x86_64 各一份构建，装机时不再有架构判决，"这台不在包里"由启动器在运行时说清（三档分别怎么编、字节数、有没有真机读过见下面的「支持的架构」） | ◐（x86_64 与 aarch64 两档已在两台测试环境读到，含反面那次改名；armv7 那一档没有机器，只有编译与打包级的证据，见 [PLAN](docs/PLAN.md) H-16） |
 | 一条命令装机验收（装包 + 读回版本 + 四条冒烟 + 读回这批的标记） | ✅ |
 | 卸载与重装（`apk del` / `apk add` 循环走通） | ✅ |
 | 作为 ImmortalWrt 的 feed 登记，三个包在那棵树里编出来（CI 出的 apk 就是这么来的） | ✅ |
@@ -61,6 +61,32 @@
 | arm64 设备直接跑 32 位原厂程序：内核能跑就原生跑（探测已修，ax3600 实测） | ✅ |
 | 内核跑不了 ARM32 时用 `qemu-arm-static`：**支持手工放，不随包分发**（有意的取舍）；放的位置可以是这台机器上的任意路径，`zte_mesh.main.emulator` 指过去即可 | ◐ |
 | 两个频段广播不同名字时各按各自的写（不派生） | ◐ |
+
+## 支持的架构
+
+两件事的限制不在同一层：**启动器**（我们自己编的那两个二进制，跟这台机器的 CPU 走）和**原厂控制器**
+（32 位 ARM 的 `multiapd`，跟这台机器的内核能不能执行 ARM32 走）。`zte-mesh` 这个包是 `arch: all`，里面按 CPU
+各放一份启动器构建，运行时由 `uname -m` 决定进哪个目录，所以设备的 profile 串（`/etc/apk/arch` 里那行
+`aarch64_cortex-a53`）不再挡装机。
+
+| 这台机器的 CPU（`uname -m`） | 启动器用哪一档 | 谁编出来的 | 这一轮的字节数（`ns-run` / `mesh-search`） | 真实机器读到过吗 |
+|---|---|---|---|---|
+| `aarch64`（`arm64`） | `arch/aarch64/` | ImmortalWrt SDK 自己的 musl 工具链 | 61 703 / 66 039 | ✅ 小米 AX3600，当子节点 |
+| `x86_64` | `arch/x86_64/` | 构建机上的 `musl-gcc`。**编不出来才退回宿主 `cc`**，退回来那对是 735 932 / 854 716（把整份 glibc 静态搬进去），CI 判红 | 61 719 / 61 975 | ✅ ImmortalWrt 虚拟机，当主控 |
+| `armv7`（`armv7l`） | `arch/armv7/` | Ubuntu 的 `arm-linux-gnueabihf-gcc`。这一档没有 musl 的交叉编译器，所以字节数只报数、不设上限 | 356 373 / 389 117 | ⬜ 三台测试环境都不是这一档；ZXHN Z506 吃原厂固件、不装 apk |
+| 其他（mips、riscv…） | 不在包里 | — | — | 包照样装得上，启动器运行时说清"这台没带这一档的构建"，不起服务 |
+
+前三行的字节数是 `ci/batch23`（包版本串 `0.1.0-r23`）那一轮 CI 日志里的六行读数，与两台机器上 `wc -c` 逐字对上；
+要 musl 的那两档每份上限 204 800 字节。armv7 那一档缺运行时证据，记在 [PLAN](docs/PLAN.md) H-16。
+
+| 这台机器的内核 | 原厂 ARM32 程序怎么跑 |
+|---|---|
+| 32 位 ARM（`armv7l`） | 原生执行，不需要模拟器；但 init 的判定表里只有 aarch64 那一支会去问内核，`armv7l` 会先打一条"这个内核跑不了 32 位 ARM 守护进程"再照常原生起——服务是对的，那句话在这类机器上是错的，已登记 [PLAN](docs/PLAN.md) 第 3 节「25 待排」 |
+| aarch64 / arm64 | 内核开了 `CONFIG_COMPAT=y` 就能原生执行；读不到配置就直接试一次 `lib/ld-linux.so.3`。跑不了就得手工放 `qemu-arm-static` |
+| x86_64 及其他 | 一定要 `qemu-arm-static` |
+
+`qemu-arm-static` **不随包分发**（有意的取舍），放哪都行，`zte_mesh.main.emulator` 指过去即可。判定细节与三条出路在
+[LAB](docs/LAB.md) 第 4.2 节。
 
 ## 设备角色（两个开关）
 
@@ -72,9 +98,11 @@
 
 ## 上手
 
-三个 apk（`zte-mesh` / `luci-app-zte-mesh` / `luci-i18n-zte-mesh-zh-cn`）与 `SHA256SUMS.txt` 在
-[Releases](https://github.com/Leenshady/luci-app-zte-mesh/releases) 上，最新一版 `v0.2.0`（包版本串 `0.1.0-r22`）；
-包没签名，装的时候要 `apk add --allow-untrusted`。
+三个 apk（`zte-mesh` / `luci-app-zte-mesh` / `luci-i18n-zte-mesh-zh-cn`）与 `SHA256SUMS.txt`：**目前没有对外发布的
+GitHub Release**——`v0.1.0`、`v0.2.0` 两个 release 已删除，tag 还在（2026-11-06 核对，两个 `releases/tags/<tag>` 都回
+404）。要拿到包有两条路：按 [DEVELOPMENT](docs/DEVELOPMENT.md) 第 8 节取最近一轮 CI 的 artifact（下载要认证，匿名 401），
+或把本仓库登记成 feed、在 ImmortalWrt 树里自己编。仓库当前构建的包版本串是 `zte-mesh 0.1.0-r23` +
+两个 LuCI 包 `0.1.0-r11`；包没签名，装的时候要 `apk add --allow-untrusted`。
 
 ```sh
 # 装：把三个 apk 放到机器上，一条命令装完 + 读回 + 冒烟
@@ -123,7 +151,7 @@ Python 同日挪进 `tools/dev/`：`tests/`、`openwrt/make-runtime.py`、`tools
 | 文档 | 内容 |
 |---|---|
 | [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：逐项状态与判据 |
-| [PLAN](docs/PLAN.md) | **唯一排期**：分批做什么、主机可测与需上机分开、上机清单 H-01…H-14 |
+| [PLAN](docs/PLAN.md) | **唯一排期**：分批做什么、主机可测与需上机分开、上机清单 H-01…H-17 |
 | [INSTALL](docs/INSTALL.md) | 用户手册：装包、页面、三种拓扑、验收、卸载 |
 | [DEVELOPMENT](docs/DEVELOPMENT.md) | 构建、打包、测试基线、上机守则、分支与 `prebuilt/` |
 
