@@ -795,18 +795,21 @@ write_config() {
 	  fi; } | tr '\n' ' ' > "$RUNDIR/restart.sig"
 }
 
-start_service() {
-	local enabled bridge role apply_local backhaul launcher launcher_status
-	config_load zte_mesh
-	config_get_bool enabled main enabled 0
-	[ "$enabled" = 1 ] || return 0
-	config_get bridge main bridge br-lan
-	[ -d "/sys/class/net/$bridge/bridge" ] || { log "bridge $bridge does not exist"; return 1; }
+# The three refusals that belong before procd ever gets an instance, split out of start_service() so the host
+# test can run them without /sys or procd. Each one is its own line because each is repaired differently --
+# see the comments on the three branches below (tests/test_init.sh reads the log line each branch writes).
+launcher_ready() {
+	local launcher launcher_status
 	# One package carries both halves now -- the runtime tarball and, under arch/<cpu>/, one launcher build
 	# per CPU -- so either of these missing is a box somebody edited by hand, not a half-installed one. The
 	# two lines stay apart because the two repairs are not the same: the first says the data is gone, the
 	# second names the file.
 	[ -d "$ROOT" ] || { log "runtime is not installed (package zte-mesh)"; return 1; }
+	# Asked before "$NSRUN" is ever executed, because ash answers a missing file with 127 -- the same number
+	# the entry script uses for "this CPU is not in the package". Read back on owrt after uninstalling the
+	# launcher package that used to ship separately took both entry names away: the log said the machine had
+	# no build for x86_64, while the truth was a package missing half its files. Nothing about the CPU is
+	# wrong there; reinstall is.
 	[ -x "$NSRUN" ] || { log "$NSRUN is missing from package zte-mesh"; return 1; }
 	# ... and an arch:all package installs everywhere, so nothing at install time refuses a machine whose
 	# CPU the package does not carry. That refusal used to be `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)`;
@@ -827,6 +830,17 @@ start_service() {
 		log "$NSRUN --launcher-check exited $launcher_status: $launcher"
 		return 1
 	}
+	return 0
+}
+
+start_service() {
+	local enabled bridge role apply_local backhaul
+	config_load zte_mesh
+	config_get_bool enabled main enabled 0
+	[ "$enabled" = 1 ] || return 0
+	config_get bridge main bridge br-lan
+	[ -d "/sys/class/net/$bridge/bridge" ] || { log "bridge $bridge does not exist"; return 1; }
+	launcher_ready || return 1
 	write_config || return 1
 	config_get role main mesh_role ""
 	config_get apply_local main apply_local ""

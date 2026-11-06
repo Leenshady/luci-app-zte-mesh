@@ -1493,6 +1493,65 @@ else
 	fail=$((fail + 1)); echo "FAIL launcher pre-flight: $MK installs neither the entry script nor arch/"
 fi
 
+# The three refusals above are three different sentences, and the greps cannot see the order they happen in:
+# move the `[ -x "$NSRUN" ]` line below the check and every needle still matches, while the machine that lost
+# its entry file goes back to being told its CPU is not in the package (read back on owrt, where uninstalling
+# the old launcher package took both names away and the log said `no launcher build for x86_64`). So run the
+# pre-flight and read the log line it actually wrote -- launcher_ready() is split out of start_service() for
+# exactly this, because the rest of that function wants /sys/class/net and procd.
+preflight() { # NAME WANT FORBID STUB-EXIT STUB-MSG
+	local name="$1" want="$2" forbid="$3" code="$4" msg="$5" rc got
+	rm -rf "$T/pf" >/dev/null 2>&1
+	mkdir -p "$T/pf/root" || { fail=$((fail + 1)); echo "FAIL $name: no scratch tree"; return; }
+	if [ -n "$code" ]; then
+		printf '#!/bin/sh\nprintf %s >&2\nexit %s\n' "'$msg'" "$code" >"$T/pf/ns-run"
+		chmod 755 "$T/pf/ns-run"
+	fi
+	rm -f "$LOGF"
+	: >"$LOGF"
+	ROOT=$T/pf/root NSRUN=$T/pf/ns-run
+	launcher_ready; rc=$?
+	got=$(cat "$LOGF")
+	if [ "$rc" != 1 ]; then
+		fail=$((fail + 1)); echo "FAIL $name: launcher_ready rc=$rc want 1"
+	elif [ "$got" != "$want" ]; then
+		fail=$((fail + 1)); echo "FAIL $name: log is '$got', want '$want'"
+	else
+		pass=$((pass + 1))
+	fi
+	[ "$rc" = 1 ] && [ "$got" = "$want" ] || return 0
+	case $got in
+	*"$forbid"*) fail=$((fail + 1)); echo "FAIL $name: this line also says '$forbid' -- two refusals in one" ;;
+	*) pass=$((pass + 1)) ;;
+	esac
+}
+# 1. the entry script is not on the box at all: that is a package that lost a file, and the only repair is
+#    to reinstall -- saying "your CPU is not carried" would send the reader to a different architecture.
+#    This is also the case that fails if the guard moves below the check: ash answers a missing file with 127.
+preflight 'entry missing -> names the file' \
+	"$T/pf/ns-run is missing from package zte-mesh" 'no launcher build for' '' ''
+# 2. the entry script is there and answers 127: now it *is* the architecture answer, and the line carries the
+#    machine it is standing on -- with the entry script's own words after it, not a summary of them.
+preflight 'arch refused -> names the CPU' \
+	"zte-mesh has no launcher build for $(uname -m): zte-mesh ns-run: no build for this machine" \
+	'is missing from package' 127 'zte-mesh ns-run: no build for this machine'
+# 3. a non-zero that is not 127 is some other problem wearing the same exit -- an ELF somebody left under
+#    this name by hand takes --launcher-check as unknown arguments and exits 64.
+preflight 'usage exit -> names the code' \
+	"$T/pf/ns-run --launcher-check exited 64: usage: ns-run" \
+	'no launcher build for' 64 'usage: ns-run'
+ROOT=/usr/lib/zte-mesh/root NSRUN=/usr/libexec/zte-mesh/ns-run
+
+# ... and the pre-flight has to actually be on the path start_service() takes: a function nobody calls would
+# keep every judgement above green while procd respawned a 127 every five seconds again.
+for needle in 'launcher_ready || return 1' 'launcher_ready() {'; do
+	if grep -qF -- "$needle" "$INIT"; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL launcher pre-flight: $INIT has no '$needle'"
+	fi
+done
+
 # zte_mesh.main.emulator accepts a path on the host as well as one inside the private root. ns-run execs the
 # emulator after the chroot, so a path the sandbox cannot see is not a path it can run: the copy is the
 # whole feature, the hash comparison is what stops a restart from rewriting an 11 MB file every time the
