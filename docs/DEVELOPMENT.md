@@ -196,7 +196,7 @@ make package/feeds/zte_mesh/zte-mesh/compile \
 
 | workflow | 产物 | 说明 |
 |---|---|---|
-| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（批 23 起钉死镜像，理由见下面第 3 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三档全要（少编一档直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这一档的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两档每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary），再确认运行环境那半（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
+| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（批 23 起钉死镜像，理由见下面第 3 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三档全要（少编一档直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这一档的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两档每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary，**批 24 起同一份六行还 `echo` 到 stdout，所以 job log 里读得到**），再确认运行环境那半（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 路由器摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 
@@ -211,11 +211,22 @@ make package/feeds/zte_mesh/zte-mesh/compile \
    现在 `$RUNNER_TEMP/apt/archives` 用 `actions/cache/restore` + `save` 配成一份下载缓存，key 取
    「排序后的包名 + `ImageOS` + `/image_version`」的 sha256 前 16 位；命中就把网络那一半整段跳过。
    写缓存那一步 `continue-on-error`，且只在未命中时跑，不会因为缓存服务坏了带走一批包。
+   **`ci/batch23` 读出这一条到现在还没生效过一次**：save 那步报
+   `tar: ../../_temp/apt/archives/lock: Cannot open: Permission denied`（`partial` 同一句）加 `##[warning]Cache save failed.`，
+   restore 于是回 `Cache not found for input keys: apt-f84f2aa7a576df42`。根因是 apt 下载时把 `lock` 与 `partial` 重新收归
+   `_apt`（700），而 workflow 里那句 `chown -R` 排在 `apt-get` **之前**管不到下载之后；批末已在 `Install host dependencies`
+   末尾补一次 `chown -R`。**这一条的判据只在 job log 里**：`Save` 不再出现 `Failed to save`，且再下一轮的 `Restore`
+   报 `Cache hit for: apt-<同一个哈希>`——两行缺任何一个都不许把那一步的秒数当成提速。
 3. **工具链与 `tools/install`**——冷构建 30–45 分钟，由上游 revision 钉住缓存。**批 22 读出一条旧注释是错的**：
    它写"缓存命中后几分钟就到打包"，实际命中的那一轮 `tools/install` 仍跑了 **14m5s**、71 000 行日志。
    现在这一步拆成 `run_stage`，对 `tools/install` 与 `toolchain/install` 各报**秒数、退出码、日志行数、
    `Entering directory` 次数与前 8 个目录的访问计数**，job log 与 run summary 各写一份（后者 REST 读不到，见本节末"发布 release"那条），
-   下一轮才分得清"没重编"和"重编了一遍"。
+   下一轮才分得清"没重编"和"重编了一遍"。**`ci/batch23` 第一次读到这两个数**：`== tools/install: 1043s, exit 0, 57474 log lines,
+   772 directory visits`（前 8 个目录 `lib` 45／`src` 39／`tests` 31／`e2fsprogs-1.47.3` 30／`doc` 26／`gnulib-tests` 21／`libtool-2.5.4` 17／`po` 15）
+   与 `== toolchain/install: 72s, exit 0, 14286 log lines, 65 directory visits`，同一轮 `Restore build cache` 是 `Cache hit` ——
+   **所以计时判据把自己批里那句假设否掉了：这一步不是 stamp 驱动的空转，772 个目录真的又走了一遍**，
+   1115 秒的那一步里 1043 秒归它——这一轮 23 分 42 秒中它占 17 分钟，第二大的一项才是 `Build packages` 的 114 秒。
+   下一批要读的是它的 `build_dir/hostpkg` 与 stamp 有没有活过缓存恢复（在不在缓存 path 里）。
 
 `runs-on` 从 `ubuntu-latest` 钉成 `ubuntu-24.04` 是为的第 2 条：`ubuntu-latest` 换代时 apt 缓存的 key 会整批作废，
 而这一批的 key 里带着 `ImageOS` 与 `/image_version`——两条都要动。镜像实际见过的两个版本是 `20261025.353.1` 与 `20261101.360.1`。
@@ -230,7 +241,7 @@ token 只留在 shell 变量里，不回显、不落盘。zip 解开是三个 ap
 
 **发布 release**：`Build APK` **只构建，不发布**（2026-11-01 起；以前那个 `release_tag` 输入把"开始构建"和"把这些字节承诺给外面"
 做成同一个按钮，而一批的包要先在两台测试机上装机验过才谈得上发布）。它产出两个 artifact：`zte-mesh-apk`（三个 apk +
-`SHA256SUMS.txt`）和 `build-log`，run summary 里每个文件一行，不下载也能认出这一批是什么——**但那一页只有人在浏览器里读得到**：`$GITHUB_STEP_SUMMARY` 不走 REST API，`…/checks/<run>/summary` 那条 HTML 路径回 404，job log 里只有脚本自身的回显（判据**红**的时候那句 `>&2` 在，**绿**的时候的读数不在）。批 22 那一轮的六个重量字节数因此是装机后从 `arch/` 读回来的（见 [PLAN](PLAN.md) 第 6.1 节与 [journal](journal/2026-11-06.md)）。发布是另一次手工动作，用的就是这份产物：
+`SHA256SUMS.txt`）和 `build-log`，run summary 里每个文件一行，不下载也能认出这一批是什么——**但那一页只有人在浏览器里读得到**：`$GITHUB_STEP_SUMMARY` 不走 REST API，`…/checks/<run>/summary` 那条 HTML 路径回 404，job log 里只有脚本自身的回显（判据**红**的时候那句 `>&2` 在，**绿**的时候的读数不在）。批 22 那一轮的六个重量字节数因此是装机后从 `arch/` 读回来的（见 [PLAN](PLAN.md) 第 6.1 节与 [journal](journal/2026-11-06.md)）。**批 24 把这一条补上了**：读包那一步在断言之后 `echo` 同样的六行到 stdout，`ci/batch23` 的 job log 里读到了，而且与两台设备上 `arch/*/*` 的字节数一字不差。发布是另一次手工动作，用的就是这份产物：
 
 ```sh
 # 1) 下载 zte-mesh-apk 这个 artifact，解开就是 dist/
