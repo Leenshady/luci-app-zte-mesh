@@ -718,22 +718,22 @@ jobs:
           # The trimmed runtime deps must survive into the artifact's depends list: EXTRA_DEPENDS is what
           # carries them past the build-graph trim, and a Makefile/pack regression that drops them would
           # otherwise ship an apk that installs on a fresh board with no iproute2 and no veth module.
-          # adbdump reads the metadata without installing; collect every "name" so the check does not
-          # depend on the exact nesting of the JSON schema.
+          # adbdump carries them in info.depends as plain strings ("ip-full>=0", "libc"), not as objects
+          # with a name key. Run 42343102511 went red on a correct apk because the reader walked every
+          # "name" in the document and so collected the paths/files entries instead of the dependencies.
+          # Read the one field that holds them and strip the version constraint. tests/test_build_deps.sh
+          # runs this extracted reader against fixtures, including one where the three names appear only
+          # as file names -- that is the shape the broken reader accepted.
           DEPS_JSON=$("$APK_TOOL" adbdump --format json "$MESH_APK") || {
             echo "cannot read metadata of $MESH_APK" >&2; exit 1; }
           printf '%s\n' "$DEPS_JSON" | python3 -c '
-          import json, sys
-          def names(node):
-              if isinstance(node, dict):
-                  if isinstance(node.get("name"), str):
-                      yield node["name"]
-                  for value in node.values():
-                      yield from names(value)
-              elif isinstance(node, list):
-                  for value in node:
-                      yield from names(value)
-          have = set(names(json.load(sys.stdin)))
+          import json, re, sys
+          info = json.load(sys.stdin).get("info", {})
+          if info.get("name") != "zte-mesh":
+              sys.exit("adbdump did not describe zte-mesh: " + repr(info.get("name")))
+          deps = info.get("depends", [])
+          have = {re.split(r"[<>=!~]", d, maxsplit=1)[0] for d in deps}
+          print("apk depends: " + ", ".join(deps))
           need = {"ip-full", "kmod-veth", "kmod-sched-core"}
           missing = need - have
           if missing:

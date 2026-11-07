@@ -72,6 +72,14 @@ S1 是"能用"，S2 是"能当子路由"，S3 是"不用网线"，S4 是"能运�
   `mktemp` 建在 `/run` 再 `mv -fT`；消费者 `readdir` 已按 `.act` 后缀与长度过滤，改成扫交换目录本身即可。
   **主机测试表达不出这一条的判据**：`test_rpcd.sh` 的服务是 shell 假替身，只验插件侧，不跑真消费者——上一轮那三条回归
   在假替身上是绿的，端到端却是坏的。改完要在测试环境真起一次服务，按页面按钮读 `state.json` 的 `actions`。
+- **29 待排（H）· 装机验证认不出"运行包里换进一枚旧 probe"**（2026-11-07 批末 repack 时发现的）：
+  `verify-install.sh` 的 `packed_copy()` 只 grep `bss_detail` 与按 BSSID 那个文件名两个标记，`tests/test_runtime.py`
+  的标记同理——**这四个标记 r23 里全都有**，所以 tar.gz 里换进上一批的 `db-engine-probe`，两处照样绿。本轮是靠
+  `.note.gnu.build-id` 判出来的：OpenWrt 构建时 strip 包里的 ELF，装上的字节数与 tar.gz 成员对不上（probe 189 155
+  对 211 660），但 build ID 是 allocated 段、strip 不动它。修法分两侧：**主机侧**比 tar.gz 成员的 sha256 与
+  `prebuilt/db-engine-probe.sha256`（repack 换进去的就是那枚，精确相等）；**装机侧**只能问 build ID（strip 之后
+  sha256 必然不同），而 `ax3600` 上没有 `readelf`，所以要自带一个从 ELF 里取 note 的读法（`hexdump` 就够）。
+  主机可测：`test_runtime.py` 拿一份故意换成旧 probe 的 tar.gz 当反证，必须红。
 
 需要上机才能验的项不阻塞排期，全部登记在第 5 节（H-01 … H-17）；主机侧做完、结论要等上机窗口的写在那里。
 
