@@ -22,7 +22,7 @@
 
 | 包 | 架构 | 内容 |
 |---|---|---|
-| `zte-mesh` | `all` | 服务本体：`/etc/init.d/zte-mesh`、`attach` / `wlan-sync` / `sta-collect`、rpcd 插件、默认 `/etc/config/zte_mesh`、带原厂 `multiapd` 的运行包（解到 `/usr/lib/zte-mesh/root`）。**启动器也在这个包里**：现编的 `ns-run` 与 `mesh-search`，**一个 apk 带三个 CPU 的各一份**——`/usr/libexec/zte-mesh/arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}`，而 `/usr/libexec/zte-mesh/{ns-run,mesh-search}` 这两个名字下面是同一份 shell 入口，按 `uname -m` 选目录、按 `$0` 选程序，选中就 `exec`（pid 不变）。依赖 `ip-full`、`kmod-veth`、`kmod-sched-core`。缺 veth 内核模块时启动器停在 `error=private-service-network errno=2`（建私有网线之前先 `stat /sys/module/veth`）。以前这两部分是两个包（`zte-mesh-launcher`），2026-11-05 合并——理由与代价见 [ARCHITECTURE](ARCHITECTURE.md) 第 5 节 |
+| `zte-mesh` | `all` | 服务本体：`/etc/init.d/zte-mesh`、`attach` / `wlan-sync` / `sta-collect`、rpcd 插件、默认 `/etc/config/zte_mesh`、带原厂 `multiapd` 的运行包（解到 `/usr/lib/zte-mesh/root`）。**启动器也在这个包里**：现编的 `ns-run` 与 `mesh-search`，**一个 apk 带三个 CPU 的各一份**——`/usr/libexec/zte-mesh/arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}`，而 `/usr/libexec/zte-mesh/{ns-run,mesh-search}` 这两个名字下面是同一份 shell 入口，按 `uname -m` 选目录、按 `$0` 选程序，选中就 `exec`（pid 不变）。依赖 `ip-full`、`kmod-veth`、`kmod-sched-core`（三项写进 apk 的 depends，`apk add` 会一并装；CI 那个 target 自己不编它们，靠 `EXTRA_DEPENDS` 保住这条声明，见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节）。缺 veth 内核模块时启动器停在 `error=private-service-network errno=2`（建私有网线之前先 `stat /sys/module/veth`）。以前这两部分是两个包（`zte-mesh-launcher`），2026-11-05 合并——理由与代价见 [ARCHITECTURE](ARCHITECTURE.md) 第 5 节 |
 | `luci-app-zte-mesh` | `all` | 配置页面（`网络 → ZTE Mesh`） |
 | `luci-i18n-zte-mesh-zh-cn` | `all` | 中文文案。**装应用包不会自动带上它**，要中文就单独装 |
 

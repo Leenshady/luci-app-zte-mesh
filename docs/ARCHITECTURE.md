@@ -140,7 +140,10 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
   1905 帧由 `multiapd` 在用户态自己收）。这三条原来是根目录那份 `kernel.fragment`，零引用、没被任何构建吃过，删掉并把话写在这里。
 - 私有根里保留原厂 loader 和 glibc，不碰 OpenWrt 的 `/lib`；原厂进程看不到 MTD、厂商设备和宿主配置。
 - chroot 和 preload 都不是完整的安全边界。沙箱靠命名空间：私有 network/IPC/mount，宿主可写的只有 `/run/zte-mesh`，
-  只读字符设备只有内核 urandom。
+  只读字符设备只有内核 urandom。**沙箱与宿主同一个 UID**（那个目录 root 所有、`mode & 022` 为 0，owner 写得进去），
+  所以目录里的符号链接是沙箱能放的：宿主侧要原子替换一个文件，临时文件必须建在**它的父目录**（chroot 只 bind 挂共享目录本身，
+  父目录够不着）再 `mv -fT` 覆盖，不能在共享目录里开一个固定名字的临时文件——换成随机名字也不够，同 UID 仍能在
+  `mktemp` 与重新打开之间抢换。`wlan-sync` 的状态文件走的就是这条，见 [FEATURE_STATUS](FEATURE_STATUS.md) B12。
 - `SSEND`/`ASEND` 区分内部任务和外部服务，有同步应答语义，不能一律忽略。只替身确实发给 `cspd` 而控制器需要应答的消息
   （例如启动计数 `0xa96e`），其余照原样走原厂 OSS。
 - 外部进程不能直接调 `ASEND/SSEND`（需要 OSS 身份）：`zte-meshctl` 用 `liboss_pub.so` + `InitAppComm`，由服务 fork/exec。

@@ -19,10 +19,13 @@ static const uint8_t laptop[6] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
 static struct action_table table;
 static struct action_due due[ACTION_MAX];
 
-/* Number of transmissions one tick yields, and the first one's shape. */
+/* Normal cases confirm every send; failure cases call actions_tick/actions_send_result directly. */
 static unsigned int tick(long now)
 {
-    return actions_tick(&table, now, due, ACTION_MAX);
+    unsigned int i, count = actions_tick(&table, now, due, ACTION_MAX);
+    for (i = 0; i < count; i++)
+        actions_send_result(&table, &due[i], 1);
+    return count;
 }
 
 static int mac_is(const uint8_t a[6], const uint8_t b[6])
@@ -248,6 +251,186 @@ static void two_clients_and_limits(void)
     }
 }
 
+static void ban_send_failures(void)
+{
+    struct action_intent intent = { .kind = ACTION_KIND_BAN };
+    char json[256];
+    long now;
+
+    reset();
+    memcpy(intent.mac, phone, 6);
+    CHECK(actions_configure(&table, 100, &intent, 1) == 1);
+    CHECK(actions_tick(&table, 100, due, ACTION_MAX) == 1);
+    CHECK(!due[0].allow && table.entry[0].attempts == 1);
+    CHECK(table.entry[0].state == ACTION_PENDING && table.entry[0].next == 105);
+    CHECK(actions_json(&table, json, sizeof(json)) > 0);
+    CHECK(strstr(json, "\"state\":\"pending\"") != NULL);
+    CHECK(actions_tick(&table, 100, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 104, due, ACTION_MAX) == 0);
+
+    for (now = 105; now < 125; now += 5) {
+        CHECK(actions_configure(&table, now, &intent, 1) == 1);
+        CHECK(actions_tick(&table, now, due, ACTION_MAX) == 1);
+        CHECK(!due[0].allow);
+        actions_send_result(&table, &due[0], 0);
+        CHECK(table.entry[0].state == ACTION_PENDING && table.entry[0].next == now + 5);
+        CHECK(actions_tick(&table, now, due, ACTION_MAX) == 0);
+        CHECK(actions_tick(&table, now + 4, due, ACTION_MAX) == 0);
+    }
+    CHECK(table.entry[0].attempts > ACTION_KICK_TRIES);
+    CHECK(actions_tick(&table, 125, due, ACTION_MAX) == 1);
+    actions_send_result(&table, &due[0], 1);
+    CHECK(table.entry[0].state == ACTION_SENT && table.entry[0].next == 125 + ACTION_BAN_REFRESH);
+    CHECK(actions_tick(&table, 125, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 125 + ACTION_BAN_REFRESH - 1, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 125 + ACTION_BAN_REFRESH, due, ACTION_MAX) == 1);
+    CHECK(table.entry[0].state == ACTION_PENDING);
+    actions_send_result(&table, &due[0], 0);
+    CHECK(table.entry[0].state == ACTION_PENDING);
+    CHECK(actions_tick(&table, 125 + ACTION_BAN_REFRESH, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 130 + ACTION_BAN_REFRESH, due, ACTION_MAX) == 1);
+    actions_send_result(&table, &due[0], 1);
+    CHECK(table.entry[0].state == ACTION_SENT);
+}
+
+static void kick_send_failures(void)
+{
+    struct action_intent intent = { .kind = ACTION_KIND_KICK };
+    unsigned int feedback, attempt;
+    char json[256];
+
+    reset();
+    memcpy(intent.mac, phone, 6);
+    CHECK(actions_configure(&table, 0, &intent, 1) == 1);
+    CHECK(actions_tick(&table, 0, due, ACTION_MAX) == 1);
+    CHECK(table.entry[0].state == ACTION_PENDING && table.entry[0].attempts == 1);
+    actions_send_result(&table, &due[0], 0);
+    CHECK(table.entry[0].state == ACTION_PENDING && table.entry[0].next == ACTION_KICK_RETRY);
+    CHECK(actions_tick(&table, 0, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, ACTION_KICK_RETRY - 1, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, ACTION_KICK_RETRY, due, ACTION_MAX) == 1);
+    actions_send_result(&table, &due[0], 1);
+    CHECK(table.entry[0].state == ACTION_SENT && table.entry[0].attempts == 2);
+    CHECK(actions_tick(&table, ACTION_KICK_RETRY, due, ACTION_MAX) == 0);
+    actions_observe(&table, phone, 1);
+    CHECK(table.entry[0].state == ACTION_DONE);
+
+    for (feedback = 0; feedback < 2; feedback++) {
+        reset();
+        CHECK(actions_configure(&table, 0, &intent, 1) == 1);
+        for (attempt = 0; attempt < ACTION_KICK_TRIES; attempt++) {
+            long now = (long)attempt * ACTION_KICK_RETRY;
+            CHECK(actions_tick(&table, now, due, ACTION_MAX) == 1);
+            if (feedback)
+                actions_send_result(&table, &due[0], 0);
+            CHECK(table.entry[0].state == ACTION_PENDING && table.entry[0].attempts == attempt + 1);
+            CHECK(actions_tick(&table, now, due, ACTION_MAX) == 0);
+            CHECK(actions_tick(&table, now + ACTION_KICK_RETRY - 1, due, ACTION_MAX) == 0);
+        }
+        CHECK(actions_tick(&table, ACTION_KICK_RETRY * ACTION_KICK_TRIES, due, ACTION_MAX) == 0);
+        CHECK(table.entry[0].state == ACTION_PENDING);
+        CHECK(actions_tick(&table, ACTION_KICK_RETRY * (ACTION_KICK_TRIES + 1), due, ACTION_MAX) == 0);
+        CHECK(table.entry[0].state == ACTION_FAILED && table.entry[0].attempts == ACTION_KICK_TRIES);
+        CHECK(actions_json(&table, json, sizeof(json)) > 0);
+        CHECK(strstr(json, "\"state\":\"failed\"") != NULL);
+        CHECK(actions_tick(&table, 100000, due, ACTION_MAX) == 0);
+    }
+}
+
+static void ban_removed_send_failures(void)
+{
+    struct action_intent intent = { .kind = ACTION_KIND_BAN };
+
+    reset();
+    memcpy(intent.mac, phone, 6);
+    CHECK(actions_configure(&table, 0, &intent, 1) == 1);
+    CHECK(tick(0) == 1);
+    CHECK(actions_configure(&table, 10, NULL, 0) == 1);
+    CHECK(actions_tick(&table, 10, due, ACTION_MAX) == 1);
+    CHECK(due[0].allow && table.count == 1 && table.entry[0].lift);
+    CHECK(table.entry[0].state == ACTION_PENDING);
+    actions_send_result(&table, &due[0], 0);
+    CHECK(table.count == 1 && table.entry[0].state == ACTION_PENDING && table.entry[0].next == 15);
+    CHECK(actions_tick(&table, 10, due, ACTION_MAX) == 0);
+    CHECK(actions_configure(&table, 11, NULL, 0) == 1);
+    CHECK(actions_tick(&table, 11, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 14, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 15, due, ACTION_MAX) == 1);
+    CHECK(due[0].allow && table.count == 1 && table.entry[0].state == ACTION_PENDING);
+    CHECK(actions_tick(&table, 15, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 19, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 20, due, ACTION_MAX) == 1);
+    actions_send_result(&table, &due[0], 1);
+    CHECK(table.count == 0);
+    CHECK(actions_tick(&table, 20, due, ACTION_MAX) == 0);
+}
+
+static void ban_expiry_send_failures(void)
+{
+    struct action_intent intent = { .kind = ACTION_KIND_BAN, .minutes = 1 };
+    char json[256];
+
+    reset();
+    memcpy(intent.mac, phone, 6);
+    CHECK(actions_configure(&table, 100, &intent, 1) == 1);
+    CHECK(tick(100) == 1);
+    CHECK(table.entry[0].next == 100 + ACTION_BAN_REFRESH);
+    CHECK(actions_tick(&table, 159, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 160, due, ACTION_MAX) == 1);
+    CHECK(due[0].allow && table.count == 1 && table.entry[0].state == ACTION_PENDING);
+    actions_send_result(&table, &due[0], 0);
+    CHECK(table.entry[0].state == ACTION_PENDING && table.entry[0].expires == 160);
+    CHECK(actions_json(&table, json, sizeof(json)) > 0);
+    CHECK(strstr(json, "\"state\":\"pending\"") != NULL && strstr(json, "\"left\":0") != NULL);
+    CHECK(actions_configure(&table, 160, &intent, 1) == 1);
+    CHECK(actions_tick(&table, 160, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 161, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 164, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 165, due, ACTION_MAX) == 1);
+    CHECK(due[0].allow && table.count == 1 && table.entry[0].state == ACTION_PENDING);
+    CHECK(actions_tick(&table, 165, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 169, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 170, due, ACTION_MAX) == 1);
+    actions_send_result(&table, &due[0], 1);
+    CHECK(table.count == 1 && table.entry[0].state == ACTION_EXPIRED && !table.entry[0].expires);
+    CHECK(actions_configure(&table, 170, &intent, 1) == 1);
+    CHECK(actions_tick(&table, 170, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 100000, due, ACTION_MAX) == 0);
+}
+
+static void send_results_match_kind(void)
+{
+    struct action_intent intents[2] = { { .kind = ACTION_KIND_BAN }, { .kind = ACTION_KIND_KICK } };
+
+    reset();
+    memcpy(intents[0].mac, phone, 6);
+    memcpy(intents[1].mac, phone, 6);
+    CHECK(actions_configure(&table, 0, intents, 2) == 2);
+    CHECK(actions_tick(&table, 0, due, ACTION_MAX) == 2);
+    CHECK(due[0].kind == ACTION_KIND_BAN && due[1].kind == ACTION_KIND_KICK);
+    actions_send_result(&table, &due[0], 0);
+    CHECK(table.entry[0].state == ACTION_PENDING && table.entry[1].state == ACTION_PENDING);
+    actions_send_result(&table, &due[1], 1);
+    CHECK(table.entry[0].state == ACTION_PENDING && table.entry[1].state == ACTION_SENT);
+    CHECK(actions_tick(&table, 0, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 5, due, ACTION_MAX) == 2);
+    actions_send_result(&table, &due[0], 1);
+    CHECK(table.entry[0].state == ACTION_SENT && table.entry[1].state == ACTION_PENDING);
+    actions_send_result(&table, &due[1], 0);
+    CHECK(table.entry[0].state == ACTION_SENT && table.entry[1].state == ACTION_PENDING);
+    CHECK(actions_configure(&table, 6, &intents[1], 1) == 2);
+    CHECK(actions_tick(&table, 6, due, ACTION_MAX) == 1);
+    CHECK(due[0].kind == ACTION_KIND_BAN && due[0].allow);
+    actions_send_result(&table, &due[0], 1);
+    CHECK(table.count == 1 && table.entry[0].kind == ACTION_KIND_KICK);
+    CHECK(table.entry[0].state == ACTION_PENDING && table.entry[0].next == 10 && table.entry[0].attempts == 2);
+    CHECK(actions_tick(&table, 6, due, ACTION_MAX) == 0);
+    CHECK(actions_tick(&table, 10, due, ACTION_MAX) == 1);
+    CHECK(due[0].kind == ACTION_KIND_KICK && !due[0].allow);
+    actions_send_result(&table, &due[0], 1);
+    CHECK(table.entry[0].state == ACTION_SENT);
+}
+
 static void json_is_bounded(void)
 {
     struct action_intent intents[ACTION_MAX];
@@ -362,6 +545,11 @@ int main(void)
     kick_answered();
     kick_refused();
     two_clients_and_limits();
+    ban_send_failures();
+    kick_send_failures();
+    ban_removed_send_failures();
+    ban_expiry_send_failures();
+    send_results_match_kind();
     json_uses_the_tables_clock();
     json_is_bounded();
     printf("controller-actions: %u assertions passed\n", checks);

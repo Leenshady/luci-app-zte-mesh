@@ -65,11 +65,15 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 158 条、终端数采集 32 条、启动器入口 20 条、启动器架构构建 26 条、rpcd 24 条、装机验收 278 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  启动视图、init 158 条、终端数采集 32 条、无线同步 231 条、启动器入口 20 条、启动器架构构建 26 条、CI 运行依赖 14 条、rpcd 24 条、装机验收 278 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
   **本机（Windows + Git Bash）跑启动器入口那组会 skip 2 条**：`chmod 644` 清不掉执行位，"文件在但不可 exec"这一个分支在这套文件系统上表达不出，
   计数里那两条不是回归（owrt 的 busybox ash 上能跑全）。架构构建那组的编译器是 stub——它判的是 `tools/build/launcher-arches.sh` 的选址顺序、
   `-dumpmachine` 映射与 `ZTE_MESH_REQUIRE_ARCHES`，不是真编译；真编译在 CI 那一步，产物成员清单是它的判据（第 8 节）。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
+  **rpcd 那 24 条只判插件侧**：它的服务是 shell 假替身，真消费者 `action_reconcile()` 在 `controller_service()` 里、
+  跑在 chroot 内（`ns-run.c:161` → `db-engine-probe.c:253`），唯一挂进来的宿主路径是 `/run/zte-mesh` 本身。
+  所以"这个路径沙箱里那个进程看不看得见"这组测试表达不出来——2026-11-07 把收件目录搬去 `/run/zte-mesh-actions`，
+  插件侧全绿、端到端是坏的（见 [PLAN](PLAN.md) 第 3 节第 28 项）。改交换目录的路径要在测试环境真起一次服务读回。
   脚本读子节点上报时会**连读几份快照**（`METRICS_READS` 默认 3 次、每次隔 `METRICS_READ_GAP` 默认 5 秒，只在一次都没读到数时才继续等）；
   测试必须把这两值导出成 `1` 和 `0`，否则每个"这台没有数"的用例都真睡满 10 秒——同一套测试实测没导出要 4 分 57 秒、导出后 3 分 7 秒，
   睡出来的绿不算绿。
@@ -90,8 +94,9 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
   这个测试只读仓库里的 `zte-mesh.js` 与 `tests/test_init.sh`，不需要 LuCI 运行时，所以不必上开发机。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
 - 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`（它真的**执行** init 里的函数：`write_config()` 与预检 `launcher_ready()`。后者是 2026-11-06 从 `start_service()` 里拆出来的——`start_service` 先要 `/sys/class/net/<桥>/bridge` 再要 procd，主机上跑不动，于是那三段判断以前只能被 grep 字符串，"入口不在"那一行搬到 `--launcher-check` 后面也不会红。拆出来的这段只用 `ZTE_MESH_ROOT`/`ZTE_MESH_NSRUN` 那两个已有的环境变量就能传入各种输入，**判据读的是日志里出现哪一句**，对照组跑"删掉 `[ -x "$NSRUN" ]`"那份 init 能读到装机时那句假诊断）、`python tests/test_runtime.py`（31 条，守的是"tarball 成员与仓库文件逐字节一致"，另加两条"包里的库认不认得这条新帧路"）、`python tests/test_i18n.py`。
-  `sh tests/test_rpcd.sh` 也能本机跑，但它的 `jsonfilter` 桩写死调 `python3`——这台机器上只有 `python`，没有那个名字时**七条用例全回 `{"result":-2}`**
-  （看着像校验把合法参数也拒了，其实是桩没跑起来）。本机这样给它一个名字：`mkdir -p /tmp/pyshim && printf '#!/bin/sh\nexec "<本机 python.exe 的绝对路径>" "$@"\n' > /tmp/pyshim/python3 && chmod +x /tmp/pyshim/python3 && PATH=/tmp/pyshim:$PATH sh tests/test_rpcd.sh`——24 条全绿；要么上测试主机跑这一组。
+  `sh tests/test_rpcd.sh` 也能本机跑：`jsonfilter` 桩用 `command -v python3 || command -v python` 依次探测解释器，两者都找不到则报错退出；无需创建 Python 替身。
+- `test_init.sh` 严格检查配置文件为普通文件且权限为 `0600`。Windows MSYS/Git Bash 若无法表达该权限，会明确输出 `SKIP config permissions`，只跳过权限检查，不能算作权限验证通过；须在 Linux 补测。Linux 上探测或 `find` 失败直接判失败。
+  `python -m unittest discover -s tests -p test_evidence.py` 共 18 项：仅 Windows `WinError 1314` 跳过符号链接用例，普通文件解析、越界名称及缺失文件校验照常运行；其他文件系统错误不跳过。
 - 容器把 `/tmp` 挂成 noexec：测试不能执行自己写到 `/tmp` 的脚本（`tests/test_rpcd.sh` 用 shell 函数和 `sh -c`），
   dash 的 `.` 不接受额外参数（先 `set --`）。
 - **判断"某次改动不该影响产物"要当场重新编译再逐字节比对**：`out/` 不入库，`make` 又只比 mtime，陈旧产物会静悄悄混进哈希比对。
@@ -193,7 +198,7 @@ make package/feeds/zte_mesh/zte-mesh/compile \
 
 | workflow | 产物 | 说明 |
 |---|---|---|
-| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（固定镜像的理由见下面第 2 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三种架构全要（少编一种架构直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这种架构的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两种架构每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary，**批 24 起同一份六行还 `echo` 到 stdout，所以 job log 里读得到**），再确认运行环境那部分（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
+| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（固定镜像的理由见下面第 2 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三种架构全要（少编一种架构直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这种架构的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两种架构每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary，**批 24 起同一份六行还 `echo` 到 stdout，所以 job log 里读得到**），再确认运行环境那部分（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。**运行依赖也在产物里断言**：这个 target 不编内核模块，`ip-full`/`kmod-veth`/`kmod-sched-core` 三项从 `DEPENDS` 挪到 `EXTRA_DEPENDS`（`package-pack.mk` 会把它并进 apk 的 depends，`package-dumpinfo.mk` 与 `package-metadata.pl` 都不读它，所以不进构建图），构建完用 `apk adbdump --format json` 读回那份 metadata，三项少一项直接红——以前只删不补，装机主张写着依赖、apk 里却没有。主机判据 `tests/test_build_deps.sh`（14 条）把 workflow 里那一段 run 抽出来，对四种开关组合各跑一遍真 `sed`，另加一条"Makefile 里没有那三项"的反证。产物**未签名**，装的时候要 `--allow-untrusted` |
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 路由器摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 

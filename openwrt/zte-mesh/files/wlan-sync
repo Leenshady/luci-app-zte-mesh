@@ -581,12 +581,16 @@ stamp() {
 # One line per run, next to the plan: when it last ran, what it did, and which bands it touched. Without it the only
 # trace of a failed apply is a log line the page cannot read. Fields are plain text on purpose (no quoting game).
 write_status() {
-	local result="$1" message="${2:-}" now
+	local result="$1" message="${2:-}" now tmp
 	now=$(date +%s 2>/dev/null) || now=0
-	( umask 022
+	( umask 077
+	  # The temp goes in the host parent, not the shared directory: the sandbox is the same UID and can swap a
+	  # file there between mktemp and the printf that reopens it. The chroot only bind-mounts the shared dir itself.
+	  tmp=$(mktemp "$(dirname "$STATUS")/../.wlan-sync.XXXXXX") || exit 1
+	  trap 'rm -f "$tmp"' 0
 	  printf 'epoch=%s\nresult=%s\nchanged=%s\nbands=%s\nmessage=%s\n' \
-		"$now" "$result" "${CHANGED:-0}" "${APPLIED# }" "$message" > "$STATUS.tmp" &&
-	  mv "$STATUS.tmp" "$STATUS" ) 2>/dev/null || log "cannot write $STATUS"
+		"$now" "$result" "${CHANGED:-0}" "${APPLIED# }" "$message" > "$tmp" &&
+	  mv -fT "$tmp" "$STATUS" ) 2>/dev/null || log "cannot write $STATUS"
 }
 
 apply_and_reload() {

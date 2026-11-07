@@ -1049,6 +1049,7 @@ static void client_actions_reconcile(const struct service_config *config, long n
         return;
     count = controller_read_nodes(nodes, MAX_NODES);
     for (i = 0; i < n; i++) {
+        int sent = 0, failed = 0;
         for (k = 0; k < count; k++) {
             char text[18];
             uint8_t agent[6];
@@ -1057,8 +1058,12 @@ static void client_actions_reconcile(const struct service_config *config, long n
             snprintf(text, sizeof(text), "%s", nodes[k].mac);
             if (text_to_mac(agent, text))
                 continue;
-            (void)controller_client_action(agent, every_bss, due[i].mac, due[i].kind, due[i].allow, 0);
+            if (controller_client_action(agent, every_bss, due[i].mac, due[i].kind, due[i].allow, 0) == 0)
+                sent = 1;
+            else
+                failed = 1;
         }
+        actions_send_result(&actions, &due[i], sent && !failed);
     }
 }
 

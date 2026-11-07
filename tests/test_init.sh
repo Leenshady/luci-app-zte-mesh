@@ -12,11 +12,21 @@ trap 'rm -rf "$T"' EXIT
 RUNDIR=$T/run; export ZTE_MESH_RUNDIR=$RUNDIR
 LOGF=$T/log
 pass=0; fail=0; AFTER_LOAD=''; LOADED=''
+CHECK_PERMISSIONS=1
+( umask 077; : > "$T/mode-check" ) || exit 1
+mode_check=$(find "$T/mode-check" -type f -perm 0600) || exit 1
+if [ -z "$mode_check" ]; then
+	case "$(uname -s)" in
+	MINGW*|MSYS*)
+		CHECK_PERMISSIONS=0
+		echo "SKIP config permissions: this filesystem cannot represent 0600; verify on Linux" ;;
+	*) echo "FAIL permissions probe: expected 0600" >&2; exit 1 ;;
+	esac
+fi
 
 logger() { for _a; do :; done; echo "$_a" >> "$LOGF"; }
 date() { printf '%s\n' "${STUB_TZ:-+0000}"; }
-# Names this stub assigns, so the next case can unset exactly those. Scanning `set` for them would cost three forks
-# per case, which on Git Bash is the bulk of the run.
+# Track assigned names to avoid forking a pipeline to scan all shell variables.
 config_load() {
 	SECS=""; LOADED=''; local line cur="" n=0 k v t
 	while IFS= read -r line; do
@@ -61,7 +71,7 @@ uci() {
 
 # uci TEXT ... ; case NAME EXPECT-RC [expected output file text | -]
 run() {
-	local name="$1" want_rc="$2" expect="$3" rc got
+	local name="$1" want_rc="$2" expect="$3" rc got mode f
 	rm -rf "$RUNDIR" "$LOGF"; : > "$LOGF"
 	UCI=$T/uci; printf '%s\n' "$UCI_TEXT" > "$UCI"
 	for _v in $LOADED; do unset "$_v"; done
@@ -71,15 +81,19 @@ run() {
 	fi
 	if [ "$want_rc" = 0 ]; then
 		got=$(cat "$RUNDIR/config")
-		[ -z "$(find "$RUNDIR/config" -perm -077 2>/dev/null)" ] || { echo "FAIL $name: config is not 0600"; fail=$((fail + 1)); return; }
+		if [ "$CHECK_PERMISSIONS" = 1 ]; then
+			mode=$(find "$RUNDIR/config" -type f -perm 0600) && [ "$mode" = "$RUNDIR/config" ] || {
+				echo "FAIL $name: config is not 0600"; fail=$((fail + 1)); return;
+			}
+		fi
 		[ "$got" = "$expect" ] || { echo "FAIL $name: output differs"; echo "--- got"; echo "$got"; echo "--- want"; echo "$expect"; fail=$((fail + 1)); return; }
 	else
 		[ ! -e "$RUNDIR/config" ] || { echo "FAIL $name: a refused configuration still wrote the file"; fail=$((fail + 1)); return; }
 		case "$(cat "$LOGF")" in *"$expect"*) ;; *) echo "FAIL $name: log lacks '$expect': $(tail -1 "$LOGF")"; fail=$((fail + 1)); return ;; esac
 	fi
-	# globbing instead of `ls`: an unmatched pattern stays literal, so -e is false and no fork is spent
-	set -- "$RUNDIR"/.config.*
-	[ ! -e "$1" ] || { echo "FAIL $name: temp file left behind"; fail=$((fail + 1)); return; }
+	for f in "$RUNDIR"/.config.*; do
+		[ ! -e "$f" ] && [ ! -L "$f" ] || { echo "FAIL $name: temp file left behind"; fail=$((fail + 1)); return; }
+	done
 	[ "$want_rc" != 0 ] || [ -z "$DUMP_DIR" ] || cp "$RUNDIR/config" "$DUMP_DIR/$(printf %02d $((pass + 1)))-$name.conf"
 	WIRELESS_DB=''
 	pass=$((pass + 1))

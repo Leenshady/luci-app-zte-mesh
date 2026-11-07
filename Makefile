@@ -200,6 +200,7 @@ test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/
 	sh tests/test_sta_collect.sh
 	sh tests/test_launcher_dispatch.sh
 	sh tests/test_launcher_arches.sh
+	sh tests/test_build_deps.sh
 	sh tests/test_verify_install.sh
 	python3 tests/test_i18n.py
 	python3 tests/test_runtime.py

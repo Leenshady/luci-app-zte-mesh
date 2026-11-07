@@ -784,6 +784,138 @@ check "status: a no-op run reports no change" 0 "$(status_val changed)"
 check "status: a no-op run names no band" "" "$(status_val bands)"
 check "status: still ok" ok "$(status_val result)"
 
+# --- status publication across the sandbox boundary -------------------------------------------------------
+# Only shared dir is sandbox-visible. Its host parent is on the same filesystem but cannot be renamed into
+# by the sandbox, even though both processes have the same UID. Keep all fixtures inside the test's own root.
+STATUS_TEST_ROOT=$T/status-host
+STATUS_TEST_SHARED="$STATUS_TEST_ROOT/shared dir"
+STATUS_TEST_MKTEMP=$(command -v mktemp)
+STATUS_TEST_MV=$(command -v mv)
+export STATUS_TEST_ROOT STATUS_TEST_SHARED STATUS_TEST_MKTEMP STATUS_TEST_MV
+status_bin=$T/status-bin
+status_script=$(cd "$(dirname "$WLAN_SYNC")" && pwd)/$(basename "$WLAN_SYNC")
+status_plan=$STATUS_TEST_SHARED/plan
+status_file=$STATUS_TEST_SHARED/wlan-sync.status
+mkdir -p "$STATUS_TEST_SHARED" "$status_bin" "$STATUS_TEST_ROOT/victim-dir"
+printf 'rows=0\n' > "$status_plan"
+printf 'protected file\n' > "$STATUS_TEST_ROOT/victim"
+printf 'protected directory\n' > "$STATUS_TEST_ROOT/victim-dir/keep"
+cat > "$status_bin/mktemp" <<'MKTEMP'
+#!/bin/sh
+[ "${STATUS_TEST_FAIL:-}" = mktemp ] && exit 1
+tmp=$("$STATUS_TEST_MKTEMP" "$@") || exit 1
+dir=$(cd "$(dirname "$tmp")" && pwd) || exit 1
+printf '%s\n' "$dir/${tmp##*/}" > "$STATUS_TEST_ROOT/temp-path"
+printf '%s\n' "$dir" > "$STATUS_TEST_ROOT/temp-dir"
+# Deterministically win the same-UID race before the caller can reopen a shared temporary file.
+case "$dir/" in
+"$STATUS_TEST_SHARED/"*)
+	rm -f "$tmp"
+	ln -s "$STATUS_TEST_ROOT/victim" "$tmp" || exit 1
+	;;
+esac
+printf '%s\n' "$tmp"
+MKTEMP
+cat > "$status_bin/mv" <<'MV'
+#!/bin/sh
+: > "$STATUS_TEST_ROOT/mv-called"
+[ "${STATUS_TEST_FAIL:-}" = mv ] && exit 1
+exec "$STATUS_TEST_MV" "$@"
+MV
+chmod +x "$status_bin/mktemp" "$status_bin/mv"
+status_run() (
+	rm -f "$STATUS_TEST_ROOT/temp-path" "$STATUS_TEST_ROOT/temp-dir" "$STATUS_TEST_ROOT/mv-called"
+	cd "${1:-$STATUS_TEST_ROOT}" || exit 1
+	PATH="$status_bin:$PATH" sh -c '
+		if [ "${STATUS_TEST_FAIL:-}" = write ]; then
+			printf() {
+				command printf "$@" || return
+				case "$1" in epoch=*) return 1 ;; esac
+			}
+		fi
+		script=$1; shift
+		. "$script"
+	' sh "$status_script" "${2:-$status_plan}" --once >"$T/out" 2>&1
+)
+status_temp_gone() {
+	check "$1: temp in host parent" "$STATUS_TEST_ROOT" "$(cat "$STATUS_TEST_ROOT/temp-dir" 2>/dev/null)"
+	status_tmp=$(cat "$STATUS_TEST_ROOT/temp-path" 2>/dev/null)
+	check "$1: temp removed" yes "$([ -n "$status_tmp" ] && [ ! -e "$status_tmp" ] && [ ! -L "$status_tmp" ] && echo yes)"
+}
+status_regular() { [ -f "$status_file" ] && [ ! -L "$status_file" ] && echo yes; }
+
+# Verify the race stub actually replaces a shared temp, rather than merely claiming that it would.
+status_probe=$(PATH="$status_bin:$PATH" mktemp "$STATUS_TEST_SHARED/probe.XXXXXX")
+check "status race stub: shared temp swapped" yes "$([ -L "$status_probe" ] && echo yes)"
+rm -f "$status_probe"
+
+seed_db
+ln -s "$STATUS_TEST_ROOT/victim" "$status_file.tmp"
+status_run
+check "status: fixed .tmp symlink target untouched" "protected file" "$(cat "$STATUS_TEST_ROOT/victim")"
+check "status: fixed .tmp symlink unused" yes "$([ -L "$status_file.tmp" ] && echo yes)"
+check "status: publishes a regular file" yes "$(status_regular)"
+check "status: publishes result" result=ok "$(grep '^result=' "$status_file")"
+check "status: private or read-only permissions" "$status_file" \
+	"$(find "$status_file" -type f \( -perm 0600 -o -perm 0644 \))"
+status_temp_gone "status publish"
+
+for target in victim victim-dir; do
+	rm -f "$status_file"
+	ln -s "$STATUS_TEST_ROOT/$target" "$status_file"
+	status_run
+	check "status symlink to $target: replaced with regular file" yes "$(status_regular)"
+	check "status symlink to $target: result" result=ok "$(grep '^result=' "$status_file" 2>/dev/null)"
+	check "status symlink to $target: file target untouched" "protected file" "$(cat "$STATUS_TEST_ROOT/victim")"
+	check "status symlink to $target: directory content untouched" "protected directory" "$(cat "$STATUS_TEST_ROOT/victim-dir/keep")"
+	check "status symlink to $target: no file moved into directory" 1 \
+		"$(find "$STATUS_TEST_ROOT/victim-dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+	status_temp_gone "status symlink to $target"
+done
+
+# Both forms of relative PLAN must still publish beside it and create the temp one directory above it.
+for relative in nested basename; do
+	printf 'stale status\n' > "$status_file"
+	if [ "$relative" = nested ]; then
+		status_run "$STATUS_TEST_ROOT" 'shared dir/plan'
+	else
+		status_run "$STATUS_TEST_SHARED" plan
+	fi
+	check "status relative $relative: repeated write" result=ok "$(grep '^result=' "$status_file")"
+	check "status relative $relative: regular file" yes "$(status_regular)"
+	status_temp_gone "status relative $relative"
+done
+
+# A real directory is not a destination to traverse, even when empty. A failed rename must remove the temp.
+rm -f "$status_file"
+mkdir "$status_file"
+: > "$LOG"
+status_run
+check "status directory: preserved" yes "$([ -d "$status_file" ] && echo yes)"
+check "status directory: no file moved inside" 0 "$(find "$status_file" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+check "status directory: failure logged" yes "$(has 'cannot write .*wlan-sync.status')"
+status_temp_gone "status directory"
+# Remove test contents too if an unsafe implementation moved a file inside, so later cases still execute.
+rm -rf "$status_file"
+
+# Inject write, rename and allocation failures without relying on permissions (the runner may be root).
+printf 'last good status\n' > "$status_file"
+for failure in write mv mktemp; do
+	: > "$LOG"
+	STATUS_TEST_FAIL=$failure status_run
+	check "status $failure failure: previous status kept" "last good status" "$(cat "$status_file")"
+	check "status $failure failure: logged" yes "$(has 'cannot write .*wlan-sync.status')"
+	if [ "$failure" != mktemp ]; then
+		status_temp_gone "status $failure failure"
+	else
+		check "status mktemp failure: no temp allocated" no "$([ -e "$STATUS_TEST_ROOT/temp-path" ] && echo yes || echo no)"
+	fi
+	if [ "$failure" != mv ]; then
+		check "status $failure failure: no rename attempted" no "$([ -e "$STATUS_TEST_ROOT/mv-called" ] && echo yes || echo no)"
+	fi
+done
+check "status race: shared-file replacement never reached victim" "protected file" "$(cat "$STATUS_TEST_ROOT/victim")"
+
 # --- the installed wpad variant --------------------------------------------------------------------------
 # The backhaul options this script writes (`multi_ap` on either end, and the `wds` that opens 4-address mode on a
 # client) exist only in the full wpad build: a -basic package accepts them and puts nothing on the air. A run that
