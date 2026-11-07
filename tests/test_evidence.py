@@ -145,7 +145,10 @@ class PackagingTests(unittest.TestCase):
             lib = root / "lib"
             lib.mkdir()
             (lib / "actual.so").write_bytes(b"ok")
-            (lib / "alias.so").symlink_to("actual.so")
+            try:
+                (lib / "alias.so").symlink_to("actual.so")
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable on this host: {exc}")
             self.assertEqual(resolve_library(lib, "alias.so"), lib / "actual.so")
             (root / "outside.so").write_bytes(b"no")
             (lib / "escape.so").symlink_to("../outside.so")
