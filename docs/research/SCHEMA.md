@@ -85,7 +85,7 @@ SetRoleEnable=1、EnMasterOnly=1、MeshName=`zte-shim-lab`、IFLink=`br-lan`，
 
 ## 补充（2026-10-12）：几张表的真实语义
 
-以下来自读 `multiapd`/`cspd` 反汇编和上机读回，细节见 [FINDINGS.md](../FINDINGS.md)。
+以下来自读 `multiapd`/`cspd` 反汇编和上机读回，细节见 [FINDINGS.md](FINDINGS.md)。
 
 - **`MultiAPCfg`（偏移 = 36 + 32 × 字段序号，前 25 个字段（序号 0 到 24）都是 32 字节）：**
   `Mode`（0 自适应、1 Slave、2 Master、3 两者）、`Enable`（MESH 总开关）、`SetRoleEnable`（自适应角色开关，网页选"自适应"时置 1）、`RoleElect`、`WANForward`、

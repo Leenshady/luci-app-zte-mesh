@@ -85,7 +85,7 @@ sendcmd 1 DB all      # 输出 0..275，共 276 张表
 
 | # | 表 | 说明 |
 |---|---|---|
-| 139 | **`MapCooperatorCfg`** | **已 dump（2026-11-01）**：1 行 5 列，`AutoSetup=0`、`WpsActiveDelayTime=90`、`Addr4EffectDelayTime=10`、`EnRebootElect=0`、`WpsLongPress=0`。**字段名与顺序与 [SCHEMA](../milestones/SCHEMA.md) 的还原逐字一致**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §10.1 |
+| 139 | **`MapCooperatorCfg`** | **已 dump（2026-11-01）**：1 行 5 列，`AutoSetup=0`、`WpsActiveDelayTime=90`、`Addr4EffectDelayTime=10`、`EnRebootElect=0`、`WpsLongPress=0`。**字段名与顺序与 [SCHEMA](SCHEMA.md) 的还原逐字一致**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §10.1 |
 | 154 | **`MultiapCapability`** | **已 dump（2026-11-01）**：只有 2 列 `SupportBSSync=1`、`SupportPackageProduct=0`，**不含任何策略/漫游模式位图**。见 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md) §9.1 |
 | 206 | `SFUMeshCfg` | SFU（主网关侧）的 mesh 配置 |
 | 207 | `SFUTopoCfg` | SFU 侧拓扑配置 |

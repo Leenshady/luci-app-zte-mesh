@@ -4,7 +4,7 @@
 
 > 这一篇回答三个问题：中兴的"自组网"到底是什么协议、网上和 GitHub 有什么可用的、我们做功能时
 > 哪些事不能做。结论直接进 [FEATURE_STATUS](../FEATURE_STATUS.md) 的口径，实现细节仍在
-> [FINDINGS](../FINDINGS.md) 与 [REAL_CHILD](../REAL_CHILD.md)。
+> [FINDINGS](FINDINGS.md) 与 [REAL_CHILD](../REAL_CHILD.md)。
 
 ## 1. 结论
 

@@ -258,7 +258,7 @@ Init --(StatusInitTimer)--> Online --(StatusSlowTimer)--> Slow --(StatusPreRoamT
 1. `cspd` 的 schema 字符串表里列名是**连续排放**的，表名夹在中间当分隔。`P1905ComCfg` 只有 8 个
    名字，它后面的表名（`MultiAPCfg`、`MultiAPMaster`、`MultiAPDomain%d` …）被我漏切，于是把后面
    整段列名并进了这一张表。
-2. **仓库里早有正确答案**：[SCHEMA](../milestones/SCHEMA.md) 的「补充（2026-10-12）」一节写着
+2. **仓库里早有正确答案**：[SCHEMA](SCHEMA.md) 的「补充（2026-10-12）」一节写着
    "`P1905ComCfg`：SR 上有 8 个字段：`Enable`（36）、`EnableIsSync`（68）、`Policy`（100）、
    `DropNum`（132）、`MarketConfEn`（164）、`MarketSign`（196，字符串）、`DropRoam`（292）、
    `A1Enable`（324），共 328 字节"——**与 E2631 实测逐字一致**。我重新从字符串表推断时没先查它，
@@ -356,7 +356,7 @@ sendcmd 1 DB all             # 276 张表名全集（见 E2631_DB_TABLES）
 ### 5.3 两张表的关系：一张是全局参数，一张是 per-MAC 实例
 
 把 `MultiAPRoamCatonCfg`（1 行 7 列）与 `MultiAPCacheMac`（0 行）放在一起看，再加上
-`cspd` 的内部命令 [CONTROLLER_CAPABILITIES](../CONTROLLER_CAPABILITIES.md) 里那组
+`cspd` 的内部命令 [CONTROLLER_CAPABILITIES](CONTROLLER_CAPABILITIES.md) 里那组
 `AddCacheMac` / `DelCacheMac` / `AddRoamFilter` / `DelRoamFilter`，结构就清楚了：
 
 | 表 | 角色 | 行数 |
@@ -383,7 +383,7 @@ sendcmd 1 DB all             # 276 张表名全集（见 E2631_DB_TABLES）
 
 | 列 | 值 | 备注 |
 |---|---|---|
-| `Mode` | **1** | 按 [SCHEMA](../milestones/SCHEMA.md) 语义：0 自适应 / **1 Slave** / 2 Master / 3 两者 ⇒ **这台设备当前是子节点角色** |
+| `Mode` | **1** | 按 [SCHEMA](SCHEMA.md) 语义：0 自适应 / **1 Slave** / 2 Master / 3 两者 ⇒ **这台设备当前是子节点角色** |
 | `Enable` | 1 | MESH 总开关 |
 | `SyncEnable` | 1 | |
 | `SetRoleEnable` | **0** | 角色固定，不参与自适应 |
@@ -453,7 +453,7 @@ sendcmd 1 DB all             # 276 张表名全集（见 E2631_DB_TABLES）
 
 ### 6.2 偏移验证：前 27 个字段严格符合 `36 + 32n`，六个锚点全中
 
-[SCHEMA](../milestones/SCHEMA.md) 的还原是「偏移 = 36 + 32 × 字段序号」。拿实测列序去套：
+[SCHEMA](SCHEMA.md) 的还原是「偏移 = 36 + 32 × 字段序号」。拿实测列序去套：
 
 | 字段 | 序号 | `36+32n` | SCHEMA 记的 | |
 |---|---|---|---|---|
@@ -830,7 +830,7 @@ sendcmd 1 DB p WLANSSID           # RowCount=8，8 列
 sendcmd 1 DB p PortBinding        # RowCount=0
 ```
 
-### 10.1 `MapCooperatorCfg`：5 列，与 [SCHEMA](../milestones/SCHEMA.md) 的还原**逐字同序**
+### 10.1 `MapCooperatorCfg`：5 列，与 [SCHEMA](SCHEMA.md) 的还原**逐字同序**
 
 | 列 | 值 | 读法 |
 |---|---|---|
@@ -994,13 +994,13 @@ sendcmd 1 DB p WlanRoamingSta    # RowCount=0
 
 - **两行 `Vendor`/`Model` 完全相同 ⇒ 是一颗双频芯片（MT7916，DBDC），不是两颗独立射频。**
   这也解释了为什么两行 `SpatialStreams` 都是 2。
-- **与 `docs/FINDINGS.md` §10 的硬件记录不一致**：那里写"2.4G MT7592（20/40）、5G MT7613（20/40/80），
+- **与 `docs/research/FINDINGS.md` §10 的硬件记录不一致**：那里写"2.4G MT7592（20/40）、5G MT7613（20/40/80），
   不支持 160"。那台是 Z506，本机是 E2631 且自报 MT7916。**两台的射频不同，带宽/信道能力的结论不能互套**——
   尤其"不支持 160"那句，对 MT7916 未必成立。
 
 ### 11.2 `WLANCfg.IfName` 逐字命中既有还原（本仓第四次）
 
-`docs/FINDINGS.md` §9 末行早就写着：
+`docs/research/FINDINGS.md` §9 末行早就写着：
 
 > AP 到接口：AP1 `wlan0`、AP2 `wlan1`、AP3 `wlan2`、AP4 `wlan3`、AP5 `wlan5g0`、AP6 `wlan5g1`。
 
@@ -1191,7 +1191,7 @@ sendcmd 1 DB p AclCfg            # RowCount=0
 
 ### 12.2 `AclCfg`：0 行 —— 准入层第五张空表
 
-[`FINDINGS`](../FINDINGS.md) §9 给过结构（`ViewName` 主键、`Name`/`Interface`/`MACAddress`/`ACLCfgPolicy`，
+[`FINDINGS`](FINDINGS.md) §9 给过结构（`ViewName` 主键、`Name`/`Interface`/`MACAddress`/`ACLCfgPolicy`，
 268 字节 × 256 行容量），本机实测 `RowCount=0` ⇒ **出厂一条 MAC ACL 都没有**。
 
 与之同向的三条早已在手：`WLANCfg.MACAddressControlEnabled` 八行全 0、`WLANSetting.ACLIsFrom1905Slave=0`、

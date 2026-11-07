@@ -3,7 +3,7 @@
 给 OpenWrt / ImmortalWrt 做的中兴组网插件：把原厂 ARM32 `multiapd` 当控制器跑在私有沙箱里，周围用数据库行、CM 函数替身和服务配置文件指挥它，**不重写 mesh 协议**。中兴侧保留原厂固件，不刷机。
 
 - 功能总账只有一份：[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)。排期只有一份：[docs/PLAN.md](docs/PLAN.md)。别处出现的"已完成/未做"都不算数。
-- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档分三层，写在 [README.md](README.md) 的「文档」一节：要跟着改动更新的四份（`FEATURE_STATUS`/`PLAN`/`INSTALL`/`DEVELOPMENT`）、改代码前读的原理四份（`ARCHITECTURE`/`SERVICE`/`LAB`/`REAL_CHILD`）、其余一律是**只读资料**（`docs/research/`、`docs/milestones/`、`FINDINGS`、`CONTROLLER_CAPABILITIES`、机型对照、`docs/journal/`）——归档时都加了冻结说明，结论变了不回去改它们。
+- 原理与源文件职责：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档分三层，写在 [README.md](README.md) 的「文档」一节：要跟着改动更新的四份（`FEATURE_STATUS`/`PLAN`/`INSTALL`/`DEVELOPMENT`）、改代码前读的原理四份（`ARCHITECTURE`/`SERVICE`/`LAB`/`REAL_CHILD`）、其余一律是**只读资料**（`docs/research/`：原厂逆向、字段参考、机型对照；`docs/journal/`：开发日志）——归档时都加了冻结说明，结论变了不回去改它们。
 
 ## 动手前先读
 
@@ -14,7 +14,7 @@
 | 碰测试机（`ax3600` 1.1 / `owrt` 1.20 / `ubuntu` 1.191） | [docs/LAB.md](docs/LAB.md) 第 2.1 节——机器清单的唯一权威，统一走 `python tools/lab/rssh.py`；口令在**本机** `.local/lab-env.md`（已 gitignore，不入库） |
 | 上中兴原厂路由器（ZXHN Z506，又叫中兴小方糖） | [docs/REAL_CHILD.md](docs/REAL_CHILD.md) + 下面的上机红线 |
 | 改服务模式、UCI/LuCI 映射 | [docs/SERVICE.md](docs/SERVICE.md) |
-| 查原厂数据库字段 | [docs/milestones/SCHEMA.md](docs/milestones/SCHEMA.md)、[docs/milestones/POLICIES.md](docs/milestones/POLICIES.md)、[docs/research/E2631_DB_SNAPSHOT.md](docs/research/E2631_DB_SNAPSHOT.md) |
+| 查原厂数据库字段 | [docs/research/SCHEMA.md](docs/research/SCHEMA.md)、[docs/research/POLICIES.md](docs/research/POLICIES.md)、[docs/research/E2631_DB_SNAPSHOT.md](docs/research/E2631_DB_SNAPSHOT.md) |
 
 ## 常用命令
 
@@ -67,9 +67,9 @@ python tests/test_i18n.py                            # 改了界面文案必须�
 2. `docs/journal/YYYY-MM-DD.md`——开发日志写在这里，**随 commit 走**
 3. `git commit`（不推送）
 
-只读资料不在这三处里：取证存档（`research/`、`milestones/`、`E2631_*`）记录的是"当时在那台机器上看到什么"，结论变了不回去改它们——要写新结论就写进上面第 1 项。查原厂字段仍然照 `SCHEMA.md`/`POLICIES.md`，冻结指的是不再同步，不是不许读。
+只读资料不在这三处里：取证存档（`docs/research/`）记录的是"当时在那台机器上看到什么"，结论变了不回去改它们——要写新结论就写进上面第 1 项。查原厂字段仍然照 `SCHEMA.md`/`POLICIES.md`，冻结指的是不再同步，不是不许读。
 
-**哪些不必读**：`docs/research/`、`docs/milestones/`、`docs/journal/` 与 `FINDINGS`/`CONTROLLER_CAPABILITIES`/机型对照都是**取证存档与历史，通读没有收益**——只有要核对某个当年判据的原始读数时才按名字打开那一份。每份目录自己顶上写着冻结说明，`docs/journal/README.md` 是日志的索引（哪天记了什么、结论在活文档的哪一节）。活文档四份 + 原理四份才是做事前要读的。
+**哪些不必读**：`docs/research/` 与 `docs/journal/` 都是**取证存档与历史，通读没有收益**——只有要核对某个当年判据的原始读数时才按名字打开那一份。两处各自顶上写着冻结说明，`docs/research/README.md` 是存档索引，`docs/journal/README.md` 是日志索引（哪天记了什么、结论在活文档的哪一节）。活文档四份 + 原理四份才是做事前要读的。
 
 提交前跑坏链与行尾检查；新文件用 LF（`.gitattributes` 已全局 `text=auto eol=lf`）。
 

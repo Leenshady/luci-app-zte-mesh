@@ -140,7 +140,7 @@ br_ieee1905_check_is1905_msg
 
 | 配置 | 值 | 对应我们已经实现的 |
 |---|---|---|
-| `CSP_WLAN_SUPPORT_80211KV` | y | 漫游只到 k/v，**没有 r**。与 [Z506 无 FT 的结论](../CONTROLLER_CAPABILITIES.md) 一致 |
+| `CSP_WLAN_SUPPORT_80211KV` | y | 漫游只到 k/v，**没有 r**。与 [Z506 无 FT 的结论](CONTROLLER_CAPABILITIES.md) 一致 |
 | `CSP_WLAN_DUAL_BAND_SETTING_SYNC` | y | `wifi_dual_band_sync` 是中兴原厂路由器原生行为，不是我们发明的 |
 | `CSP_WLAN_KEY_GLOBAL_SETTING` | y | 全局密钥，对应 M2 里一份凭据下发给多个 BSS |
 | `CSP_WLAN_VAP_CONFIG_INDEPENDENT` | y | 每个 BSS 独立配置，对应 `WLANCfg` 的多行序号 |

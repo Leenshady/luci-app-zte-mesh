@@ -118,7 +118,7 @@
 
 ## 还没在真实路由器上验的
 
-本文不维护那份清单：逐条的验法、前置与判据在 [PLAN](PLAN.md) 第 5 节，能力与"做没做"在 [FEATURE_STATUS](FEATURE_STATUS.md)。下面这些说法**都不等于已验证**——装包后接中兴原厂路由器与角色改成 `master`（H-11；中兴原厂路由器的测试一直用 tmpfs 运行包，程序相同）、封禁/踢终端对端是否照做以及 `0x8014` 用广播 BSSID 能否被接受（H-03，主机侧只验过字节、状态机、配置链）、无线回程端到端（H-01）、额外网络写成多个 BSS（H-02）、终端数与 RSSI 的真值来源（H-05）、软件版本显示到页面与按 BSSID 终端数（H-12、H-13，主机侧做完）、OpenWrt 子节点那一格终端数的整条来源（问、答、采集三段，H-15，主机侧做完）、长时间稳定性（H-09）、多个子节点（H-04）。拓扑页还缺回程 RSSI、树状图与每个 AP 下的终端列表；访客限速在 1905 里没有字段（能力面见 [CONTROLLER_CAPABILITIES](CONTROLLER_CAPABILITIES.md)）。PLAN 之外还有四条没有编号的缺口：LuCI 页面在浏览器里的效果、关主 SSID 的路径（`radioN.enabled=0`、主 SSID 的 `hidden` 热更新、定时 `scope=all`——会断开用户的 Wi-Fi）、子节点开着 V2 而控制器关着的组合、原厂为什么不发 `BeaconMetricsQuery`。
+本文不维护那份清单：逐条的验法、前置与判据在 [PLAN](PLAN.md) 第 5 节，能力与"做没做"在 [FEATURE_STATUS](FEATURE_STATUS.md)。下面这些说法**都不等于已验证**——装包后接中兴原厂路由器与角色改成 `master`（H-11；中兴原厂路由器的测试一直用 tmpfs 运行包，程序相同）、封禁/踢终端对端是否照做以及 `0x8014` 用广播 BSSID 能否被接受（H-03，主机侧只验过字节、状态机、配置链）、无线回程端到端（H-01）、额外网络写成多个 BSS（H-02）、终端数与 RSSI 的真值来源（H-05）、软件版本显示到页面与按 BSSID 终端数（H-12、H-13，主机侧做完）、OpenWrt 子节点那一格终端数的整条来源（问、答、采集三段，H-15，主机侧做完）、长时间稳定性（H-09）、多个子节点（H-04）。拓扑页还缺回程 RSSI、树状图与每个 AP 下的终端列表；访客限速在 1905 里没有字段（能力面见 [CONTROLLER_CAPABILITIES](research/CONTROLLER_CAPABILITIES.md)）。PLAN 之外还有四条没有编号的缺口：LuCI 页面在浏览器里的效果、关主 SSID 的路径（`radioN.enabled=0`、主 SSID 的 `hidden` 热更新、定时 `scope=all`——会断开用户的 Wi-Fi）、子节点开着 V2 而控制器关着的组合、原厂为什么不发 `BeaconMetricsQuery`。
 
 ## 复现
 

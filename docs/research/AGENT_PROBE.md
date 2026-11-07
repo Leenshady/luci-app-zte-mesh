@@ -5,7 +5,7 @@
 > 2026-10-29。这是对"能不能让装了插件的路由器同时当子路由"这一问题的**第一步判定实验**，只做静态分析，不运行原厂程序。
 > 复跑：`python3 tools/probe/agent-surface.py`（加 `--trace` 打印全部直接调用）。输入是两个固定哈希的原厂二进制，脚本直接读运行包里那一份：
 > `multiapd` `a0ba6bee…`、`libcmapi.so` `e19109de…`（后者是 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` 里的那份）。
-> 协议层背景见 [FINDINGS.md](../FINDINGS.md)，控制器侧已验证能力见 [CONTROLLER_CAPABILITIES.md](../CONTROLLER_CAPABILITIES.md)。
+> 协议层背景见 [FINDINGS.md](FINDINGS.md)，控制器侧已验证能力见 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)。
 
 ## 1. 结论
 

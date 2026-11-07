@@ -2,8 +2,8 @@
 
 ZXSLC SR1010（又叫中兴星云 MAX）上的原厂 `multiapd`（Controller 角色，私有沙箱内）与一台中兴原厂路由器
 ZXHN Z506（又叫中兴小方糖，固件 V1.0.0.2B2.8000，
-`192.168.5.216`，`d4:b7:09:0d:77:30`）联调的结论。协议层深入分析在 [FINDINGS.md](FINDINGS.md)，
-构建/测试/守则在 [DEVELOPMENT.md](DEVELOPMENT.md)，控制器能下发什么在 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)。
+`192.168.5.216`，`d4:b7:09:0d:77:30`）联调的结论。协议层深入分析在 [FINDINGS.md](research/FINDINGS.md)，
+构建/测试/守则在 [DEVELOPMENT.md](DEVELOPMENT.md)，控制器能下发什么在 [CONTROLLER_CAPABILITIES.md](research/CONTROLLER_CAPABILITIES.md)。
 **我们从未改过子路由的模式**：它是用户设的"MESH 开、MESH 兼容关、角色自适应"（选举后 `Mode=1`、`SetRoleEnable=1`）。
 
 ## 1. 状态

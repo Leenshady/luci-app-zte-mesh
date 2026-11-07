@@ -707,7 +707,7 @@ PAUSE 帧会压住上传、PPPoE 不走硬件转发、JFFS2 清除标记要放�
 1. `dd` 备份 `/dev/mtdblock5`，然后 `sendcmd 1 DB p` 把 mesh 相关表全打出来（只读）。
    **DB 那一侧已做**：2026-11-01 在同一台机器上跑了七轮只读命令，22 张表逐列还原，
    原文在 [E2631_DB_SNAPSHOT](E2631_DB_SNAPSHOT.md)、全部表名在 [E2631_DB_TABLES](E2631_DB_TABLES.md)——
-   上机前先查这几份文档（字段级还原多数已在 [SCHEMA](../milestones/SCHEMA.md)、[POLICIES](../milestones/POLICIES.md) 里做完），别重打一遍。
+   上机前先查这几份文档（字段级还原多数已在 [SCHEMA](SCHEMA.md)、[POLICIES](POLICIES.md) 里做完），别重打一遍。
    `dd` 备份那次**没记录**。
 2. `cat /proc/kallsyms | grep -E "1905|multiap"` —— 若开机能读到，就能把
    [MESH_INTEROP](MESH_INTEROP.md) §5.5 那三条从"对方符号表"变成"本机实证"。

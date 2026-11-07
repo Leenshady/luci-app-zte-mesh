@@ -1,10 +1,10 @@
 # 原厂控制器能向子路由下发什么配置（全景，含 Z506 的实际支持）
 
-> **存档：** 这份是查证资料，不再随功能改动更新。功能状态以 [FEATURE_STATUS](FEATURE_STATUS.md) 为准，排期与上机待办以 [PLAN](PLAN.md) 为准。
+> **存档：** 这份是查证资料，不再随功能改动更新。功能状态以 [FEATURE_STATUS](../FEATURE_STATUS.md) 为准，排期与上机待办以 [PLAN](../PLAN.md) 为准。
 
 来源：SR1010 的 `multiapd` 与 `libcmapi`/`libmultiapcmapi`/`libieee1905cmapi` 静态分析，对照测试子路由 Z506
 （V1.0.0.2B2.8000）自己的 `multiapd`，再加上机抓包。逆向细节见 [FINDINGS.md](FINDINGS.md)，配置语法与验证见
-[REAL_CHILD.md](REAL_CHILD.md)。可信度：**[原厂路由器]** 抓包或子路由读回验证过；**[代码]** 读到发送/接收路径但没在上机跑；
+[REAL_CHILD.md](../REAL_CHILD.md)。可信度：**[原厂路由器]** 抓包或子路由读回验证过；**[代码]** 读到发送/接收路径但没在上机跑；
 **[名称]** 只看到函数名或字符串。
 
 > **最重要的一点：两边固件差很多。** SR1010 的 `multiapd`（988 KB，2393 个函数）带大量新功能；Z506 的
@@ -102,7 +102,7 @@ AP 能力、信道偏好、客户端能力、AP 指标、关联终端链路指�
 
 ## G. Z506 上控制器真正能管的
 
-**这些项在本项目里做到哪一步、上机验证到什么程度，见 [FEATURE_STATUS](FEATURE_STATUS.md) 的 A 节（子节点侧见 B 节）**；
+**这些项在本项目里做到哪一步、上机验证到什么程度，见 [FEATURE_STATUS](../FEATURE_STATUS.md) 的 A 节（子节点侧见 B 节）**；
 下面只保留"控制器有没有下发通道、走哪条通道"这一层。
 
 | 能管 | 说明 |
@@ -144,7 +144,7 @@ STA 绑定、信道扫描/CAC、VBSS、MLO，以及**带宽**。要用这些得�
 | `Mode`/`SetRoleEnable` | 角色（自适应/Slave/Master）与自适应开关 | 有 | 有 | 控制器固定 `Mode=2`、`SetRoleEnable=1`、`EnMasterOnly=1` |
 
 > **2026-11-06 更正**：最后一行写的是不写角色键时库里保持的那组固定值。现在主控显式写
-> `Mode=2`、`SetRoleEnable=0`、`EnMasterOnly=1`（[FEATURE_STATUS](FEATURE_STATUS.md) A13），子节点那侧读到
+> `Mode=2`、`SetRoleEnable=0`、`EnMasterOnly=1`（[FEATURE_STATUS](../FEATURE_STATUS.md) A13），子节点那侧读到
 > `Mode=1`、`SetRoleEnable=0`、`EnMasterOnly=0`（同表 B1）。
 
 ## 方法与局限

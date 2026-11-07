@@ -289,29 +289,24 @@ Python 同日挪进 `tools/dev/`：`tests/`、`openwrt/make-runtime.py`、`tools
 
 ## 文档
 
-**要跟着改动更新的四份**：
+`docs/` 顶层只有八份：四份跟着改动更新，四份改代码前读。其余全在两个目录里——`docs/research/`（取证存档与字段参考）
+和 `docs/journal/`（开发日志），都不必通读。
 
-| 文档 | 内容 |
-|---|---|
-| [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：逐项状态与判据 |
-| [PLAN](docs/PLAN.md) | **唯一排期**：分批做什么、主机可测与需上机分开、上机清单 H-01…H-17 |
-| [INSTALL](docs/INSTALL.md) | 用户手册：装包、页面、三种拓扑、验收、卸载 |
-| [DEVELOPMENT](docs/DEVELOPMENT.md) | 构建、打包、测试基线、上机守则、分支与 `prebuilt/` |
+| 层 | 文档 | 内容 |
+|---|---|---|
+| 随改动更新 | [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：逐项状态与判据 |
+| 随改动更新 | [PLAN](docs/PLAN.md) | **唯一排期**：分批做什么、主机可测与需上机分开、上机清单 H-01…H-17 |
+| 随改动更新 | [INSTALL](docs/INSTALL.md) | 用户手册：装包、页面、三种拓扑、验收、卸载 |
+| 随改动更新 | [DEVELOPMENT](docs/DEVELOPMENT.md) | 构建、打包、测试基线、上机守则、分支与 `prebuilt/` |
+| 改代码前读 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 结构与源文件职责、固件哈希 |
+| 改代码前读 | [SERVICE](docs/SERVICE.md) | UCI/LuCI/CM 映射与热更新 |
+| 改代码前读 | [LAB](docs/LAB.md) | 测试机清单、ARM32 模拟器判定 |
+| 改代码前读 | [REAL_CHILD](docs/REAL_CHILD.md) | 中兴原厂路由器的配置语法、基线与红线 |
+| 存档，不必通读 | [research/](docs/research/) | 原厂逆向与上机取证：`FINDINGS`、`CONTROLLER_CAPABILITIES`、`SCHEMA`/`POLICIES`、E2631/E2633、1905 抓包、厂商栈、重放结果、机型对照；索引在 [research/README](docs/research/README.md) |
+| 存档，不必通读 | [journal/](docs/journal/) | 开发日志，过程叙事只在这里；按天索引在 [journal/README](docs/journal/README.md) |
 
-**原理与接口，改代码前读**：[ARCHITECTURE](docs/ARCHITECTURE.md)（结构与源文件职责、固件哈希）、
-[SERVICE](docs/SERVICE.md)（UCI/LuCI/CM 映射与热更新）、[LAB](docs/LAB.md)（测试机清单、ARM32 模拟器判定）、
-[REAL_CHILD](docs/REAL_CHILD.md)（中兴原厂路由器的配置语法、基线与红线）。
-
-**只读资料，不再随结论更新**：[docs/research/](docs/research/)（原厂逆向与上机取证：DB 快照与表名全集、rootfs、
-1905 抓包与逐字段核对、`multiapd` 与厂商栈、垫片可行性、agent 探测、重放结果）、[docs/milestones/](docs/milestones/)
-（早期里程碑的验收记录）、[FINDINGS](docs/FINDINGS.md) 与
-[CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md)（角色选举触发位、网页锁定公式、`sendcmd` 报文格式、
-Z506 的能力矩阵）、[机型对照](<docs/ZTE router model.md>)、[docs/journal/](docs/journal/)（开发日志，过程叙事只在
-这里）。原厂固件镜像不在仓库里：`tools/dev/prepare.py` 默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，可用
-`SR1010_VENDOR_ROOTFS` 指定。
-
-**这几处不必通读**：它们是取证与归档，只在要查原厂字段、查"当时那台机器上看到什么"时打开；按天列了索引的是
-[docs/journal/README.md](docs/journal/README.md)。当前结论一律看上面两类文档。
+原厂固件镜像不在仓库里：`tools/dev/prepare.py` 默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，可用
+`SR1010_VENDOR_ROOTFS` 指定。存档只在要查原厂字段、查"当时那台机器上看到什么"时按名字打开；当前结论一律看前两类。
 
 ## 约定
 

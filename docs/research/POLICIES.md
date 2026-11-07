@@ -4,7 +4,7 @@
 
 > **照抄前要补的两条（2026-11-06）**：本文的脚本名按 2026-10-12 那天的布局裸写（`schema.py`、`device-db-smoke.py`），这批在 2026-11-04 的目录整理里挪进了 `tools/dev/`——照抄要加前缀，例如文末那段回归命令是 `python3 tools/dev/device-db-smoke.py`；`sh build.sh` 不变。另一条：`--host root@192.168.5.1` 是当时那台机器的默认值，那台已经不在，现在按 [LAB](../LAB.md) 第 2.1 节的三台填，原因见 [DEVELOPMENT](../DEVELOPMENT.md) 第 1 节。本文的策略表结论与偏移量不受这两条影响。
 
-> **状态更新（2026-10-12）：** 本文记录 B.2.2 里程碑（Master/Domain 策略表）。之后服务配置 `roam.*`、`band_steer.*` 会写入 `MULTIAPDOMAIN1`/`MultiAPMaster`；**Z506 固件没有解析漫游阈值 TLV 的代码，漫游阈值不会在这台子路由上生效**（见 [FINDINGS.md](../FINDINGS.md) 第 11 节、[REAL_CHILD.md](../REAL_CHILD.md) 4.5 节）。
+> **状态更新（2026-10-12）：** 本文记录 B.2.2 里程碑（Master/Domain 策略表）。之后服务配置 `roam.*`、`band_steer.*` 会写入 `MULTIAPDOMAIN1`/`MultiAPMaster`；**Z506 固件没有解析漫游阈值 TLV 的代码，漫游阈值不会在这台子路由上生效**（见 [FINDINGS.md](FINDINGS.md) 第 11 节、[REAL_CHILD.md](../REAL_CHILD.md) 4.5 节）。
 
 本文保留 B.2.2 三表验收；当前命令扩展到八表/391 字段、counter=45，逐项状态看 [FEATURE_STATUS](../FEATURE_STATUS.md)。
 **本阶段验证三表共 211 字段，仍不是可用 Controller。**

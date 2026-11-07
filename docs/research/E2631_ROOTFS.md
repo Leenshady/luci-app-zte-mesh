@@ -200,7 +200,7 @@ D7 的"固件不支持 FT"是同一件事的两面，现在有编译期证据，
 第二层比第一层严重：
 
 1. 字符串表里列名连续排列、表名夹在中间当分隔，而这八个名字后面紧跟的表名被我漏切，于是把后面整段并了进来；
-2. **仓库里早有正确答案**：[SCHEMA](../milestones/SCHEMA.md) 的「补充（2026-10-12）」一节写着
+2. **仓库里早有正确答案**：[SCHEMA](SCHEMA.md) 的「补充（2026-10-12）」一节写着
    "`P1905ComCfg`：SR 上有 8 个字段：`Enable`（36）、`EnableIsSync`（68）、`Policy`（100）、`DropNum`（132）、
    `MarketConfEn`（164）、`MarketSign`（196）、`DropRoam`（292）、`A1Enable`（324），共 328 字节"，
    **与 E2631 实测逐字一致**。我重新从字符串表推断时没先查它，等于把 B.2.1 干过的活重做一遍还做错了。
@@ -289,7 +289,7 @@ deauth/disassoc，而不是 11v 的 BTM Request。详见快照 §1.1。
 
 | 实测 | 意味着什么 |
 |---|---|
-| `Mode=1`、`SetRoleEnable=0`、`RoleElect=0`、`EnMasterOnly=0` | 按 [SCHEMA](../milestones/SCHEMA.md) 语义 `Mode` 1=Slave ⇒ **这台设备当前是子节点**，角色固定、不参与选举 |
+| `Mode=1`、`SetRoleEnable=0`、`RoleElect=0`、`EnMasterOnly=0` | 按 [SCHEMA](SCHEMA.md) 语义 `Mode` 1=Slave ⇒ **这台设备当前是子节点**，角色固定、不参与选举 |
 | `CurHop=2`、`MaxHop=2`、`EnMasterOnly=0` | **B16 待办结案**。SCHEMA 说 `EnMasterOnly=1` 时 `slave_init` 跳过、`CurHop` 不会被设成 `MaxHop`；实测是相反的情形且两值相等，三者自洽 |
 | **`EnReportCenterChannel=1`** | **D3 的入口在 `MultiAPCfg`，而且出厂就开着**。D3 要做的不是"打开上报"，是"接收侧怎么用" |
 | **`En1905Msg=1`** | 1905 报文开关**是开的** ⇒ 上一轮"`En1905Msg` 没找到、这条取证路径落空"的说法作废 |
@@ -345,7 +345,7 @@ mesh 相关的表不是我们之前跟踪的 5 张，而是 **19 张**（10 张 
 - **三段法**：① 离线切（字符串表连续排列 → 列名清单，`httpd` 字段表与 web lua 写入顺序交叉印证）；
   ② 上机 `sendcmd 1 DB p` 逐表核对；③ `sendcmd 1 DB all` 拿表名全集兜底。
   这一轮证明**①单用会切错表边界**（错了三处），所以②③不能省；
-  而且**上机前应先查 [SCHEMA](../milestones/SCHEMA.md) / [POLICIES](../milestones/POLICIES.md) 里已有的还原**。
+  而且**上机前应先查 [SCHEMA](SCHEMA.md) / [POLICIES](POLICIES.md) 里已有的还原**。
 - 强度（七轮实测后）：
   - `MultiAPMaster`(55)、`MultiAPDomain`(8×106)、`P1905ComCfg`(8)、`MultiAPCfg`(50)、
     `MultiAPRoamCatonCfg`(7)、`P1905Cfg`(12×3)、`WlanRoamingCfg`(1×6)、`MultiapCapability`(1×2)、
@@ -449,7 +449,7 @@ python tools/lab/unpack_squashfs.py kmodule.img -o kmodule/
 | 11r/FT 支持 | "固件不支持"（推断） | **结案，两条独立证据**：编译期 `CONFIG_CSP_WLAN_SUPPORT_80211KV`（只有 11k/11v）+ 配置层 `WlanRoamingCfg` 六列里**没有任何 FT 开关**（实测）。`En11rSteer=0`、`SupportRrm=1` 与之吻合。**不必再找 11r 的配置入口** |
 | 1905 接口使能 | 未知 | **`P1905Cfg` 实测**：`eth1`–`eth4`、`wlan0`、`wlan1` 六个接口全 `EnableP1905=1`，行名 `IGD.P1905CFG1..6`，12 行容量 6 用。**但只能证"允许"，证不了"在跑"**：`wlan0`=`AP1`(主 2.4G, `Enable=1`)、`wlan1`=`AP2`(访客 2.4G, **`Enable=0`**)，两个都在 2.4G、5G 一个没列；而 `REPLAY_RESULTS` §5 在 Z506 上抓到 ACD 实际走 `wlan0`+`wlan5g0`（两频段各一）。见快照 §11.6 |
 | 桥端口拓扑 | 未知 | **`Brport` 实测（16 行 × 23 列）**：`BRPORT1` 是桥自身（`LowerLayers` 列 `BRPORT2`–`BRPORT12`）；`LAN1/2/3` = `DEV.ETH.IF2/IF3/IF4`；`SSID1`–`SSID8` = 8 个 BSS；`APCLI1`/`APCLI5G1` = 回程 STA；WAN 侧两条 = `IF1`(`WanName=Bridge`) 与 `IF99`(`Alias=ETH_WAN`)。**以太口没有 `IF0`** |
-| BSS 启用状态 | 未知 | **两份交叉，逐个吻合**：`WLANCfg.Enable=1` 的是 `AP1/AP3/AP4/AP5/AP8`（= `SSID1/3/4/5/8`），与 `Brport.PortState=4` 的五个 BSS **完全相同** ⇒ **`PortState=4` = 在跑**。`WLANCfg.IfName` 给出 AP↔接口：2.4G `wlan0`–`wlan3`、5G `wlan5g0`–`wlan5g3`（与 [FINDINGS](../FINDINGS.md) §9 的还原逐字一致）。`DomainUsed=0` 的 `SSID3` 虽然 `Enable=1`，但 mesh 域未接管——**两个值量的是不同的事**，不矛盾（快照 §11.4） |
+| BSS 启用状态 | 未知 | **两份交叉，逐个吻合**：`WLANCfg.Enable=1` 的是 `AP1/AP3/AP4/AP5/AP8`（= `SSID1/3/4/5/8`），与 `Brport.PortState=4` 的五个 BSS **完全相同** ⇒ **`PortState=4` = 在跑**。`WLANCfg.IfName` 给出 AP↔接口：2.4G `wlan0`–`wlan3`、5G `wlan5g0`–`wlan5g3`（与 [FINDINGS](FINDINGS.md) §9 的还原逐字一致）。`DomainUsed=0` 的 `SSID3` 虽然 `Enable=1`，但 mesh 域未接管——**两个值量的是不同的事**，不矛盾（快照 §11.4） |
 | 能力声明 | 未知 | **`MultiapCapability` 实测（1 行 2 列）**：`SupportBSSync=1`、`SupportPackageProduct=0`。**不含任何策略/漫游位图** |
 | 1905 报文取证 | 只有 multiapd 的 `pktdump` | **`MultiAPCfg.En1905Msg=1`（实测，开着）** ⇒ 配置层这一路通。上一轮"取证路径落空"的说法**作废** |
 

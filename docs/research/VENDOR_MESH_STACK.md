@@ -137,7 +137,7 @@ source/multiap_sub.c
 | `0x9c8a` | `CmMultiAPWlanRenew` | 触发 Renew |
 | `0x909a` `0x90a2` `0x90d6` `0x9627` | 同步 `SSEND`，超时 6000/5000 ms | Hop 信息、隧道参数、公共设备发现、上行口 |
 
-和 [FINDINGS](../FINDINGS.md) 第 4 节已记录的 `SSEND(0x2401, 0x10205/0x10206)` 对得上：
+和 [FINDINGS](FINDINGS.md) 第 4 节已记录的 `SSEND(0x2401, 0x10205/0x10206)` 对得上：
 **`0x2401` 是 wlan 模块号（本地无线命令），`0x9xxx`/`0xa9xx` 才是 cspd 的 mesh 控制面**。
 `CmMultiApSetStaBind` 走的就是 `0x2401`——它是本地绑定，不是 1905 下发。
 

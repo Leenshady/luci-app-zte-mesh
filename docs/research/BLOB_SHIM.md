@@ -309,7 +309,7 @@ SR1010 构建是 119 个函数 / 27 张表 —— 少的两张正是它没有的
 2. **`multiapd` 到硬件的最短路径经过 DB**，不经过驱动：见 §3.2 的调用链；
    `CmWLANSetAPConfig` 本体只有 60 余条指令（校验参数 + 打日志 + 尾调内部实现），
    全函数里没有一次 `ioctl`。
-3. **表结构我们已经有**：`docs/milestones/SCHEMA.md` 里 `MultiAPCfg`(50 字段)、
+3. **表结构我们已经有**：`docs/research/SCHEMA.md` 里 `MultiAPCfg`(50 字段)、
    `P1905ComCfg`(8 字段)、`AclCfg`、`WLANCfg` 这些正是 `multiapd` 要读写的表，
    不需要"逆 shm 布局"，只需要"按已知列名建表"。
 4. **应用器这一半我们本来就在写**：controller 侧已经有 nl80211 建 BSS / 踢人 / 漫游参数的

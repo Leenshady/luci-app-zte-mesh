@@ -58,7 +58,7 @@ ADD_PC_IMM = 0x0F7F0000, 0x028F0000  # add rD, pc, #imm
 MOV_REG = 0x0FFF0FF0, 0x01A00000     # mov rD, rS
 BX_RM = (0x012FFF10, 0x012FFF30)     # bx Rm / blx Rm（0x012FFF1E 是 bx lr，先排除）
 
-# 已知的 DB 表名。来源：docs/milestones/SCHEMA.md 的还原 + E2631_DB_SNAPSHOT 的
+# 已知的 DB 表名。来源：docs/research/SCHEMA.md 的还原 + E2631_DB_SNAPSHOT 的
 # `sendcmd 1 DB p` 实测（19 张 mesh 表 + 无线配置表）。用白名单而不是模式匹配，
 # 是因为 `WLAN` 这种裸串是日志前缀、`MapAccessAttr` 是 WLANCfg 的**列名**，
 # 用正则会把它们都当成表。

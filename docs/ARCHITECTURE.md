@@ -120,7 +120,7 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 | `0x414dc` / `0x60070` | `master_init` / `slave_init` | 控制器初始化与控制消息注册；Agent 侧（`EnMasterOnly=1` 时跳过） |
 | `0x6f758` / `0x6edd0` | `acdsRcvApAutoConfigSearch` / `_acdsRcvApAutoConfigWSCM1` | Search → Response（含设备过滤）；WSC M1 处理 |
 | `0x7ca90` / `0x464ac` | `acdsBuildVendorMsg` / `multiap_get_vendor_oui` | 私有消息构造（按 msgtype 找回调，加 6 字节厂商头）；OUI `00 19 c6` |
-| `0x6a344` / `0x3be98` | `baseVendorTypeExtract` / `I5TlvVendorP1905ComCfgSyncInsert` | 按设备身份维护通信许可（[FINDINGS](FINDINGS.md) 第 4 节）；厂商 TLV `0x60` |
+| `0x6a344` / `0x3be98` | `baseVendorTypeExtract` / `I5TlvVendorP1905ComCfgSyncInsert` | 按设备身份维护通信许可（[FINDINGS](research/FINDINGS.md) 第 4 节）；厂商 TLV `0x60` |
 
 ## 5. ABI 与沙箱约束
 
@@ -156,7 +156,7 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 | 路线 | 结论 |
 | --- | --- |
 | 原厂 `multiapd` + 兼容运行环境 + 垫片 | 采用。中兴子节点的准入、私有 TLV、M2 内容都在原厂代码里，实测逐字节一致，协议层不用维护 |
-| 开源 EasyMesh 栈（prplMesh）+ 中兴扩展 | 没走：中兴子节点有一串身份、市场码、私有 TLV 的准入门槛（[FINDINGS](FINDINGS.md) 第 4 节），要逐项复刻 |
+| 开源 EasyMesh 栈（prplMesh）+ 中兴扩展 | 没走：中兴子节点有一串身份、市场码、私有 TLV 的准入门槛（[FINDINGS](research/FINDINGS.md) 第 4 节），要逐项复刻 |
 | 自写轻量 1905/中兴控制器 | 没走：等于重写原厂协议和 WSC，维护和安全测试成本最高 |
 
 垫片的边界（仍然适用）：只覆盖**平台边界**（数据库、接口身份、少数外部服务消息），保留协议引擎和 OSS 内部调度，
