@@ -1,10 +1,10 @@
 Unable to find image 'debian:bookworm' locally
 bookworm: Pulling from library/debian
-a4aa977c0d0e: Pulling fs layer
-a4aa977c0d0e: Verifying Checksum
-a4aa977c0d0e: Download complete
-a4aa977c0d0e: Pull complete
-Digest: sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880
+69245854ad58: Pulling fs layer
+69245854ad58: Verifying Checksum
+69245854ad58: Download complete
+69245854ad58: Pull complete
+Digest: sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8
 Status: Downloaded newer image for debian:bookworm
 debconf: delaying package configuration, since apt-utils is not installed
 arm-linux-gnueabi-gcc (Debian 12.2.0-14) 12.2.0
@@ -17,22 +17,10 @@ writing /src/out
 next: make -j$(nproc) all database
 arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden -fno-unwind-tables -fno-asynchronous-unwind-tables -march=armv7-a -mfloat-abi=soft -no-pie -nostdlib \
   /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crt1.o /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crti.o \
-  /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtbegin.o db-engine-probe.c controller-run.c controller-service.c controller-packet.c controller-wsc.c controller-wsc-crypto.c agent-sync.c multiap-cfg.c mesh-policies.c wlan-profiles.c mesh-bridge.c \
+  /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtbegin.o src/db-engine-probe.c src/controller-run.c src/controller-service.c src/controller-packet.c src/controller-1905.c src/controller-steer.c src/controller-peer.c src/controller-actions.c src/controller-wsc.c src/controller-wsc-crypto.c src/agent-sync.c src/multiap-cfg.c src/mesh-policies.c src/wlan-profiles.c src/mesh-bridge.c \
   -L/src/out/runtime/lib -Wl,-rpath-link,/src/out/runtime/lib -Wl,--dynamic-linker=/lib/ld-linux.so.3 \
   -Wl,--no-as-needed,--start-group -l:ld-linux.so.3 -l:libc.so.6 -l:libcapability.so -l:libcfapi.so -l:libcmapi.so -l:libcommfun.so -l:libcrypto.so.1.0.0 -l:libctype.so -l:libdb.so -l:libdhcp4ccfapi.so -l:libdhcp4ccmapi.so -l:libdhcp4scfapi.so -l:libdhcp4scmapi.so -l:libdl.so.2 -l:libevent.so -l:libgcc_s.so.1 -l:libieee1905cfapi.so -l:libieee1905cmapi.so -l:libjsonunify.so -l:libm.so.6 -l:libmultiapcfapi.so -l:libmultiapcmapi.so -l:liboss.so -l:libpthread.so.0 -l:libsha256.so -l:libssl.so.1.0.0 -l:libzte_slibc.so -lgcc -Wl,--end-group \
   /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtend.o /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crtn.o -o out/db-engine-probe
 rc=0
-prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=547486916c8b65d4c4a2be34d8f3acdfeb059ddd, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 193364 Oct 31 03:55 prebuilt/db-engine-probe
---- repacked by hand (no CI run) -------------------------------------------
-lab VM, Ubuntu 22.04 host toolchain instead of the bookworm container:
-  arm-linux-gnueabi-gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
-  ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35
-  ARMCC="arm-linux-gnueabi-gcc -D_TIME_BITS=32" sh tools/lab/build.sh database
-Both properties the CI guard checks hold: `nm -u` finds no __time64 /
-__clock_gettime64 / __ioctl_time64 / __isoc23_* symbol, and every undefined
-symbol resolves against the 27 factory libraries in out/runtime/lib except the
-three optional linker weaks (_ITM_*, __gmon_start__).
-reason: the packed probe predated controller_self_identity() and the packed
-ns-run predated ZTE_MESH_QEMU, so state.json had no self{model,name} on device.
-packed sha256: 74234b5296327d00953a7df1733303ca68c697a03763a7664d1be62ca7387eb8
+prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=2bd63c99e63510542cc82ac4012b82eb9e10541f, for GNU/Linux 3.2.0, not stripped
+-rwxr-xr-x 1 runner runner 207612 Nov  7 05:24 prebuilt/db-engine-probe
