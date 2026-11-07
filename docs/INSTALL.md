@@ -30,8 +30,8 @@
 四个文件都能匿名下载（2026-11-06 发布；tag 指本次构建吃的树 `9696812`，不是它上面那份只改文档的提交）。
 更早那两个 `v0.1.0`、`v0.2.0` 的 release 与 tag 已删除。另一条路是把本仓库登记成 feed、在 ImmortalWrt 树里编出来，
 或者从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 取（下载 artifact 要认证，匿名 401；取法见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节）。
-仓库当前构建的包版本串是三个包同一个号 `0.1.0-r23`（2026-11-06 起 `r` 号对齐，一批一个号，规矩见 [PLAN](PLAN.md) 第 6.3 节）；
-`ci/batch24` 那一轮已经按这个号出过产物，三个文件名都带 `0.1.0-r23`，两台测试机装完读回三行同为 `0.1.0-r23`。
+仓库 Makefile 里当前的包版本串是三个包同一个号 `0.1.0-r25`（2026-11-06 起 `r` 号对齐，一批一个号，规矩见 [PLAN](PLAN.md) 第 6.3 节）——**它还没发布**：上面那个 release 仍是 `v0.1.0-r23`，`r24`／`r25` 只在 CI 产物与两台测试机上。要装最新一批就走 artifact 或自己当 feed 编；
+`ci/batch24` 那一轮按 `0.1.0-r23` 出过产物，三个文件名都带 `0.1.0-r23`，两台测试机当时装完读回三行同为 `0.1.0-r23`。
 包没签名，所以要 `--allow-untrusted`：
 
 ```sh
@@ -45,12 +45,12 @@ sha256sum -c SHA256SUMS.txt                   # 三条 OK 才往下走
 
 # 2) 推到路由器并装
 ssh root@<这台路由器的IP> 'mkdir -p /tmp/zte-apk'
-scp dist/*.apk root@<这台路由器的IP>:/tmp/zte-apk/     # 只放这一批；目标目录不存在时 scp 会把文件写成那个名字
+scp dist/*.apk dist/SHA256SUMS.txt root@<这台路由器的IP>:/tmp/zte-apk/   # 校验清单跟着一起走，下一行才有东西可核
 ssh root@<这台路由器的IP> 'cd /tmp/zte-apk && sha256sum -c SHA256SUMS.txt'
 ssh root@<这台路由器的IP> 'apk add --allow-untrusted /tmp/zte-apk/zte-mesh-[0-9]*.apk /tmp/zte-apk/luci-*.apk'
 ```
 
-上面第 2 步的 `dist/*.apk` 是本机或 CI 构建出来的那份；从 release 下的四个文件在 `/tmp/zte-apk`，scp 那一行换成 `scp /tmp/zte-apk/*.apk` 就行。
+上面第 2 步的 `dist/*.apk` 是本机或 CI 构建出来的那份；从 release 下的四个文件在 `/tmp/zte-apk`，scp 那一行换成 `scp /tmp/zte-apk/*.apk /tmp/zte-apk/SHA256SUMS.txt` 就行。**清单必须一起传**：只传 apk 时路由器上那句 `sha256sum -c SHA256SUMS.txt` 读不到文件，当场失败——而它正是"传到这台机器的字节没坏"的唯一判据。目标目录由上一行的 `mkdir -p` 建好；目录不存在时 scp 会把第一个源文件写成那个名字。
 
 - **`zte-mesh-[0-9]` 那个 `-` 加数字不是排版**：`zte-mesh*.apk` 会把这一台机器上**上一批留下的** `zte-mesh-launcher-*.apk`（合并前那个独立的启动器包）一并匹配进来，那条命令于是当场多装一个包——它装的是旧一半的启动器，而新的 `zte-mesh` 已经带着这些文件。装机读回 `verify-install.sh` 现在用同一条 glob，并且专门有一行会拒绝"这个目录里还有 launcher 包"。
 
@@ -146,6 +146,8 @@ applier 会把配置写进本机射频；换过角色或手改过 `/etc/config/z
 | 一个频段有两块射频，改了却没生效 | 控制器配置不知道该写到哪块射频，`wlan-sync` 会**放弃这个频段**，日志原文是 `several 5g radios (radio0 radio1) and no way to tell which one carries the mesh; set zte_mesh.main.wifi_5g to one of them, this band is left alone until then`——它指定的是 UCI 项，页面上对应「2.4 GHz 射频设备」/「5 GHz 射频设备」两个字段 | 按日志列出的候选名填进那两个字段（例如 `radio1`）。保存这两项会重启服务，因为不重启就等于没选。靠 `radio0.disabled=1` 把候选缩成一块的板子（测试环境的小米 AX3600 就是这样，见 [LAB](LAB.md) 第 2.1 节）测不出这一条，别把"没报错"当成"已验证" |
 | 有线口显示"未接入" | veth 两端一起没了，只有重启实例才能重建 | `attach` 兼任看门狗：连续 20 秒看不到这个口就重启沙箱实例，owrt 实测删掉 `zmesh0` 后 25 秒自己长回来（[PLAN](PLAN.md) H-10，已验）；想立刻恢复就重启服务 |
 | 角色是子路由，手改的 `wifi_24g_ssid` 没动静 | 子路由的配置由主控下发，而服务起来时的**初始配置**是从本机当前广播的配置读回的（第 6 节第 2 条）。这几项在子角色上顶不上本机正在广播的那一段，页面上也根本不显示它们（[FEATURE_STATUS](FEATURE_STATUS.md) B9）；日志会明说 `child role: wifi_24g_ssid is not the seed on this router: ...` | 想改 SSID 就改**主控**的配置；想把这台变成能自己定的，就改成主控并开「本机也广播」。手工改 `/etc/config/wireless` 也能生效，但下一次 M2 到达时会被主控的配置盖掉 |
+| 页面把「启用」关掉并保存，控制器还在跑 | **r25 之前会这样**：页面保存走的是 `reload`，而 `enabled` 只有 `start` 读——`reload` 比的是配置签名，关着也写得成功、签名还一样，于是答"无事可做"。现在 `reload` 先读 `enabled`，不是开就停服务 | 升到 r25 及以后；暂时不能升就 `/etc/init.d/zte-mesh stop`。判据在主机 `test_init.sh`（8p 那组），真 procd 那一层的读数见 [PLAN](PLAN.md) H-19 |
+| 改了「LAN 桥」「控制器地址末字节」或手改的 `zte_mesh.main.emulator`，服务没重启 | 这三项进的是**启动实例时的输入**，不进配置文件也不进计划，所以以前不参与重启签名的比较。r25 起三项都在签名里，改了即重启 | 升到 r25 及以后；暂时不能升就 `/etc/init.d/zte-mesh restart` |
 
 ## 8. 卸载与版本
 

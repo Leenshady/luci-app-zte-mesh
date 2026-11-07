@@ -10,6 +10,9 @@
 # `apk add` only replaces files. Measured on owrt -- after replacing luci-app-zte-mesh the status call still had no
 # `local` key (rpcd kept the pre-split plugin) and the attach instance still reported itself running with zmesh0 gone.
 # Verifying without the restart would have graded the previous build, not this one.
+# "This batch landed" is graded, not reported: every non-zero `apk add` counts as a failure, and for each file found in
+# the directory the installed version must equal the one in its name (`batch_<stem>`). An exit code alone is not enough
+# -- adding a package apk already considers installed is a no-op that answers 0.
 #
 # The three smokes are the three things that can be wrong after an install and that the page does not tell you:
 #   1 service     -- the daemon is up, and the role it reports is the role the configuration asks for
@@ -105,17 +108,25 @@ check() {
 }
 
 # --- install -------------------------------------------------------------------------------------------------------
-# One `apk add` naming a package this machine cannot take does not half-succeed, it refuses the whole transaction
-# (measured on the x86_64 VM, which never accepts the aarch64 launcher). So each file is its own call and a file that
-# is simply absent is a skip, not a failure.
+# Each file is its own `apk add` call so one refusal does not hide which package caused it, and a file that is simply
+# absent is a skip, not a failure. A non-zero answer is always a failure: the architecture escape this loop used to
+# have (`not installable` -> reported and forgotten) belonged to the separate aarch64 launcher package, and all three
+# packages are `all` since 2026-11-05 (docs/INSTALL.md §2). Keeping it let a run where every add failed end in PASS.
+# What actually decides "this batch landed" is the version read back below, not the exit code: `apk add` on a package
+# it already considers installed is a no-op that answers 0.
+batch_apk() {
+	# batch_apk STEM -> this batch's file for one package, or nothing. The [0-9] after the stem is what keeps an
+	# earlier batch's zte-mesh-launcher-*.apk out of it: `zte-mesh-*.apk` would pick that up as this batch's
+	# zte-mesh, install the launcher file twice and never land the runtime apk (docs/INSTALL.md §2).
+	[ -n "$APK_DIR" ] || return 0
+	ls "$APK_DIR/$1"-[0-9]*.apk 2>/dev/null | sort | tail -n 1
+}
+
 install_apks() {
 	[ -n "$APK_DIR" ] || { say install skipped; return 0; }
 	[ -d "$APK_DIR" ] || { fail=$((fail + 1)); printf 'FAIL apk_dir dir=%s\n' "$APK_DIR"; return 1; }
 	for stem in $PKG_STEMS; do
-		# [0-9] after the stem: an earlier batch left zte-mesh-launcher-*.apk in this same directory, and
-		# `zte-mesh-*.apk` would pick it up as this batch's zte-mesh -- the loop would install the launcher file
-		# twice while the runtime apk never lands. docs/INSTALL.md §2 is the rule this guards against.
-		pkg=$(ls "$APK_DIR/$stem"-[0-9]*.apk 2>/dev/null | sort | tail -n 1)
+		pkg=$(batch_apk "$stem")
 		if [ -z "$pkg" ]; then
 			say "install_$stem" skip
 			continue
@@ -125,9 +136,6 @@ install_apks() {
 		if [ "$rc" = 0 ]; then
 			installed_any=yes
 			say "install_$stem" "$(basename "$pkg")"
-		elif echo "$out" | grep -qi 'installable'; then
-			# architecture mismatch is the expected answer on a machine that cannot carry this package
-			say "install_$stem" uninstallable
 		else
 			fail=$((fail + 1))
 			say "install_$stem" "rc=$rc"
@@ -158,6 +166,15 @@ versions() {
 		# from an earlier batch, and the version reported for zte-mesh would be that package's release.
 		v=$($APK list --installed 2>/dev/null | sed -n "s|^$stem-\([0-9][^ ]*\) .*|\1|p" | head -1)
 		say "version_$stem" "${v:-absent}"
+		# Printing the two versions side by side is not a check. The file name carries the version this batch
+		# claims, so the machine has to answer with that one: a run whose every `apk add` failed used to show
+		# three stale versions here and still end in PASS.
+		pkg=$(batch_apk "$stem")
+		if [ -n "$pkg" ]; then
+			base=${pkg##*/}
+			base=${base%.apk}
+			check "batch_$stem" "${base#"$stem"-}" "${v:-absent}"
+		fi
 	done
 }
 

@@ -68,7 +68,10 @@ void actions_clear(struct action_table *table);
 /* Applies the configured intents and keeps the state of everything already known, so reloading the config does
  * not re-kick a client that has been dealt with. A ban that disappears from the intents is turned into a
  * pending undo instead of being dropped; a kick that disappears is simply forgotten.
- * Returns the number of entries after the change, or -1 when there are more intents than ACTION_MAX. */
+ * Returns the number of entries after the change, or -1 for invalid input (no table, intents without a list, or
+ * more than ACTION_MAX of them). A full table is not invalid input: an intent that does not fit yet is deferred,
+ * because the entries holding the room are bans waiting for their undo to go out, and only the tick that follows
+ * this call can send it. Call again with the same intents and it is inserted once the release has drained. */
 int actions_configure(struct action_table *table, long now, const struct action_intent *intents,
                       unsigned int count);
 

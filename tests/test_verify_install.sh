@@ -357,24 +357,50 @@ check_line sync_result error
 # The directory holds a zte-mesh-launcher-*.apk from the batch before the packages were merged. That file is not one
 # of this batch's stems, and it must never be installed -- nor, with a plain `zte-mesh-*.apk` glob, mistaken for
 # zte-mesh itself (docs/INSTALL.md §2: one directory, one batch).
+# The refusal is a failure, not a skip. This loop used to treat any answer containing "installable" as the expected
+# architecture mismatch and forget it, so a run where all three adds failed still ended in PASS with the old versions
+# on show. All three packages are `all` now; there is no machine this batch cannot carry.
 CASE=install-mixed
 printf 'not installable here\n' > "$FIX/uninstallable"
+# Case 5 left the applier saying error, and that alone makes the verdict FAIL. These three cases are about the install,
+# so the machine they read has to be healthy apart from it -- otherwise a broken install check hides behind another red.
+printf 'epoch=1\nresult=ok\nchanged=0\nbands=\nmessage=\n' > "$RUN/wlan-sync.status"
 APK_DIR=$T/apks
 mkdir -p "$APK_DIR"
 : > "$APK_DIR/zte-mesh-0.1.0-r15.apk"
 : > "$APK_DIR/zte-mesh-launcher-0.1.0-r2.apk"
 : > "$APK_DIR/luci-app-zte-mesh-0.1.0-r8.apk"
 sh "$SCRIPT" "$APK_DIR" > "$out" 2>&1
-check_line install_zte-mesh uninstallable
-check_line install_luci-app-zte-mesh uninstallable
+check_rc $? 1
+check_line install_zte-mesh rc=1
+check_line install_luci-app-zte-mesh rc=1
 check_line install_luci-i18n-zte-mesh-zh-cn skip
+check_line RESULT FAIL
 if grep -q '^install_zte-mesh-launcher=' "$out"; then
 	fail=$((fail + 1)); echo "FAIL case $CASE: the leftover launcher apk was installed"
 else
 	pass=$((pass + 1))
 fi
-if grep -qx 'RESULT=PASS' "$out" || grep -qx 'RESULT=FAIL' "$out"; then pass=$((pass + 1)); else
-	fail=$((fail + 1)); echo "FAIL case $CASE: install must still end with a verdict"; fi
+# the versions on show happen to match this batch's file names, so the two refusals above are the only thing wrong
+check_line batch_zte-mesh 0.1.0-r15
+check_line batch_luci-app-zte-mesh 0.1.0-r8
+
+# Every add answers 0 and the machine still runs the previous batch: `apk add` on a package it already considers
+# installed is a no-op. Without the version comparison this is the cleanest false pass there is -- three green
+# install lines, three stale versions, RESULT=PASS.
+CASE=install-noop
+rm -f "$FIX/uninstallable" "$FIX/restarted"
+printf 'zte-mesh-0.1.0-r14 noarch {/x} (GPL-2.0-only) [installed]\nluci-app-zte-mesh-0.1.0-r7 noarch {/z} (GPL-2.0-only) [installed]\n' > "$FIX/installed"
+sh "$SCRIPT" "$APK_DIR" > "$out" 2>&1
+check_rc $? 1
+check_line install_zte-mesh zte-mesh-0.1.0-r15.apk
+check_line version_zte-mesh 0.1.0-r14
+if grep -q 'FAIL batch_zte-mesh expected=0.1.0-r15 got=0.1.0-r14' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: an add that answered 0 but left the old version must fail"; fi
+if grep -q 'FAIL batch_luci-app-zte-mesh expected=0.1.0-r8 got=0.1.0-r7' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: the second stale package must fail too"; fi
+check_line RESULT FAIL
+printf 'zte-mesh-0.1.0-r15 noarch {/x} (GPL-2.0-only) [installed]\nzte-mesh-launcher-0.1.0-r2 aarch64_cortex-a53 {/y} (GPL-2.0-only) [installed]\nluci-app-zte-mesh-0.1.0-r8 noarch {/z} (GPL-2.0-only) [installed]\n' > "$FIX/installed"
 
 # the two verdicts must not be confused: a file that is absent is a skip, a file the machine refuses is a failure.
 # And each stem must pick its own file -- zte-mesh-[0-9]*.apk is what keeps the launcher file out of it.
@@ -392,6 +418,15 @@ else
 fi
 check_line install_luci-app-zte-mesh luci-app-zte-mesh-0.1.0-r8.apk
 check_line install_luci-i18n-zte-mesh-zh-cn skip
+check_line batch_zte-mesh 0.1.0-r15
+check_line batch_luci-app-zte-mesh 0.1.0-r8
+# a stem with no file in this directory is a skip and is not graded: there is no version to compare against
+if grep -q '^batch_luci-i18n-zte-mesh-zh-cn=' "$out"; then
+	fail=$((fail + 1)); echo "FAIL case $CASE: an absent file must not produce a batch assertion"
+else
+	pass=$((pass + 1))
+fi
+check_line RESULT PASS
 
 # --- case 7: the running rpcd is older than the package on disk -------------------------------------------------------
 # `apk add` replaces the file; it does not reload the plugin. The status document then has no `local` key at all
@@ -1253,6 +1288,34 @@ check_rc $? 0
 check_line backhaul_asked off
 check_line backhaul_section none
 check_line RESULT PASS
+
+# --- the transfer example in INSTALL section 2 ------------------------------------------------------------------------
+# The router-side check is `sha256sum -c SHA256SUMS.txt`, and the line above it used to copy only the apks: the file it
+# reads was never sent, so the one judgement that says "the bytes that reached this machine are intact" could not run.
+# A copy/paste example is code that no compiler sees, so it is pinned here -- every scp that carries an apk carries the
+# checksum list with it, in the fenced block and in the prose alternative both.
+DOC=${2:-$(dirname "$0")/../docs/INSTALL.md}
+if [ ! -r "$DOC" ]; then
+	fail=$((fail + 1)); echo "FAIL install-doc: not readable: $DOC"
+else
+	scp_lines=$(grep -o 'scp [^`#]*' "$DOC")
+	if [ -z "$scp_lines" ]; then
+		fail=$((fail + 1)); echo "FAIL install-doc: no transfer command left to judge"
+	else
+		# Only the command, not the sentence around it: the prose alternative names SHA256SUMS.txt again later in
+		# the same line, and a whole-line match would let a transfer that forgot it pass on that mention.
+		bad=$(printf '%s\n' "$scp_lines" | grep '\.apk' | grep -v 'SHA256SUMS\.txt')
+		if [ -n "$bad" ]; then
+			fail=$((fail + 1)); echo "FAIL install-doc: a transfer copies apks without the checksum list: $bad"
+		else
+			pass=$((pass + 1))
+		fi
+	fi
+	if grep -q 'for f in SHA256SUMS.txt ' "$DOC"; then pass=$((pass + 1)); else
+		fail=$((fail + 1)); echo "FAIL install-doc: the download list does not fetch SHA256SUMS.txt"; fi
+	if grep -q "sha256sum -c SHA256SUMS.txt'" "$DOC"; then pass=$((pass + 1)); else
+		fail=$((fail + 1)); echo "FAIL install-doc: the router-side checksum check is gone"; fi
+fi
 
 printf 'verify-install test: %d passed, %d failed\\n' "$pass" "$fail"
 [ "$fail" = 0 ]

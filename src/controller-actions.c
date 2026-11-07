@@ -42,6 +42,8 @@ int actions_configure(struct action_table *table, long now, const struct action_
 
     if (!table || (count && !intents))
         return -1;
+    if (count > ACTION_MAX)
+        return -1;
     table->now = now;
     /* A rule that is no longer wanted still has to be undone on the agent, so bans are marked for lifting and
      * only removed after the undo has gone out. Everything else that vanished is forgotten right here. */
@@ -98,8 +100,15 @@ int actions_configure(struct action_table *table, long now, const struct action_
             }
             continue;
         }
-        if (table->count >= ACTION_MAX)
-            return -1;
+        if (table->count >= ACTION_MAX) {
+            /* No room yet, which is not a refusal: a ban whose rule was removed keeps its entry until its undo
+             * has been sent, so replacing one of eight rules used to overflow the table here. Returning -1 made
+             * the caller skip actions_tick() -- the only thing that sends the undo and frees the entry -- so
+             * every later pass failed the same way and no client action ever went out again. Defer the intent
+             * instead: the daemon hands the same list in once a second, and the next pass inserts it once the
+             * release has drained. */
+            continue;
+        }
         entry = &table->entry[table->count++];
         memset(entry, 0, sizeof(*entry));
         memcpy(entry->mac, intents[i].mac, 6);

@@ -107,12 +107,13 @@ python tests/test_i18n.py                      # 改了界面文案必须跑
 
 | 组 | 条数 | 它守什么 | 本机（Windows + Git Bash）跑得起来吗 |
 |---|---|---|---|
-| `tests/test_init.sh` | 158 | 真的**执行** init 里的 `write_config()` 与预检 `launcher_ready()`——启动前那四条检查各说各的话 | ✅ |
-| `tests/test_verify_install.sh` | 278 | 装机验收脚本每条判定，含它"问得太早就不作判定"的那些分支（uci/iw/ip/date 全是桩） | ✅，但要导出 `METRICS_READS=1`、`METRICS_READ_GAP=0`、`SSID_WAIT=0`，否则每个"这台没有数"的用例真睡满 10 秒 |
-| `tests/test_wlan_sync.sh` | 182 | 主控下发的配置写进本机无线配置：实际改了哪些频段、额外网络按网络序号、回程 STA 段 | ✅ |
+| `tests/test_init.sh` | 171 | 真的**执行** init 里的 `write_config()`、`reload_service()` 与预检 `launcher_ready()`——启动前那四条检查、页面关掉服务停不停、哪些改动要重启 | ✅ |
+| `tests/test_verify_install.sh` | 294 | 装机验收脚本每条判定，含它"问得太早就不作判定"的那些分支（uci/iw/ip/date 全是桩） | ✅，但要导出 `METRICS_READS=1`、`METRICS_READ_GAP=0`、`SSID_WAIT=0`，否则每个"这台没有数"的用例真睡满 10 秒 |
+| `tests/test_wlan_sync.sh` | 282 | 主控下发的配置写进本机无线配置：实际改了哪些频段、额外网络按网络序号、回程 STA 段、计划删掉的行撤不撤、应用失败重不重试 | ✅ |
 | `tests/test_sta_collect.sh` | 32 | 子节点的终端数采集、`/run/zte-mesh/ap-sta` 那张表和那个暂停开关 | ✅ |
-| `tests/test_launcher_arches.sh` | 26 | `launcher-arches.sh` 的编译器选址与 `ZTE_MESH_REQUIRE_ARCHES`（编译器是桩，判的不是真编译） | ✅ |
-| `tests/test_launcher_dispatch.sh` | 20（另 skip 2） | 那份按 `$0` 认程序、按 `uname -m` 选目录的入口脚本 | ⚠️ skip 2 条：NTFS 上 `chmod 644` 清不掉执行位，"文件在但不可执行"这一支在本机表达不出来 |
+| `tests/test_launcher_arches.sh` | 41 | `launcher-arches.sh` 的编译器选址、编完读回 ELF 头认架构与 `ZTE_MESH_REQUIRE_ARCHES`（编译器是桩，判的不是真编译） | ✅ |
+| `tests/test_launcher_dispatch.sh` | 24（本机另 skip 2） | 那份按 `$0` 认程序、按 `uname -m` 选目录的入口脚本 | ⚠️ skip 2 条：NTFS 上 `chmod 644` 清不掉执行位，"文件在但不可执行"这一支在本机表达不出来 |
+| `tests/test_service_role.sh` | 11 | 主循环里角色那段决定的形状（读回在应用之后、分支之前，一次性动作跟着角色重开）——那段循环只编进 ARM32 产物，主机跑不了它，行为读数在 PLAN H-18 | ✅ |
 | `tests/test_runtime.py` | 30 | 随包那个 tarball 的成员与仓库文件逐字节一致——防"包里那份是旧的" | ✅ |
 | `tests/test_i18n.py` | 12 | 页面文案与 `.po` 对得上 | ✅ |
 | `tests/test_luci.js` | 38 个主选项 + 10 个网络序号 + 4 条 ACL + 2 个客户端项 + 子表单 7 项 | 页面表单结构（自己模拟 LuCI 的 `form`/`uci`/`rpc`，不要 LuCI 运行时） | ⚠️ 能跑，但 PATH 里没有 `node`，得给那个独立 `node.exe` 的绝对路径 |

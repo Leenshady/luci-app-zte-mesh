@@ -453,6 +453,58 @@ static void json_is_bounded(void)
     CHECK(actions_json(NULL, small, sizeof(small)) == -1);
 }
 
+/* Eight rules is the whole table, and a ban whose rule was removed keeps its entry until its undo has been sent.
+ * So replacing one of eight used to overflow here and return -1 -- and the daemon's answer to -1 was to skip the
+ * tick, which is the only thing that sends the undo and frees the entry. Every later pass failed the same way: one
+ * edit on a full page stopped all client actions for good. The intent is deferred instead, and the loop below is
+ * the daemon's own shape (configure, return on -1, tick, confirm) to prove it converges. */
+static void full_table_defers_then_drains(void)
+{
+    struct action_intent intents[ACTION_MAX + 1];
+    uint8_t gone[6] = {2, 0, 0, 0, 0, ACTION_MAX};
+    uint8_t fresh[6] = {2, 0, 0, 0, 0, ACTION_MAX + 1};
+    unsigned int i, pass;
+    int sent_undo = 0, sent_fresh = 0;
+
+    reset();
+    memset(intents, 0, sizeof(intents));
+    for (i = 0; i < ACTION_MAX; i++) {
+        intents[i].mac[0] = 2;
+        intents[i].mac[5] = (uint8_t)(i + 1);
+        intents[i].kind = ACTION_KIND_BAN;
+    }
+    CHECK(actions_configure(&table, 0, intents, ACTION_MAX) == (int)ACTION_MAX);
+    CHECK(tick(0) == ACTION_MAX);
+
+    /* The page drops the last rule and adds another: still ACTION_MAX intents, but the dropped one is now an undo
+     * in flight, so for one pass there are nine things wanting eight slots. */
+    memcpy(intents[ACTION_MAX - 1].mac, fresh, 6);
+    CHECK(actions_configure(&table, 1, intents, ACTION_MAX) >= 0);
+    CHECK(table.count == ACTION_MAX);
+
+    for (pass = 0; pass < 4 && !sent_fresh; pass++) {
+        long now = 2 + (long)pass;
+        unsigned int n, k;
+        if (actions_configure(&table, now, intents, ACTION_MAX) < 0)
+            continue;
+        n = actions_tick(&table, now, due, ACTION_MAX);
+        for (k = 0; k < n; k++) {
+            if (mac_is(due[k].mac, gone) && due[k].allow)
+                sent_undo = 1;
+            if (mac_is(due[k].mac, fresh) && !due[k].allow)
+                sent_fresh = 1;
+            actions_send_result(&table, &due[k], 1);
+        }
+    }
+    CHECK(sent_undo);
+    CHECK(sent_fresh);
+    CHECK(table.count == ACTION_MAX);
+
+    /* More intents than the table can ever hold is still invalid input, and says so before anything is touched. */
+    CHECK(actions_configure(&table, 10, intents, ACTION_MAX + 1) == -1);
+    CHECK(actions_configure(NULL, 10, intents, 1) == -1);
+}
+
 static void ban_does_not_slide(void)
 {
     struct action_intent intent;
@@ -552,6 +604,7 @@ int main(void)
     send_results_match_kind();
     json_uses_the_tables_clock();
     json_is_bounded();
+    full_table_defers_then_drains();
     printf("controller-actions: %u assertions passed\n", checks);
     return 0;
 }
