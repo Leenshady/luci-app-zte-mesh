@@ -6,8 +6,7 @@
 
 > **状态更新（2026-10-12）：** 本文记录 B.2.1 里程碑（`MultiAPCfg` 单表）。2026-10-12 的补充见文末"补充"一节：`MultiAPCfg` 里 `VersionMode`、`CurHop`、`SetRoleEnable` 等字段的实际含义、`P1905ComCfg` 的真实字段、`AclCfg` 表。
 
-本文保留最初单表阶段的验收；当前命令已扩展至八表/391 字段，
-最新结果见 [EARLY_ACCEPTANCE](EARLY_ACCEPTANCE.md) B.2.3 节。
+本文保留最初单表阶段的验收；当前命令已扩展至八表/391 字段，逐项状态看 [FEATURE_STATUS](../FEATURE_STATUS.md)。
 **这不是完整 Controller schema 或节点管理验收。**
 默认 `multiapd` 加载探针仍在数据库初始化前退出 78。这里只运行受限的
 `db-engine-probe`，不启动 `multiapd`、`cspd`、OSS 业务 task 或本地 WLAN。
@@ -83,51 +82,6 @@ SetRoleEnable=1、EnMasterOnly=1、MeshName=`zte-shim-lab`、IFLink=`br-lan`，
 默认值 0，未声称任何 EasyMesh profile 已启用。没有 SSID/PSK、设备身份、
 远端 AP profile 或认证材料；只改 IFLink 字符串不等于解决主程序的 br0
 绑定。没有修改真实 bridge、接口、无线设置或配置文件。
-
-## B.2.1 历史原生设备验收
-
-设备：`root@192.168.5.1`，Linux 6.18.38+，已启用 ARM32 compat。
-
-```text
-ZTE_DB_ENGINE cfg_registered=1 cfg_fields=50 cfg_bytes=2952 test_only=1
-ZTE_DB_ENGINE factory_map_query=1 cfg_fields=50 cfg_bytes=2952 map_status=0 payload_logged=0
-ZTE_DB_ENGINE cfg_get_set=1 cmapi_get=1 negative_queries=1 buffer_guards=1 payload_logged=0
-ZTE_DB_ENGINE PASS shared_counter=6 native_engine=1 multiap_cfg_ready=1 controller_ready=0
-```
-
-验证了：
-
-1. 服务端注册表和测试行；fork+exec 客户端真实 attach 4 MiB 共享内存。
-2. 原厂 `MapGetDB → MapGetMultiAPCfgDB → dbAPIGetView` 返回 0；逐个检查
-   50 个字段的类型/结果，核对非零 Master 策略、字符串和 signed CurHop。
-3. 原厂 `CmMultiAPGetMultiAPCfg` 完成真实 CM 输出转换，不只是底层读取。
-4. 原厂 `dbAPISetView` 按 mask 只更新 MaxHop、MeshName；再经原厂 getter
-   读回，确认其他 Master/bridge 字段未被全零写坏。
-5. 不存在的视图返回 -2；错误 magic 返回 -19；错误视图长度返回 -15。
-6. DB/CM 缓冲区前后 guard 未被覆盖；服务端看到 6 次跨进程 GET 计数。
-7. 私有 IPC/网络/mount namespace、只读根、仅 IPC_OWNER；宿主 IPC 和接口
-   名称前后快照一致。DB 原始值、指针及凭据不进入日志。
-
-完整报告：`out/device-db-report.json`。其中
-`multiap_cfg_schema_ready=true`、`configuration_read_write_passed=true`，但
-整体 `schema_ready=false`、`controller_ready=false`，避免把单表进度误报为
-Controller 完成。原隔离保证与资源/进程组清理见 [EARLY_ACCEPTANCE](EARLY_ACCEPTANCE.md) B.1 / B.2 节。
-
-## 复现与剩余工作
-
-```sh
-sh build.sh
-python3 device-db-smoke.py --host root@192.168.5.1
-```
-
-新增 16 个离线测试，覆盖精确布局/原厂描述符和长度表，以及缺字段、重复
-字段/ID、类型/大小/default 越界、基线哈希与地址错误。原 17 个证据测试、
-5 个 preload 场景、9 个沙箱场景继续回归。
-
-后续 Master/Domain 策略表已恢复并验收，见 [POLICIES.md](POLICIES.md)。
-B.2 仍未完成：产品/节点身份、远端 WLAN profile、配置 helper/RPC、变更
-通知和持久化。随后才是 OSS 完整启动、接口映射、受限 1905 LAN 接入及
-原厂子节点发现/配置/重启恢复验收。
 
 ## 补充（2026-10-12）：几张表的真实语义
 

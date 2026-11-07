@@ -6,7 +6,9 @@
 
 | 文档 | 内容 |
 |---|---|
-| [EARLY_ACCEPTANCE.md](EARLY_ACCEPTANCE.md) | B.1 – B.3.3 的验收记录合一份：数据库引擎、WLAN/DevInfo 布局、配置桥、沙箱里初始化真实 `multiapd`、CM 替身读取、1905 拓扑与 AP-Autoconfig 的线上校验 |
+> B.1 – B.3.3 那份验收记录已删（2026-11-07）：里面仍然成立的三条搬到了
+> [ARCHITECTURE](../ARCHITECTURE.md) 第 5 与第 7 节（订阅者池的尺寸与 key、配置桥 V1 的 120/24 字节线上格式、写两表不宣称原子性那条例外）。
+> 当年那几轮的读数字不再保留——逐项状态看 [FEATURE_STATUS](../FEATURE_STATUS.md)。
 | [SCHEMA.md](SCHEMA.md) | `MultiAPCfg` 50 字段的还原（偏移、原厂读写、CM 转换）——**查原厂字段时仍然先读这份** |
 | [POLICIES.md](POLICIES.md) | Master/Domain 策略表的还原——同上 |
 

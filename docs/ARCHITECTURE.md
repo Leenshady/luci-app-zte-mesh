@@ -144,6 +144,9 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 - `SSEND`/`ASEND` 区分内部任务和外部服务，有同步应答语义，不能一律忽略。只替身确实发给 `cspd` 而控制器需要应答的消息
   （例如启动计数 `0xa96e`），其余照原样走原厂 OSS。
 - 外部进程不能直接调 `ASEND/SSEND`（需要 OSS 身份）：`zte-meshctl` 用 `liboss_pub.so` + `InitAppComm`，由服务 fork/exec。
+- 原厂订阅者池由真实的 `SubShmSrvInit` 建立：SysV key `0xabcb`、128 KiB、固定映射 `0x68000000`，链表初始状态、共享段尺寸
+  与原厂锁都要验；`OSSStart` 不被换成空成功。`src/controller-run.c` 启动行里的 `real_subscriber_server=1 shared_bytes=131072
+  lock_verified=1` 报的就是这三件事。
 - 守护进程环境里只能有一个变量（`ZTE_MESH_START_COUNT`），多一个 `setenv` 会让原厂 ld.so 断言失败（exit 127）。
   要给 preload 库传状态，经数据库。
 - 原厂程序带旧 OpenSSL（1.0.0），要考虑安全维护和再分发许可。
@@ -159,3 +162,45 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 垫片的边界（仍然适用）：只覆盖**平台边界**（数据库、接口身份、少数外部服务消息），保留协议引擎和 OSS 内部调度，
 不写"全部返回成功"的空函数库；没有本地 Wi-Fi 不等于没有无线配置——控制器仍要远端 AP 的 SSID、密码、安全模式和频段配置，
 这些是逻辑配置，不伪造本地无线能力；同一 LAN 上不能有两个 1905 控制器。
+
+## 7. 配置桥 V1 的线上格式与写入边界
+
+宿主侧 `config-bridge-probe` 与沙箱侧之间只有这一条通道：每个进程只处理一个请求，必须收满整个 message 并读到 EOF，
+任何追加字节或第二帧都拒绝；读写都有 deadline，长度上限写死；**输入的拒绝校验发生在创建私有 DB 之前**，所以被拒绝的请求
+不会留下任何半个数据库。源文件是 `src/mesh-bridge.h`（`MESH_BRIDGE_*` 常量与两个长度）与 `src/mesh-bridge.c`（收发与校验）。
+
+请求 **120 字节，big endian**：
+
+| 偏移 | 字段 |
+| ---: | --- |
+| 0 | magic `ZMB1` |
+| 4 | u16 version=1 |
+| 6 | u16 opcode=1：更新逻辑 AP profile |
+| 8 | u32 length=120 |
+| 12 | u32 request_id，不能为 0 |
+| 16 | u8 radio，只允许 0/1 |
+| 17 | u8 bss，当前只允许 0 |
+| 18 | u8 security=1：WPA2-PSK/AES |
+| 19 | u8 enabled=0/1 |
+| 20 / 21 | u8 SSID/key 长度 |
+| 22 | u16 reserved=0 |
+| 24 | 32-byte SSID slot |
+| 56 | 64-byte key slot |
+
+保守限制：SSID 是 1..31 字节可打印 ASCII、passphrase 是 8..63 字节可打印 ASCII，slot 未使用部分必须全零。
+**二进制 SSID、完整 32 字节 SSID、64-hex 原始 PSK、其他 BSS、其他安全模式、接口名与真实 radio 映射都不支持。**
+
+响应 **24 字节**：`ZMR1` / version=1 / u16 status / length=24 / request_id / u32 generation / u32 flags。响应里没有 SSID、
+密钥、DB 缓冲区、指针或诊断原文。成功只允许 `generation=1`、flags=`READBACK|OTHER_ROW`；失败 `generation=0`，
+并区分 `REJECTED` / `ROLLED_BACK` / `ROLLBACK_ERROR`。generation 只是新建私有 DB 的单次序号，**不是持久化版本号、
+事务 ID，也不是重放防护**。
+
+写进去的东西与不宣称的部分：`tools/dev/bridge_evidence.py` 固定核对 CFAPI（SHA256
+`66b4f5a8e3761e82a13960718733c45e076decdfd6b560af844782239d10b099`）里的公开 enum 表，并核对实际编译使用的 header 常量——
+`tWlanBeaconTypeTable @0x77868`（`11i`=3 → BeaconType）、`tWlanWPA11IAuthModeTable @0x78790`（`PSKAuthentication`=0 → 11iAuthMode）、
+`tWlanWPA11IEncrypTypeTable @0x77848`（`AESEncryption`=1 → 11iEncryptType）。ARM32 端只更新 `WLANCfg` 的 ESSID/Enable 与上述三个
+enum，以及 `WLANPSK` 的 KeyPassphrase，并清空 `PreSharedKey` 以免旧 raw-PSK 抢优先级；行 key 仍由原厂 formatter 生成，
+线上不接受任意 instance。写前完整校验并 snapshot，写后读回选中字段、同一行未选中字段与另一行。
+
+**两张表是两次 `dbAPISetView`，不宣称跨表原子性**：失败按 snapshot 恢复并读回验证；恢复失败返回明确的 `ROLLBACK_ERROR`
+且进程退出 81，不能当成功。真实 `cspd` callbacks、并发 Controller reader、OSS 通知都没接进来，这条通道不能直接当生产事务。

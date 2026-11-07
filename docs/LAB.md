@@ -153,15 +153,9 @@ init 怎么判定（`zte-mesh.init` 的 `emulator` 段）：
 
 1. **刷带 `CONFIG_COMPAT=y` 的固件**——真实路由器上唯一干净的解法：arm64 内核开了 COMPAT 就能原生跑 ARM32，不需要模拟器，`ZTE_MESH_EMULATED_LAB` 也不会被设置（少了两条仿真专用路径）。配置在 `.github/workflows/build-firmware.yml`（qualcommax/ipq807x 目标，CI 自己编内核，因为 ImageBuilder 改不了内核选项）；qemu 这一层本身可以长期跑，所以它是"要不要拿掉"的可选项而不是故障。
 2. **手工放一个模拟器**——测试环境和临时验证用，取**与设备同架构**的一份（编译机上 `tools/lab/emulate.sh` 做的是同一件事；这份文件不在任何仓库里，也不随包分发）。
-   取哪一份 deb 与"新版包里只有符号链接"这个坑写在 [README](../README.md) 的「qemu-arm-static 安装指南」里，2026-11-06 逐个下载量过。放好后确认下面两条：
+   取哪一份 deb 与"新版包里只有符号链接"这个坑写在 [README](../README.md) 的「qemu-arm-static 安装指南」里。放好后确认：
 
    ```sh
-   # 按设备 CPU 取上面 README 表里那一份 deb（24.04 上 apt-get download 取到的就是它，更新的发行版取到的是过渡包）
-   curl -O http://ports.ubuntu.com/ubuntu-ports/pool/universe/q/qemu/qemu-user-static_8.2.2+ds-0ubuntu1.18_arm64.deb
-   dpkg-deb -x qemu-user-static_8.2.2+ds-0ubuntu1.18_*.deb /tmp/q
-   ls -l /tmp/q/usr/bin/qemu-arm-static                              # 要看到几 MB 的真文件，不是符号链接
-   scp /tmp/q/usr/bin/qemu-arm-static root@<设备>:/usr/lib/zte-mesh/root/qemu-arm-static
-   ssh root@<设备> chmod 755 /usr/lib/zte-mesh/root/qemu-arm-static
    ls -l /usr/lib/zte-mesh/root/qemu-arm-static      # 存在且可执行
    service zte-mesh restart; sleep 5
    logread | grep -e qemu -e execv                   # 不该再出现 "no qemu-arm-static was found"

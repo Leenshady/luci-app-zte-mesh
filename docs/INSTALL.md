@@ -14,7 +14,7 @@
 |---|---|---|
 | **这台机器能不能直接跑 32 位 ARM 程序** | `uname -m` 是 `aarch64` 且固件带 `CONFIG_COMPAT=y` → 能。`x86_64` 或没有 compat 的 arm64 → 不能，要么自己把 `qemu-arm-static` 放进私有根 `/usr/lib/zte-mesh/root`，要么把 `zte_mesh.main.emulator` 设成**这台机器上的任意绝对路径**（比如 `/usr/bin/qemu-arm-static`）——服务会先比 sha256，不同才拷一份进私有根的 `usr/bin/`，拷不进去就不起并说清原因 | 控制器实例每 5 秒以 `execv errno=8` 退出，页面显示没跑起来。模拟器**不在任何包里**，判定表与三条出路见 [LAB](LAB.md) 第 4.2 节。多数固件不导出 `/proc/config.gz`（两台测试机都没有），所以这一条别看配置文件，看服务起来没起来、日志有没有 `errno=8` |
 | **无线回程要完整 `wpad`** | `apk info wpad`（`wpad-openssl` 这类变体也算，它 provides `wpad`）。25.12 起的 ImmortalWrt 用 apk，**机器上没有 `opkg` 这个命令**，`opkg list-installed \| grep wpad` 只在老 release 上有意义；`wpad-basic` 不够 | 只有开 `backhaul`（第 5、6 节）才受影响；`wlan-sync` 会把原因写进日志与页面状态行，不会静默失败 |
-| **flash 够不够** | `zte-mesh` 这个 apk 现在同时带运行环境和三个 CPU 的各一份启动器：合并后的 `zte-mesh-0.1.0-r22.apk` 是 **5 101 814 字节**（合并前那两份产物 3.9 MB + 1.2 MB，两份相加 5 104 550，所以合成一个还小了 2 736 字节）；LuCI 与中文包是 KB 量级。设备上以 `apk info -s zte-mesh` 为准——**装 r22 后两台测试机都读 10 MiB**（合并前 `zte-mesh` r21 单独是 8 034 KiB；更早文档里那个 8 007 KiB 只覆盖运行环境那部分，别拿它当合并后的数）。**要跑模拟器的那台机器上，占地方的是你自己放的那份 `qemu-arm-static`（10.7 MB），不是包** | 换 `wpad` 变体也可能挤爆小 flash |
+| **flash 够不够** | `zte-mesh` 这个 apk 同时带运行环境和三个 CPU 的各一份启动器，当前那份 `zte-mesh-0.1.0-r23.apk` 是 **4 460 826 字节**；设备上以 `apk info -s zte-mesh` 为准（两台测试机读 **9017 KiB**）。LuCI 与中文包是 KB 量级。**要跑模拟器的那台机器上，占地方的是你自己放的那份 `qemu-arm-static`（10.7 MB），不是包** | 换 `wpad` 变体也可能挤爆小 flash |
 
 ## 2. 装包
 

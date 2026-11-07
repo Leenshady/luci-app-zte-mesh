@@ -14,7 +14,7 @@
 第 1 节，私有 netns、原厂共享内存数据库（表结构从 `cspd` 的建表函数还原）、不启动 `cspd` 在第 2 节，CM 替身只替换
 `CmWLANGetAPConfig`、`CmWLANGetPsk` 与那 43 个字段偏移、表结构与写表逻辑的源文件职责在第 3 节（2496 字节 CM 输出的核对命令见
 [LAB](LAB.md)；替身只接受 WPA2-PSK + AES、要求 `ZTE_MESH_DB_SANDBOX=1`、其余 CM 调用走原厂真库见
-[milestones/EARLY_ACCEPTANCE](milestones/EARLY_ACCEPTANCE.md) 的 B.3.1 节）。
+本节即结论，不再回指当年的验收记录）。
 
 ## 2. 两份固件不是同一个构建
 
@@ -193,7 +193,7 @@ ABI 与沙箱约束（ARM EABI5 soft-float、`CONFIG_COMPAT` 的 ARM32 原生执
 配置、`0x10205` 主控配置、`0x10206` 域配置、`0x10208` BTM 模式、`0x10216` 无线电信息、`0x10226` STA BTM、`0x10227` STA 断开、
 `0x10238` 代理频段引导）见 [CONTROLLER_CAPABILITIES](CONTROLLER_CAPABILITIES.md) 第 F 节；数据库启动视图与控制器 `MultiAPCfg` 的
 夹具值见 [milestones/SCHEMA](milestones/SCHEMA.md)；128 KiB 订阅者池（`SubShmSrvInit`，key `0xabcb`）见
-[milestones/EARLY_ACCEPTANCE](milestones/EARLY_ACCEPTANCE.md) 的 B.3 节；`ACLPolicy` 那次回归（曾不设它、默认报 0 把子路由原来的 1 改成 0，现按子路由原值报告：
+[ARCHITECTURE](ARCHITECTURE.md) 第 5 节；`ACLPolicy` 那次回归（曾不设它、默认报 0 把子路由原来的 1 改成 0，现按子路由原值报告：
 主/访客 1、回程 0）见 [REAL_CHILD](REAL_CHILD.md) 第 2 节。留一句：
 
 - 原厂 `multiapd` 还要求私有 `/var/tmp`、`/var/run`、`/var/log`（在 `/var/tmp/<task>_{asy,snd}` 上 bind Unix socket，报文格式见

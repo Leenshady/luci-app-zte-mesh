@@ -310,6 +310,9 @@ Z506 的能力矩阵）、[机型对照](<docs/ZTE router model.md>)、[docs/jou
 这里）。原厂固件镜像不在仓库里：`tools/dev/prepare.py` 默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，可用
 `SR1010_VENDOR_ROOTFS` 指定。
 
+**这几处不必通读**：它们是取证与归档，只在要查原厂字段、查"当时那台机器上看到什么"时打开；按天列了索引的是
+[docs/journal/README.md](docs/journal/README.md)。当前结论一律看上面两类文档。
+
 ## 约定
 
 - 仓库里不放任何密码和密钥。子路由 telnet 口令只从环境变量 `ZTE_TN_PASS` 读；服务配置里的 Wi-Fi 密钥只写进

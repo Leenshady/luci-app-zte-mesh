@@ -177,10 +177,7 @@ make package/feeds/zte_mesh/zte-mesh/compile \
   `src-git` 会把包**复制**进 `package/feeds/zte_mesh/`，那里没有仓库根的 `tools/`，于是 `Build/Compile` 直接停在一条写明原因的报错上——
   这种构建树要 `make … ZTE_MESH_LAUNCHER_BUILD=~/zte-mesh/tools/build/launcher-arches.sh`。两种情况下构建树里都只有目标机那种架构工具链，
   所以 feed 构建出的 apk 通常只带一种架构；另外两种架构要宿主的 `gcc-aarch64-linux-gnu` / `gcc-arm-linux-gnueabihf` 在场。
-- 大小：合并前那两份 CI 产物是 `zte-mesh` 3 882 850 字节 + `zte-mesh-launcher` 1 221 700 字节（2026-11-05，r21 / launcher r2）；
-  **合并后的那一份 `zte-mesh-0.1.0-r22.apk` 是 5 101 814 字节**（`ci/batch21`），比合并前那一份大 1.2 MB，但比两份相加（5 104 550）还小 2 736 字节——**合包在磁盘上不花钱**。
-  LuCI 与中文包同一批合计 18 KB。要这个数只为判断 flash，**比对以设备上 `apk info -s zte-mesh` 的读数为准**：装 r22 后两台都读 **10 MiB**
-  （合并前 `zte-mesh` r21 单独是 8 034 KiB、launcher r2 是 2 413 KiB；更早文档里那个 8 007 KiB 只覆盖运行环境那部分，别再拿它当合并后的数）。
+- 大小只为判断 flash：**比对以设备上 `apk info -s zte-mesh` 的读数为准**，当前 apk 的字节数写在 [INSTALL](INSTALL.md) 第 1 节。历史各轮的字节数不进这份文档（每轮 CI 的读数在 `docs/journal/`）。
 - 包没签名：`apk add --allow-untrusted`；卸载 `apk del <三个包名>`。运行包含原厂二进制，随这个公开仓库一起发布
   （2026-10-19 决定）；`zte-mesh` 仍是 `PKG_FLAGS:=nonshared`，不进共享软件源。
 - **读 apk 的成员要用 SDK 自己编出来的那份 `apk`**（`staging_dir/host/bin/apk --allow-untrusted extract`，解到临时目录再 `find`）：
@@ -196,47 +193,27 @@ make package/feeds/zte_mesh/zte-mesh/compile \
 
 | workflow | 产物 | 说明 |
 |---|---|---|
-| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（批 23 起固定镜像，理由见下面第 3 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三种架构全要（少编一种架构直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这种架构的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两种架构每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary，**批 24 起同一份六行还 `echo` 到 stdout，所以 job log 里读得到**），再确认运行环境那部分（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
+| `build-apk.yml` | `zte-mesh-apk`（三个 apk） | `ubuntu-24.04`（固定镜像的理由见下面第 2 条）交叉编译 `zte/zx279133`，断言三个包都在。`zte-mesh` 的编译装 `gcc-arm-linux-gnueabihf` + `musl-tools musl-dev linux-libc-dev`（x86_64 那一份因此由 `musl-gcc` 编，宿主 `cc` 只是它编不出来时的退路——见 [launcher-arches.sh](../tools/build/launcher-arches.sh) 那段内核 UAPI 头的注释；`gcc-aarch64-linux-gnu` 已不在清单里，见下面第 1 条），`ZTE_MESH_REQUIRE_ARCHES` 设成三种架构全要（少编一种架构直接红），构建完**用 SDK 自己那份 `apk` 解出 `zte-mesh` apk 的成员**：确认 `arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}` 与两个外层入口脚本都在，用 `file -b` 问每个二进制"你是不是这种架构的代码"（光看路径会放过"同一份构建复制三遍"那种装法），再按字节数问它带的是哪份 libc（要 musl 的那两种架构每份上限 204 800 字节——宿主 `cc` 编的 x86_64 那对是 735 932 与 854 716，通不过；`armv7` 仍是 glibc，只报数不判，`launcher-weights.txt` 六行进 run summary，**批 24 起同一份六行还 `echo` 到 stdout，所以 job log 里读得到**），再确认运行环境那部分（`root/bin/db-engine-probe`、`root/lib/libzte_controller_trace.so`、`etc/init.d/zte-mesh`、`usr/libexec/zte-mesh/sta-collect`）没被安装规则漏掉。产物**未签名**，装的时候要 `--allow-untrusted` |
 | `build-firmware.yml` | `CONFIG_COMPAT=y` 的固件 | 路由器摆脱模拟器的唯一干净解法 |
 | `build-lab-tools.yml` | `prebuilt/*`（提交回当前分支） | 见第 10 节。跑完会自己 commit + push，这是唯一更新 `prebuilt/` 的途径 |
 
-**一轮的墙钟时间有三个互不相干的成本**（批 22 的 run `42137910790` 把它们分开量出来了，批 23 对每一个动了一处）：
+**一轮的墙钟时间有三个互不相干的成本**：
 
-1. **apt 装宿主包**——那轮 37.8 分钟，其中 45.1 MB 是 `gcc-13-aarch64-linux-*` 四个包，而**这份清单根本不会被调用**：
-   CI 的目标架构就是 aarch64，`launcher-arches.sh` 对 `arch` 等于 `TARGET_ARCH` 的那种架构只用目标工具链的 `$(TARGET_CC)`，
-   宿主 cross gcc 只在架构不同时才是候选。armv7 与 x86_64 两种架构的编译器照旧留着。
-   现在清单里已无 `gcc-aarch64-linux-gnu` / `libc6-dev-arm64-cross`。**代价**：拿这个 feed 给非 aarch64 目标构建时，
-   `arch/aarch64` 不在包里，而 `ZTE_MESH_REQUIRE_ARCHES` 会把那一步直接判红——是响的失败，不是静默少一种架构。
-2. **apt 的下载本身**——同一份清单，一次 57 s（1 628 kB/s），一次 37min 28s（41.4 kB/s），差别只在镜像当天快不快。
-   现在 `$RUNNER_TEMP/apt/archives` 用 `actions/cache/restore` + `save` 配成一份下载缓存，key 取
-   「排序后的包名 + `ImageOS` + `/image_version`」的 sha256 前 16 位；命中就把网络那部分整段跳过。
-   写缓存那一步 `continue-on-error`，且只在未命中时跑，不会因为缓存服务坏了连累一批包。
-   **`ci/batch23` 读出这一条到现在还没生效过一次**：save 那步报
-   `tar: ../../_temp/apt/archives/lock: Cannot open: Permission denied`（`partial` 同一句）加 `##[warning]Cache save failed.`，
-   restore 于是回 `Cache not found for input keys: apt-f84f2aa7a576df42`。根因是 apt 下载时把 `lock` 与 `partial` 重新收归
-   `_apt`（700），而 workflow 里那句 `chown -R` 排在 `apt-get` **之前**管不到下载之后；批末已在 `Install host dependencies`
-   末尾补一次 `chown -R`。**这一条的判据只在 job log 里**：`Save` 不再出现 `Failed to save`，且再下一轮的 `Restore`
-   报 `Cache hit for: apt-<同一个哈希>`——两行缺任何一个都不许把那一步的秒数当成提速。
-   **`ci/batch24` 读到第一行成了**：同一轮先 `Cache not found for input keys: apt-f84f2aa7a576df42`（还没命中），
-   末尾 `Cache saved with key: apt-f84f2aa7a576df42`，那句 `Permission denied` 与 `##[warning]Cache save failed.` 都不在日志里了；
-   这一轮 apt 下载 `Fetched 50.5 MB in 2s (20.2 MB/s)`——是镜像当天快，**不是命中**。第二行要等再下一轮。
-3. **工具链与 `tools/install`**——冷构建 30–45 分钟，由上游 revision 锁住缓存。**批 22 读出一条旧注释是错的**：
-   它写"缓存命中后几分钟就到打包"，实际命中的那一轮 `tools/install` 仍跑了 **14m5s**、71 000 行日志。
-   现在这一步拆成 `run_stage`，对 `tools/install` 与 `toolchain/install` 各报**秒数、退出码、日志行数、
-   `Entering directory` 次数与前 8 个目录的访问计数**，job log 与 run summary 各写一份（后者 REST 读不到，见本节末"发布 release"那条），
-   下一轮才分得清"没重编"和"重编了一遍"。**`ci/batch23` 第一次读到这两个数**：`== tools/install: 1043s, exit 0, 57474 log lines,
-   772 directory visits`（前 8 个目录 `lib` 45／`src` 39／`tests` 31／`e2fsprogs-1.47.3` 30／`doc` 26／`gnulib-tests` 21／`libtool-2.5.4` 17／`po` 15）
-   与 `== toolchain/install: 72s, exit 0, 14286 log lines, 65 directory visits`，同一轮 `Restore build cache` 是 `Cache hit` ——
-   **所以计时判据把自己批里那句假设否掉了：这一步不是 stamp 驱动的空转，772 个目录真的又走了一遍**，
-   1115 秒的那一步里 1043 秒归它——这一轮 23 分 42 秒中它占 17 分钟，第二大的一项才是 `Build packages` 的 114 秒。
-   下一批要读的是它的 `build_dir/hostpkg` 与 stamp 有没有活过缓存恢复（在不在缓存 path 里）。
-   **`ci/batch24` 第二次读到**：`== tools/install: 848s, exit 0, 57472 log lines, 772 directory visits`、
-   `== toolchain/install: 59s, exit 0, 14286 log lines, 65 directory visits`，整轮 **19 分 44 秒**。
-   目录访问次数与上一轮一字未动，日志行数只差 2 行，秒数却少了 195（1043→848）——**同一批目录走两遍，快慢是镜像与磁盘的，不是"少走了什么"**；
-   这一轮没有新的提速改动，所以这 195 秒不能算成成果，第 111 项那个"stamp 与 `build_dir/hostpkg` 在不在缓存 path 里"仍然是唯一能解释它的读法。
-
-`runs-on` 从 `ubuntu-latest` 固定为 `ubuntu-24.04` 是为的第 2 条：`ubuntu-latest` 换代时 apt 缓存的 key 会整批作废，
-而这一批的 key 里带着 `ImageOS` 与 `/image_version`——两条都要动。镜像实际见过的两个版本是 `20261025.353.1` 与 `20261101.360.1`。
+1. **apt 装宿主包**：CI 的目标架构就是 aarch64，`launcher-arches.sh` 对 `arch` 等于 `TARGET_ARCH` 的那种架构只用目标工具链的
+   `$(TARGET_CC)`，宿主 cross gcc 只在架构不同时才是候选——所以清单里已无 `gcc-aarch64-linux-gnu` / `libc6-dev-arm64-cross`，
+   armv7 与 x86_64 的编译器照旧留着。**代价**：拿这个 feed 给非 aarch64 目标构建时 `arch/aarch64` 不在包里，
+   而 `ZTE_MESH_REQUIRE_ARCHES` 会把那一步直接判红——是响的失败，不是静默少一种架构。
+2. **apt 的下载本身**：同一份清单，快慢能差两个数量级，差别只在镜像当天快不快。`$RUNNER_TEMP/apt/archives` 用
+   `actions/cache/restore` + `save` 配成一份下载缓存，key 取「排序后的包名 + `ImageOS` + `/image_version`」的 sha256 前 16 位，
+   命中就把网络那部分整段跳过；写缓存那一步 `continue-on-error`，且只在未命中时跑。两个约束：apt 下载时把 `lock` 与 `partial`
+   重新收归 `_apt`（700），所以 `chown -R` 必须排在 `apt-get` **之后**；`runs-on` 固定 `ubuntu-24.04`，因为 key 里带着
+   `ImageOS` 与 `/image_version`，跟 `ubuntu-latest` 换代等于整批作废。**这一条的判据只在 job log 里**：`Save` 不出现
+   `Failed to save`，且再下一轮的 `Restore` 报 `Cache hit for: apt-<同一个哈希>`——两行缺任何一个都不许把那一步的秒数当成提速。
+3. **工具链与 `tools/install`**：冷构建 30–45 分钟，由上游 revision 锁住缓存。这一步拆成 `run_stage`，对 `tools/install` 与
+   `toolchain/install` 各报**秒数、退出码、日志行数、`Entering directory` 次数与前 8 个目录的访问计数**，job log 与 run summary
+   各写一份（后者 REST 读不到，见本节末"发布 release"那条）。**判据**：目录访问计数掉下来才算"没重编"——缓存命中的那一轮
+   `tools/install` 照样走满 772 个目录访问、约 1000 秒，一轮与下一轮之间少的两百秒是镜像与磁盘的，不是少走了什么。
+   待验的是它的 `build_dir/hostpkg` 与 stamp 有没有活过缓存恢复（在不在缓存 path 里）。
 
 **版本控制**：仓库在 GitHub `Leenshady/luci-app-zte-mesh`，日常只有 `main` 一条长期分支（`feat/child-node` 是给上游提 PR 用的）。
 批末的那次 CI 走**一次性分支** `ci/batchN`：`main` 直连 ImmortalWrt feed 不能随便推，所以把这一批推成临时分支再在
@@ -259,15 +236,14 @@ token 只留在 shell 变量里，不回显、不落盘。zip 解开是三个 ap
 gh release create v0.1.0-r23 dist/*.apk dist/SHA256SUMS.txt
 ```
 
-- **本机没有 `gh`**，2026-11-05 发 `v0.2.0` 走的是同一套 API 的三次调用：`POST /repos/<owner>/<repo>/releases`（`tag_name` + **`target_commitish` 填本次构建的那个 commit**，tag 由这一步建出来，不用先 `git push` tag）→ 对每个文件 `POST <upload_url>?name=<文件名>`，`Content-Type: application/octet-stream` + `--data-binary @文件` → **回到公开 URL 再下一个副本，在临时目录里 `sha256sum -c SHA256SUMS.txt`**（上传把字节弄坏了只有这一步会发现，而这一句正是 release 说明里让新用户执行的那一句）。`v0.2.0` 的 tag 指 `d9ce19d`（`ci/batch21` 的 tip，也就是那次构建吃的树），**不是**它上面那份只改文档的批末提交。
-- **`target_commitish` 填的提交必须在远端存在**——批末走临时分支就把这条变成了前置：`ci/batchN` 装机读完即删，那棵树因此在 origin 上没有任何分支指向，API 直接拒建 tag。2026-11-06 发 `v0.1.0-r23`（run `42209996117` 的三个 apk，tag 指 `9696812`）之前先 `git -c http.sslBackend=schannel push origin main`，`ls-remote --heads` 读到 `main` 之后才发；推的是本机的 fork，不是 feed 那条 `upstream`。同一轮还留了一条判据可复用的读数：四个资产上传各回 201，匿名重下三条 `OK`，`releases/tags/v0.1.0-r23` 里 `draft=false`、四个资产大小与 `SHA256SUMS.txt` 一字不差。
+- **本机没有 `gh`**，同一套 API 的三次调用就够：`POST /repos/<owner>/<repo>/releases`（`tag_name` + **`target_commitish` 填本次构建的那个 commit**，tag 由这一步建出来，不用先 `git push` tag）→ 对每个文件 `POST <upload_url>?name=<文件名>`，`Content-Type: application/octet-stream` + `--data-binary @文件` → **回到公开 URL 再下一个副本，在临时目录里 `sha256sum -c SHA256SUMS.txt`**。上传把字节弄坏了只有最后这一步会发现，而这一句正是 release 说明里让新用户执行的那一句——**发布成不成立只看这一句**。
+- **`target_commitish` 填的提交必须在远端存在**，否则 API 直接拒建 tag。批末走临时分支时这条成了前置：`ci/batchN` 装机读完即删，那棵树在 origin 上没有任何分支指向，所以要么先把那个提交推到一条留得住的 ref（本机的 fork，不是 feed 那条 `upstream`），要么就在那个 ref 上发布。
 - workflow 的权限是 `contents: read`：它写不了仓库，也建不了 tag，跑通了对外什么都不会发生。
 - tag 要指对着提交——发布出来的字节和 tag 上的代码必须是同一件事，所以先装机验证、再在**那个**提交上打 tag。
 - 包**没有签名**，装的时候要 `apk add --allow-untrusted`；release 说明里也要写清这一条，不然新的人只会看到"装不上"。
-- **tag 名 = 完整版本串**（2026-11-06 起的规矩）：`v<PKG_VERSION>-r<三个包对齐后的 PKG_RELEASE>`，例如 `v0.1.0-r23`，
-  和三个 apk 的文件名一字不差。以前是 `v0.x.y` 那套和包无关的序号，结果 tag 与 apk 里的数从来没对上过
-  （`v0.1.0`→r10、`v0.2.0`→r22），说明第一段还要专门解释"两个身份"；规矩与对齐过程见 [PLAN](PLAN.md) 第 6.3 节。
-- **同一棵树重编，apk 的 sha 不一定相同，所以"sha 不同"不等于"内容变了"**。2026-11-05 发完 `v0.2.0` 当天在 `main`（`b2c5e4b`，与发布那棵 `d9ce19d` 只差文档）又跑一次 `Build APK`（run #60）：`zte-mesh-0.1.0-r22.apk` **逐字节相同**（`8778aac6…`、5 101 814 B），两个 LuCI 包的容器却变了（`10 206 → 10 207 B`；i18n 大小不变、sha 变了）。把四份推到 `owrt` 上解——**`.apk` 是 libadb 容器，本机与构建机的 `tar -t` 一个成员也列不出来**——`luci-app` 4 个、`i18n` 3 个成员的 sha256 与大小两边**逐一相同**，唯一的区别是成员 mtime 变成新的构建时刻（`17:16:44 +0800` 对 `19:20:07 +0800`）：**时间戳进了 tar 头，内容没变**。两边的差别在时间戳从哪来：`zte-mesh` 解出来的成员全是同一个时刻 `17:13:40`，等于 `git log -1 --format=%ct -- openwrt/zte-mesh/`（`d9ce19d` 的提交时刻，epoch `1793870020`）——**那一侧有时间戳钳制**，两次构建只要那个包目录没动，apk 就一模一样；LuCI 那两个包没有钳制，成员跟每次构建的墙上时钟走（`openwrt/luci-app-zte-mesh/` 的最后一次改动是 `0b25ca1`，可 mtime 不是它）。要比内容就这样读：
+- **tag 名 = 完整版本串**：`v<PKG_VERSION>-r<三个包对齐后的 PKG_RELEASE>`，例如 `v0.1.0-r23`，和三个 apk 的文件名一字不差——
+  用和包无关的序号（`v0.x.y`）会让 tag 与 apk 里的数对不上，release 说明得专门解释"两个身份"。规矩与对齐过程见 [PLAN](PLAN.md) 第 6.3 节。
+- **同一棵树重编，apk 的 sha 不一定相同，所以"sha 不同"不等于"内容变了"**。`zte-mesh` 的 apk 两次构建能逐字节相同：它解出来的成员 mtime 全等于 `git log -1 --format=%ct -- openwrt/zte-mesh/`——**那一侧有时间戳钳制**，包目录没动 apk 就一模一样。LuCI 那两个包没有钳制，成员跟每次构建的墙上时钟走，容器哈希每次重编都换（大小可以不变，`i18n` 就是）：**时间戳进了 tar 头，内容没变**。要比内容就这样读——**`.apk` 是 libadb 容器，本机与构建机的 `tar -t` 一个成员也列不出来**：
 
   ```sh
   # 测试机上有 apk-tools 3.0.5；--allow-untrusted 不给就是四行 UNTRUSTED signature 加一个空目录
@@ -277,7 +253,7 @@ gh release create v0.1.0-r23 dist/*.apk dist/SHA256SUMS.txt
   for d in a b; do (cd /tmp/apkcmp/$d && find . -type f | sort | xargs sha256sum); done
   ```
 
-  **这条对既有判据的意思是**：好几批写的是"某个包与上一批**逐字节相同**"——那句在 `zte-mesh` 上是真有意义的（它的时间戳钳在包目录的最后一次改动上，改了 `openwrt/` 里别的地方不会让它变），但**判"这两份是不是同一批"不能拿 LuCI 那两个包的容器哈希当依据**，它们每次重编都换哈希。钳制发生在 `apk mkpkg` 还是 OpenWrt 按包目录算 `SOURCE_DATE_EPOCH`，没查（`mkpkg` 那一行的原文在 `build.log:4026`）。
+  **这条对既有判据的意思是**：写"某个包与上一批**逐字节相同**"在 `zte-mesh` 上是有意义的（时间戳钳在包目录的最后一次改动上，改 `openwrt/` 里别的地方不会让它变），但**判"这两份是不是同一批"不能拿 LuCI 那两个包的容器哈希当依据**。钳制发生在 `apk mkpkg` 还是 OpenWrt 按包目录算 `SOURCE_DATE_EPOCH`，没查。
 
 ## 9. 界面文案与中文翻译
 
