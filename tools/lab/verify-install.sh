@@ -28,13 +28,13 @@
 # controller's own database row now carries (`smoke_cur_hop_override`); a machine with no such file judges nothing.
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
-# installed (`packed_copy`), the four that say the batch's shell files are (`package_scripts` -- a batch that changes
+# installed (`packed_copy`), the five that say the batch's shell files are (`package_scripts` -- a batch that changes
 # only the init script and the applier leaves nothing in the rootfs), the three that say this machine has a launcher it
 # can exec (`launcher_evidence` -- the package is architecture-independent now and the install-time board gate is gone,
 # so the answer moved here), one more there that only reports whether the separate zte-mesh-launcher package is still
 # on the box, the collector's own table (`ap_sta_evidence`), the
 # peer files it has produced (`peer_files`) and whether the state document carries the per-BSS key (`state_nodes`).
-# Those are evidence lines, and only the nine markers are counted as assertions -- an empty peer directory on a link
+# Those are evidence lines, and only the ten markers are counted as assertions -- an empty peer directory on a link
 # whose peer reports no station count is not a fault of ours.
 # Two more pairs turn PLAN's on-machine questions into lines you can read twice. `smoke_mesh_compat` judges the page
 # option against the key the daemon reads (they answer opposite questions), and `smoke_backhaul` judges the four uci
@@ -674,6 +674,11 @@ package_scripts() {
 	# r19 batch: the collector learned one switch. Reading it back matters because the pause is the only lever that
 	# stops the station counts without touching the daemon -- a machine still holding the old script answers `no`.
 	collect=$(marker_present "$LIBEXEC/sta-collect" 'collect-pause')
+	# r26 batch: the device page reads through its own collector, so a machine where the plugin landed but this file
+	# did not renders an empty table and says nothing about why. It is its own judgement rather than a fifth key of the
+	# block below: on a machine one batch older the file is legitimately absent (a report), but a file that is there
+	# without this batch's marker is the stale copy worth failing -- the same split as the collector case.
+	devices=$(marker_present "$LIBEXEC/device-list" 'ZTE_MESH_LEASE')
 	if [ "$init" = unreadable ] || [ "$sync" = unreadable ] || [ "$compat" = unreadable ] ||
 		[ "$collect" = unreadable ]; then
 		say init_seed_from_air "$init"
@@ -686,6 +691,11 @@ package_scripts() {
 	check sync_flag_by_meaning yes "$sync"
 	check init_reads_mesh_compatible yes "$compat"
 	check collect_pause_in_collector yes "$collect"
+	if [ "$devices" = unreadable ]; then
+		say device_list_collector absent
+	else
+		check device_list_collector yes "$devices"
+	fi
 }
 
 launcher_evidence() {

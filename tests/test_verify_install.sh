@@ -175,6 +175,15 @@ PAUSE=$DIR/collect-pause
 EOF
 chmod +x "$LIBEXEC/sta-collect"
 
+# the device list's own collector, same directory: r26's read-back wants the environment name it reads the lease file
+# from. The page answers an empty table when this file is missing, so an installed copy that predates the batch is the
+# one case worth failing.
+cat > "$LIBEXEC/device-list" <<'EOF'
+#!/bin/sh
+LEASE=${ZTE_MESH_LEASE:-/tmp/dhcp.leases}
+EOF
+chmod +x "$LIBEXEC/device-list"
+
 # plan_rows SSID... -- /run/zte-mesh/wlan-plan is a key=value table, one row per BSS the applier was told to carry.
 # The SSID smoke compares those rows against the wireless config, so the fixtures have to look like the real file.
 plan_rows() {
@@ -550,6 +559,7 @@ check_line probe_bss_detail yes
 check_line init_seed_from_air yes
 check_line sync_flag_by_meaning yes
 check_line collect_pause_in_collector yes
+check_line device_list_collector yes
 check_line peers_sta 0
 check_line peers_software 0
 # the lab link's only metrics digest is hops=1: no station count arrived at all, so an empty per-BSS count is not
@@ -736,6 +746,32 @@ if grep -q 'FAIL collect_pause_in_collector expected=yes got=no' "$out"; then pa
 check_line init_seed_from_air yes
 check_line sync_flag_by_meaning yes
 printf '#!/bin/sh\nPAUSE=$DIR/collect-pause\n' > "$LIBEXEC/sta-collect"
+
+# and the device list's collector: the plugin can answer `devices` while this file is still the previous batch's copy,
+# which is the shape that renders an empty table with no hint of why
+CASE=scripts-stale-device-list
+packed_libs
+printf '#!/bin/sh\necho '"'"'{"epoch": -1, "devices": []}'"'"'\n' > "$LIBEXEC/device-list"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 1
+check_line RESULT FAIL
+if grep -q 'FAIL device_list_collector expected=yes got=no' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: a collector without the lease environment name must fail the run"; fi
+check_line init_seed_from_air yes
+check_line sync_flag_by_meaning yes
+printf '#!/bin/sh\nLEASE=${ZTE_MESH_LEASE:-/tmp/dhcp.leases}\n' > "$LIBEXEC/device-list"
+
+# a machine one batch older has no such file at all: the page has nothing to run, which is the role of an older install
+# and not a stale batch -- the same judgement as the absent applier above
+CASE=scripts-absent-device-list
+packed_libs
+rm -f "$LIBEXEC/device-list"
+sh "$SCRIPT" > "$out" 2>&1
+check_rc $? 0
+check_line RESULT PASS
+check_line device_list_collector absent
+if grep -q '^FAIL device_list' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: an absent collector file is an environment fact"; else pass=$((pass + 1)); fi
+printf '#!/bin/sh\nLEASE=${ZTE_MESH_LEASE:-/tmp/dhcp.leases}\n' > "$LIBEXEC/device-list"
 
 # --- the launcher no longer picks a board at install time -------------------------------------------------------------
 # The apk is architecture-independent now, so `apk add` accepts it on any machine and the gate that used to refuse the

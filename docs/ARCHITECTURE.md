@@ -51,6 +51,13 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
   这个目录本来就 bind 进私有根，`agent-ap-metrics.c` 在沙箱里读它拼 `0x800c`。表超过 30 秒没刷新就不回——
   **过期即沉默，不报一个陈旧的数**。主控那头由服务定时发查询（见 [SERVICE.md](SERVICE.md)）。
 
+- **本机看得到的设备（宿主侧 `device-list`）**：页面「设备」一节不是控制器给的——控制器只有每 BSS 的终端数（上一段），
+  没有"是哪几个"。所以这一节由宿主当场读三张本机表并按 MAC 合并、逐行说明哪几张表见过它：`/tmp/dhcp.leases`（本机
+  dnsmasq 发过谁，静态地址的设备不在这张表里）、`ip neigh`（内核知道谁，租约过期但还在线的只有这张表）、本机 AP 的
+  debugfs `stations`（只取 netifd 报的 `mode=ap`，回程的 sta 接口数进来就把主控算成本机的终端）。**边界**：另一台
+  路由器上的设备不在这里；有线设备只说"有线"不标端口（镜像里没有 `bridge` 命令，`ip neigh` 也没有这个信息）。
+  它不读、不写任何配置，`luci.zte-mesh devices` 只是把这行 JSON 原样转给页面。
+
 - **有线口的自愈（实例 `attach`）**：沙箱这头的 `veth-lab` 和宿主那头的 `zmesh0` 是一对 veth，删掉任一端两个一起没了；
   而沙箱里没有 `/proc`、没有 `/sys`、没有 `ip`、也没有 `CAP_NET_ADMIN`，daemon 又在 `bind()` 时把 ifindex 绑死了——
   线掉了里面没人能重建，只有重启实例才行。`attach` 因此兼任看门狗：`zmesh0` 与 `lab-peer` 连续 20 秒都不在、
@@ -82,7 +89,7 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 | `controller-packet.c`、`controller-wsc*.c` | 沙箱 + 测试环境 | 合成对端和独立的 M2 校验器（只用公开测试值）；主控侧发 `0x800b` 查询（`controller_ap_metrics_query()`：从 `veth-lab` 发、源取 `br0` 的 AL MAC、发出即不读——应答按那个 MAC 回到 daemon 自己的 socket） |
 | `config-bridge-probe.c`、`exec-check.c`、`zte-debugcmd.c` | 测试环境 | 早期桥接测试、加载检查、原厂 `sendcmd` 调试通道客户端 |
 | `prepare.py`、`jffs2.py`、`vendor_elf.py`、`schema.py`、`profile_schema.py`、`startup-schema.py`、`bridge_evidence.py`、`cm-profile-evidence.py` | mac | 从固件提取运行环境、按固定哈希审计 ABI、核对表结构与偏移证据 |
-| `openwrt/` | 路由器 | init（UCI 映射）、rpcd 插件、LuCI 页面、`wlan-sync`、`sta-collect`（宿主侧量终端数）、`make-runtime.py`、`repack-runtime.py` |
+| `openwrt/` | 路由器 | init（UCI 映射）、rpcd 插件、LuCI 页面、`wlan-sync`、`sta-collect`（宿主侧量终端数）、`device-list`（宿主侧列本机看得到的设备，只读页用）、`make-runtime.py`、`repack-runtime.py` |
 
 ## 4. 固件来源
 

@@ -198,6 +198,7 @@ test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/
 	sh tests/test_rpcd.sh
 	sh tests/test_wlan_sync.sh
 	sh tests/test_sta_collect.sh
+	sh tests/test_devices.sh
 	sh tests/test_launcher_dispatch.sh
 	sh tests/test_launcher_arches.sh
 	sh tests/test_build_deps.sh

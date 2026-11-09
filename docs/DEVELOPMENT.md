@@ -65,7 +65,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 171 条、终端数采集 32 条、无线同步 282 条、启动器入口 24 条、启动器架构构建 41 条、CI 运行依赖 23 条、服务角色 11 条、rpcd 24 条、装机验收 294 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  启动视图、init 176 条、终端数采集 32 条、无线同步 282 条、启动器入口 24 条、启动器架构构建 41 条、CI 运行依赖 23 条、服务角色 11 条、rpcd 24 条、装机验收 304 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
   **本机（Windows + Git Bash）跑启动器入口那组会 skip 2 条**：`chmod 644` 清不掉执行位，"文件在但不可 exec"这一个分支在这套文件系统上表达不出，
   计数里那两条不是回归（owrt 的 busybox ash 与 WSL 的 dash 上能跑全）。架构构建那组的编译器是 stub——它判的是 `tools/build/launcher-arches.sh` 的选址顺序、
   `-dumpmachine` 映射、编完读回 ELF 头认架构与 `ZTE_MESH_REQUIRE_ARCHES`，不是真编译；真编译在 CI 那一步，产物成员清单是它的判据（第 8 节）。
@@ -73,6 +73,9 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
   所以 `tests/test_service_role.sh` 钉的是"读回在应用之后、分支之前，两个一次性动作跟着角色重开"这段决定的形状（与 `test_init.sh` 对
   `start_service()` 的先例同一道理）；行为读数在 [PLAN](PLAN.md) H-18。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
+  **Git Bash 上跑它要靠运气**：这一组要起上千个子进程，Cygwin 会报 `fork: retry: Resource temporarily unavailable`（`errno 11`），
+  `backhaul` / `ssid` 那几个用例于是读到空文件、误判成 FAIL（2026-11-09 实测 301 passed / 3 failed，同一份代码在 WSL 的 dash 上 304 条全绿）；
+  看到这类失败先换 WSL 复核，别当回归。
   **rpcd 那 24 条只判插件侧**：它的服务是 shell 假替身，真消费者 `action_reconcile()` 在 `controller_service()` 里、
   跑在 chroot 内（`ns-run.c:161` → `db-engine-probe.c:253`），唯一挂进来的宿主路径是 `/run/zte-mesh` 本身。
   所以"这个路径沙箱里那个进程看不看得见"这组测试表达不出来——2026-11-07 把收件目录搬去 `/run/zte-mesh-actions`，
@@ -93,7 +96,7 @@ ZXSLC SR1010、ZXHN Z506、测试环境里的 ImmortalWrt 虚拟机）已不再�
   这几组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，`container-make.sh` 的 noexec 注意项在这里不适用。
 - LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；PATH 里没有 `node`，测试环境那两台机器也没装）。
   实测可用的解释器是这台机器上另一套工具带的独立二进制，直接给绝对路径就能跑：
-  `"<本机那个 node.exe 的绝对路径>" tests/test_luci.js`（v24.21.0）。
+  `"<本机那个 node.exe 的绝对路径>" tests/test_luci.js`（2026-11-09 用 `~/.workbuddy/binaries/node/versions/22.22.2-6/node.exe` 跑过，v22.22.2）。
   这个测试只读仓库里的 `zte-mesh.js` 与 `tests/test_init.sh`，不需要 LuCI 运行时，所以不必上开发机。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
 - 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`（它真的**执行** init 里的函数：`write_config()`、`reload_service()` 与预检 `launcher_ready()`。后者是 2026-11-06 从 `start_service()` 里拆出来的——`start_service` 先要 `/sys/class/net/<桥>/bridge` 再要 procd，主机上跑不动，于是那三段判断以前只能被 grep 字符串，"入口不在"那一行搬到 `--launcher-check` 后面也不会红。拆出来的这段只用 `ZTE_MESH_ROOT`/`ZTE_MESH_NSRUN` 那两个已有的环境变量就能传入各种输入，**判据读的是日志里出现哪一句**，对照组跑"删掉 `[ -x "$NSRUN" ]`"那份 init 能读到装机时那句假诊断）、`python tests/test_runtime.py`（31 条，守的是"tarball 成员与仓库文件逐字节一致"，另加两条"包里的库认不认得这条新帧路"）、`python tests/test_i18n.py`。

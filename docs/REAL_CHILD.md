@@ -25,7 +25,7 @@ Key Wrap，子路由 `config M2[0]`）、SSID 与 WPA2 密钥真的广播出来�
 
 | 门槛 | 现象 | 做法 | 作用范围 |
 |---|---|---|---|
-| 设备身份 | 子路由 `reason=1` 拒绝 | `DevInfo.ManuFacturer/ModelName` 用 SR1010 的公开值（ZTE / `ZXSLC SR1010`），不含序列号 | 仅 `--controller-service`，环境变量 `ZTE_MESH_REAL_MANUFACTURER`/`ZTE_MESH_REAL_MODEL`；测试环境仍用占位名 |
+| 设备身份 | 子路由 `reason=1` 拒绝 | `DevInfo.ManuFacturer/ModelName` 用 ZTE 公开厂商 + 本机无线规格对应的公开型号（无无线 `ZXSLC SR1010`、Wi-Fi 5 `ZXHN Z506`、Wi-Fi 6 `ZXHN E2631`、Wi-Fi 7 `ZXHN E3710`，判不出 `ZXHN E2631`），不含序列号 | 仅 `--controller-service`，环境变量 `ZTE_MESH_REAL_MANUFACTURER`/`ZTE_MESH_REAL_MODEL`；型号由 init 的 `model_for_radio()` 从本机 phy 推出，测试环境与真机同一套 |
 | 市场码 | `reason=2` 拒绝 | `P1905ComCfg.MarketConfEn=1`、`MarketSign` 与子路由一致（`8000`） | `ZTE_MESH_REAL_MARKET_SIGN` |
 | 无线电状态 | M2 带 Tear Down | `MultiAPCfg.SSIDSyncRadio=1`（有线控制器绕过 `bRadioStatusOn()`） | 启动时无条件设置 |
 | BSS 启用标记 | M2 带 Tear Down | `P1905AcdBssCfg.CustomTag=68`（0x44 = bit2+bit6；bit0 不置，启用位每次 Renew 从 `WLANCfg.Enable` 读，CM 适配层补 `Enable` 字节） | 每个 BSS 行 |
