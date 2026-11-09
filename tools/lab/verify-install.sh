@@ -746,10 +746,12 @@ peer_files() {
 	check=1
 	sta=0
 	soft=0
+	assoc=0
 	report=no
 	while :; do
 		sta=0
 		soft=0
+		assoc=0
 		report=no
 		if [ -d "$PEERS" ]; then
 			for f in $PEERS/*.sta; do
@@ -757,6 +759,9 @@ peer_files() {
 			done
 			for f in $PEERS/*.software; do
 				[ -e "$f" ] && soft=$((soft + 1))
+			done
+			for f in $PEERS/*.assoc; do
+				[ -e "$f" ] && assoc=$((assoc + 1))
 			done
 			for f in $PEERS/*.metrics; do
 				[ -e "$f" ] && grep -q '^stations=' "$f" && report=yes
@@ -771,6 +776,7 @@ peer_files() {
 	done
 	say peers_sta "$sta"
 	say peers_software "$soft"
+	say peers_assoc "$assoc"
 	say peer_reports_stations "$report"
 	say peer_reads "$check"
 	if [ "$sta" -gt 0 ] || [ "$report" = yes ]; then say peer_input yes; else say peer_input no; fi
@@ -778,18 +784,23 @@ peer_files() {
 
 # --- the table the collector keeps (PLAN H-15) -------------------------------------------------------------------------
 # /run/zte-mesh/ap-sta is the AP Metric answer's whole input: one `epoch=` line the collector stamps on each pass,
-# then one `<bssid> <count>` row per access point it found. Both numbers are read and neither is judged: a controller
-# does not run the collector, so `absent` is that role's shape, and a child with nothing associated legitimately holds
-# rows of zeroes. The age is the one to read after pausing the collector -- the `collect-pause` flag stops the writes
+# then one `b <bssid> <count> <ssid>` row per access point it found and one `s <bssid> <station>` line per station on
+# it. Both numbers are read and neither is judged: a controller does not run the collector, so `absent` is that
+# role's shape, and a child with nothing associated legitimately holds rows of zeroes. `ap_sta_clients` is the count
+# the cross-node device table (A28) is built from: a child that cannot read any station MAC has rows but no client
+# lines. The age is the one to read after pausing the collector -- the `collect-pause` flag stops the writes
 # and the table then ages out of the responder's freshness window, so a growing number means the collector is not
 # updating, which is the half of H-15 ⑤ that used to need a procd edit.
 ap_sta_evidence() {
 	if [ ! -r "$TABLE" ]; then
 		say ap_sta_rows absent
+		say ap_sta_clients absent
 		say ap_sta_age absent
 		return 0
 	fi
-	say ap_sta_rows "$(sed -n '/^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:.* [0-9][0-9]*$/p' "$TABLE" | wc -l)"
+	MAC='[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]'
+	say ap_sta_rows "$(grep -c -E "^b $MAC [0-9][0-9]*($| )" "$TABLE")"
+	say ap_sta_clients "$(grep -c -E "^s $MAC $MAC$" "$TABLE")"
 	epoch=$(sed -n 's/^epoch=\([0-9][0-9]*\)$/\1/p' "$TABLE" | head -1)
 	now=$($DATE +%s 2>/dev/null)
 	if [ -n "$epoch" ] && [ -n "$now" ]; then

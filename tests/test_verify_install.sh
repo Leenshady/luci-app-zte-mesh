@@ -562,6 +562,7 @@ check_line collect_pause_in_collector yes
 check_line device_list_collector yes
 check_line peers_sta 0
 check_line peers_software 0
+check_line peers_assoc 0
 # the lab link's only metrics digest is hops=1: no station count arrived at all, so an empty per-BSS count is not
 # evidence against the decoder and must not be graded as one
 check_line peer_reports_stations no
@@ -570,6 +571,7 @@ check_line peer_reads 1
 check_line peer_input no
 # a controller does not run the collector, so the table simply is not there -- that is the role's shape, not a fault
 check_line ap_sta_rows absent
+check_line ap_sta_clients absent
 check_line ap_sta_age absent
 check_line state_bss_detail present
 # the counts beside that condition: one peer this machine heard from, nothing it ever split, and one child row the
@@ -588,16 +590,20 @@ printf '3\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e4.sta"
 printf '1\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e5.sta"
 printf 'V1.0.0.2B2.8000\n' > "$RUN/peers/02:00:00:00:19:e3.software"
 printf 'stations=4\nhops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
+# the child's own report of who is on it (A28): the file the master files from the 0x70 vendor TLV
+printf 'epoch=%s\n0a:95:b7:16:e2:39\t02:00:00:00:19:e4\tFRESHR10\n' "$FIXED_NOW" > "$RUN/peers/02:00:00:00:19:e3.assoc"
 # the collector's table on the child side of the same link: what the stand-in is asked to answer from
-printf 'epoch=%s\n02:00:00:00:19:e4 3\n02:00:00:00:19:e5 1\n' "$((FIXED_NOW - 30))" > "$RUN/ap-sta"
+printf 'epoch=%s\nb 02:00:00:00:19:e4 3 FRESHR10\ns 02:00:00:00:19:e4 0a:95:b7:16:e2:39\nb 02:00:00:00:19:e5 1 FRESHR10-5G\ns 02:00:00:00:19:e5 aa:bb:cc:dd:ee:ff\n' "$((FIXED_NOW - 30))" > "$RUN/ap-sta"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line peers_sta 2
 check_line peers_software 1
+check_line peers_assoc 1
 check_line peer_reports_stations yes
 check_line peer_reads 1
 check_line peer_input yes
 check_line ap_sta_rows 2
+check_line ap_sta_clients 2
 check_line ap_sta_age 30
 
 # the batch-18 reading, spelled out: per-BSS records present, digest with no station count in it. That pair is by
@@ -617,24 +623,27 @@ printf 'epoch=%s\n' "$((FIXED_NOW - 42))" > "$RUN/ap-sta"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line ap_sta_rows 0
+check_line ap_sta_clients 0
 check_line ap_sta_age 42
 
 # a collector stopped by the pause flag leaves its last table sitting there and stops stamping it: the rows stay, the
 # age grows, and that is the reading H-15 ⑤ wants. Nothing is judged -- a stale table is the responder's business.
 CASE=ap-sta-paused
-printf 'epoch=%s\n02:00:00:00:19:e4 3\n' "$((FIXED_NOW - 120))" > "$RUN/ap-sta"
+printf 'epoch=%s\nb 02:00:00:00:19:e4 3 FRESHR10\n' "$((FIXED_NOW - 120))" > "$RUN/ap-sta"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line ap_sta_rows 1
+check_line ap_sta_clients 0
 check_line ap_sta_age 120
 
 # a table with no epoch line has no age to report. The row count still stands: half the reading is better than
 # dropping the line, and `unreadable` says which half is missing.
 CASE=ap-sta-no-epoch
-printf '02:00:00:00:19:e4 3\n02:00:00:00:19:e5 1\n' > "$RUN/ap-sta"
+printf 'b 02:00:00:00:19:e4 3 FRESHR10\nb 02:00:00:00:19:e5 1 FRESHR10-5G\n' > "$RUN/ap-sta"
 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line ap_sta_rows 2
+check_line ap_sta_clients 0
 check_line ap_sta_age unreadable
 
 # --- the second snapshot: one read is one instant (the batch-18 lesson) -----------------------------------------------
@@ -643,7 +652,7 @@ check_line ap_sta_age unreadable
 # re-reads is a fixture that changes inside the gap. `sleep` is stubbed for this call alone -- a real five seconds
 # would make the case depend on the host, and METRICS_READ_GAP=0 would make the loop finish before anything lands.
 CASE=peer-resample
-printf 'epoch=%s\n02:00:00:00:19:e4 3\n' "$((FIXED_NOW - 42))" > "$RUN/ap-sta"
+printf 'epoch=%s\nb 02:00:00:00:19:e4 3 FRESHR10\n' "$((FIXED_NOW - 42))" > "$RUN/ap-sta"
 rm -f "$RUN/peers"/*.sta "$RUN/peers"/*.software
 printf 'hops=1\n' > "$RUN/peers/02:00:00:00:19:e3.metrics"
 cat > "$BIN/sleep" <<EOF
