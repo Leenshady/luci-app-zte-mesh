@@ -121,7 +121,7 @@ sudo sh tools/lab/run-service.sh --agent --seconds 120
 
 同一处还问一句启动器：`$NSRUN --launcher-check`，答 127 就不把实例交给 procd。理由与那句拒绝见第 4.3 节。
 
-同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节（页面"控制器地址末字节"，两位十六进制），默认取 LAN 网桥 MAC 的末字节（`02:00:00:00:19:XX`）；写错格式会记一行日志并改用派生值。两台设备**必须**不同，否则 1905 栈会把对端当自己（[AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。
+同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节（页面"控制器地址末字节"，两位十六进制），默认取 LAN 网桥 MAC 的末字节（`02:00:00:00:19:XX`）；写错格式会记一行日志并改用派生值。两台设备**必须**不同，否则 1905 栈会把对端当自己（[AGENT_PROBE](research/AGENT_PROBE.md) 第 12 节）。2026-11-10 在 r28 上实测：末字节 `71`/`00` 都能入网，等于主控 AL（`03`）时整台节点不可见、连 `peers/` 都不落；换 AL 后旧节点行会留在主控里仍标 `online`，要重启主控才消失。
 
 看"线上到底有没有帧"用 `tools/lab/spark.c`：
 
