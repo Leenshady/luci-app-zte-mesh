@@ -152,6 +152,9 @@ msgstr "开：这个主控除了把下面的 Wi-Fi 配置下发给子路由，�
 msgid "Child router"
 msgstr "子路由"
 
+msgid "Child router report"
+msgstr "子路由上报"
+
 msgid "Backhaul to the controller"
 msgstr "回控制器的方式"
 
@@ -682,6 +685,12 @@ msgstr "DHCP 租约"
 
 msgid "Neighbour table"
 msgstr "邻居表"
+
+msgid "Node"
+msgstr "节点"
+
+msgid "Wireless"
+msgstr "无线"
 
 msgid "Wireless association"
 msgstr "无线关联"

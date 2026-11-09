@@ -311,15 +311,30 @@ return view.extend({
 	 * device, because they age differently: a lease outlives the device and a neighbour entry only lasts while the
 	 * kernel keeps talking to the address. A wireless row carries the network it is associated to, so a device on a
 	 * guest network is not confused with one on the main network; a wired row says so instead of guessing a port.
-	 * A router of the topology is marked as one: the controller's own child routers are here, and they are not devices. */
-	renderDevices: function(list) {
+	 * A router of the topology is marked as one: the controller's own child routers are here, and they are not devices.
+	 * A device a child router reported (`via`) is wireless by that report: the address tables of this router cannot see
+	 * which radio another router's client is on, so the Position follows that report and the Node column names the
+	 * child, with the same title the topology table uses. */
+	renderDevices: function(info, list) {
 		var count = 0;
+		var state = info && info.state;
+		var nodes = (state && state.nodes) || [];
+		var aliases = {};
+		uci.sections('zte_mesh', 'zte_mesh_node').forEach(function(sec) {
+			if (sec.mac && sec.name)
+				aliases[normMac(sec.mac)] = sec.name;
+		});
+		var titles = {};
+		nodes.forEach(function(node) {
+			titles[normMac(node.mac)] = aliases[normMac(node.mac)] || node.name || node.model || node.mac;
+		});
 		var table = E('table', { 'class': 'table cbi-section-table' }, [
 			E('tr', { 'class': 'tr table-titles' }, [
 				E('th', { 'class': 'th' }, _('Device')),
 				E('th', { 'class': 'th' }, _('MAC')),
 				E('th', { 'class': 'th' }, _('Address')),
 				E('th', { 'class': 'th' }, _('Position')),
+				E('th', { 'class': 'th' }, _('Node')),
 				E('th', { 'class': 'th' }, _('Seen by')),
 				E('th', { 'class': 'th' }, _('Lease')),
 				E('th', { 'class': 'th' }, _('Note'))
@@ -337,6 +352,8 @@ return view.extend({
 					sources.push(_('Neighbour table'));
 				else if (s === 'wlan')
 					sources.push(_('Wireless association'));
+				else if (s === 'assoc')
+					sources.push(_('Child router report'));
 			});
 			var lease = '-';
 			if (d.lease_end > 0) {
@@ -344,8 +361,11 @@ return view.extend({
 				lease = left > 0 ? _('%d min left').format(Math.ceil(left / 60)) : _('Expired');
 			}
 			/* The SSID is what a reader recognises; the interface name is the diagnosis. One is shown, the other kept
-			 * in the tooltip, so neither replaces the other. */
-			var where = d.ssid ? badge(d.ssid) : (d.iface ? badge(d.iface) : _('Wired'));
+			 * in the tooltip, so neither replaces the other. A row a child reported without an SSID is still a wireless
+			 * association - it must not fall through to 'Wired', which is what this page used to say about a phone on a
+			 * child's radio because no local table could place it. */
+			var where = d.ssid ? badge(d.ssid) : (d.iface ? badge(d.iface) : (d.via ? _('Wireless') : _('Wired')));
+			var via = d.via ? (titles[normMac(d.via)] || d.via) : '-';
 
 			table.appendChild(E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td' }, d.name || '-'),
@@ -354,6 +374,7 @@ return view.extend({
 					? E('a', { 'href': 'http://' + ip + '/', 'target': '_blank', 'rel': 'noreferrer' }, ip)
 					: '-'),
 				E('td', { 'class': 'td', 'title': d.iface || '' }, where),
+				E('td', { 'class': 'td', 'title': d.via || '' }, via),
 				E('td', { 'class': 'td' }, sources.length ? sources.join(', ') : '-'),
 				E('td', { 'class': 'td' }, lease),
 				E('td', { 'class': 'td' }, d.node ? badge(_('Child router')) : '-')
@@ -363,7 +384,7 @@ return view.extend({
 
 		if (!count)
 			table.appendChild(E('tr', { 'class': 'tr placeholder' }, [
-				E('td', { 'class': 'td', 'colspan': 7 }, E('em', _('Nothing here yet: this router has no DHCP lease, no neighbour entry and no station on its access points.')))
+				E('td', { 'class': 'td', 'colspan': 8 }, E('em', _('Nothing here yet: this router has no DHCP lease, no neighbour entry and no station on its access points.')))
 			]));
 
 		return table;
@@ -373,14 +394,14 @@ return view.extend({
 		var info = data[0], hints = data[1], devices = data[3];
 		var statusBox = E('div', { 'id': 'zte-mesh-status' }, this.renderStatus(info));
 		var nodesBox = E('div', { 'id': 'zte-mesh-nodes' }, this.renderNodes(info, hints));
-		var devicesBox = E('div', { 'id': 'zte-mesh-devices' }, this.renderDevices(devices && devices.devices));
+		var devicesBox = E('div', { 'id': 'zte-mesh-devices' }, this.renderDevices(info, devices && devices.devices));
 		var self = this;
 
 		poll.add(function() {
 			return Promise.all([ callStatus(), network.getHostHints(), callDevices() ]).then(function(res) {
 				dom.content(statusBox, self.renderStatus(res[0]));
 				dom.content(nodesBox, self.renderNodes(res[0], res[1]));
-				dom.content(devicesBox, self.renderDevices(res[2] && res[2].devices));
+				dom.content(devicesBox, self.renderDevices(res[0], res[2] && res[2].devices));
 			});
 		}, 5);
 

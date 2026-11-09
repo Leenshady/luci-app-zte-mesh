@@ -43,7 +43,7 @@ sys.stdout.reconfigure(newline="\n")   # a test run on Windows would otherwise c
 d = json.load(sys.stdin)
 for x in d["devices"]:
 	print("|".join([x["mac"], x["ip"], x["name"] or "-", str(x["lease_end"]), x["iface"] or "-",
-	                x["ssid"] or "-", x["sources"] or "-", "node" if x["node"] else "-"]))
+	                x["ssid"] or "-", x["sources"] or "-", "node" if x["node"] else "-", x["via"] or "-"]))
 print("epoch=%d" % d["epoch"])
 '
 }
@@ -116,9 +116,9 @@ add_sta phy1-ap0 0a:95:b7:16:e2:39
 add_sta phy1-sta0 dd:dd:dd:dd:dd:dd
 
 check "valid JSON" 0 "$(run | valid)"
-check "merged rows" "00:01:f3:96:43:cf|192.168.1.162|DESKTOP-JSJGOJL|1794221941|-|-|lease neigh|-
-0a:95:b7:16:e2:39|192.168.1.222|Xiaomi-15|1794222400|phy1-ap0|FIX2G|lease neigh wlan|-
-3c:84:6a:00:11:22|192.168.1.50|-|0|-|-|neigh|-
+check "merged rows" "00:01:f3:96:43:cf|192.168.1.162|DESKTOP-JSJGOJL|1794221941|-|-|lease neigh|-|-
+0a:95:b7:16:e2:39|192.168.1.222|Xiaomi-15|1794222400|phy1-ap0|FIX2G|lease neigh wlan|-|-
+3c:84:6a:00:11:22|192.168.1.50|-|0|-|-|neigh|-|-
 epoch=1700000000" "$(run | rows)"
 check "the key never leaves the script" "0" "$(run | grep -ci 'fixture-not-a-key')"
 
@@ -135,7 +135,7 @@ check "backhaul station left out" "0" "$(run | rows | grep -c 'dd:dd:dd:dd:dd:dd
 printf 'd4:b7:09:0d:77:30\n' > "$FIX/nodes"
 neigh '192.168.1.162 dev br-lan lladdr 00:01:f3:96:43:cf REACHABLE' \
       '192.168.1.171 dev br-lan lladdr D4:B7:09:0D:77:30 REACHABLE'
-check "known router marked" "d4:b7:09:0d:77:30|192.168.1.171|-|0|-|-|neigh|node" "$(run | rows | grep 'd4:b7')"
+check "known router marked" "d4:b7:09:0d:77:30|192.168.1.171|-|0|-|-|neigh|node|-" "$(run | rows | grep 'd4:b7')"
 : > "$FIX/nodes"
 
 # 5. No debugfs tree at all (a kernel built without mac80211 debug, or a mount that is gone): the two other tables
@@ -167,8 +167,48 @@ printf '1794221941 00:01:f3:96:43:d0 192.168.1.163 bad"name\\here 01:00:01:f3:96
 ifaces '{ "section": "default_radio1", "config": { "mode": "ap", "ssid": "中文 网" }, "ifname": "phy1-ap0", "vlans": [ ] }'
 add_sta phy1-ap0 00:01:f3:96:43:d0
 check "quoted host name: valid JSON" 0 "$(run | valid)"
-check "quoted host name: the quote is dropped" "00:01:f3:96:43:d0|192.168.1.163|badnamehere|1794221941|phy1-ap0|中文 网|lease neigh wlan|-" \
+check "quoted host name: the quote is dropped" "00:01:f3:96:43:d0|192.168.1.163|badnamehere|1794221941|phy1-ap0|中文 网|lease neigh wlan|-|-" \
 	"$(run | rows | sed -n 1p)"
+
+# 9. A child's own report: the phone is on that child's radio, so it is wireless and the Node column can name the
+#    child, even though the only tables here that know its address are the lease and the neighbour table. A client
+#    the child reports that has no address here is a device of the mesh too -- that is what "cross-node" means.
+: > "$FIX/leases"
+neigh '192.168.1.221 dev br-lan lladdr 0a:95:b7:16:e2:39 REACHABLE'
+rm -rf "$DBG/phy0/netdev:phy1-ap0/stations"
+mkdir -p "$RUN/peers"
+printf 'epoch=1700000000\n0a:95:b7:16:e2:39\t02:00:00:00:19:e3\tFRESHR10-5G\naa:bb:cc:dd:ee:ff\t02:00:00:00:19:e3\t\n' > "$RUN/peers/02:00:00:00:19:e3.assoc"
+check "child report: phone is wireless on that child" \
+	"0a:95:b7:16:e2:39|192.168.1.221|-|0|-|FRESHR10-5G|neigh assoc|-|02:00:00:00:19:e3" \
+	"$(run | rows | grep 0a:95)"
+check "child report: a client with no address here is still a device of the mesh" \
+	"aa:bb:cc:dd:ee:ff|-|-|0|-|-|assoc|-|02:00:00:00:19:e3" \
+	"$(run | rows | grep aa:bb)"
+
+# 10. A report is only worth what its stamp says it is: a node that stopped answering, one whose file carries a
+#     time this clock has not reached, and a file whose name is not a node's MAC are all "not reported", not "nobody".
+printf 'epoch=1699999950\n0a:95:b7:16:e2:39\t02:00:00:00:19:e3\tFRESHR10-5G\n' > "$RUN/peers/02:00:00:00:19:e3.assoc"
+check "stale report ignored" "0" "$(run | rows | grep -c 'assoc')"
+printf 'epoch=1700000060\n0a:95:b7:16:e2:39\t02:00:00:00:19:e3\tFRESHR10-5G\n' > "$RUN/peers/02:00:00:00:19:e3.assoc"
+check "future stamp ignored" "0" "$(run | rows | grep -c 'assoc')"
+printf 'epoch=1700000000\n0a:95:b7:16:e2:39\t02:00:00:00:19:e3\tFRESHR10-5G\n' > "$RUN/peers/not-a-mac.assoc"
+check "file name that is not a MAC ignored" "0" "$(run | rows | grep -c 'assoc')"
+rm -f "$RUN/peers/not-a-mac.assoc"
+
+# 11. Two children can both list the phone for a moment while it roams: the report that arrived last wins, so the
+#     page does not show one node by accident of file order.
+printf 'epoch=1699999990\n0a:95:b7:16:e2:39\t02:00:00:00:19:e3\tOLD\n' > "$RUN/peers/02:00:00:00:19:e3.assoc"
+printf 'epoch=1699999999\n0a:95:b7:16:e2:39\t02:00:00:00:19:20\tNEW\n' > "$RUN/peers/02:00:00:00:19:20.assoc"
+check "the newest report names the node" \
+	"0a:95:b7:16:e2:39|192.168.1.221|-|0|-|NEW|neigh assoc|-|02:00:00:00:19:20" \
+	"$(run | rows | grep 0a:95)"
+
+# 12. A station this router has in front of it is on this router, whatever a child reported a moment earlier: the
+#     local interface and SSID are shown and the Node column stays empty.
+add_sta phy1-ap0 0a:95:b7:16:e2:39
+check "local association wins over a child report" \
+	"0a:95:b7:16:e2:39|192.168.1.221|-|0|phy1-ap0|中文 网|neigh wlan assoc|-|-" \
+	"$(run | rows | grep 0a:95)"
 
 echo "device-list: $pass passed, $fail failed"
 [ "$fail" = 0 ]

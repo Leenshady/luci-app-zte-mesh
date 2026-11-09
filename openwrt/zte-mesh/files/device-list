@@ -6,13 +6,19 @@
 #   device-list
 #
 #   {"epoch":1794187974,"devices":[{"mac":"00:01:f3:96:43:cf","ip":"192.168.1.162","name":"DESKTOP-JSJGOJL",
-#     "ssid":"","iface":"","lease_end":1794221941,"sources":"lease neigh","node":false}]}
+#     "ssid":"","iface":"","lease_end":1794221941,"sources":"lease neigh","node":false,"via":""}]}
 #
 # Three local tables and nothing else: the DHCP leases this router wrote (/tmp/dhcp.leases), the neighbours the
 # kernel knows (`ip neigh` -- a device with a static address never gets a lease), and the stations associated to
 # this router's own access points (the mac80211 debugfs tree sta-collect counts in). The controller cannot supply
-# this list: it learns a station count per BSS from AP Metrics (0x94) and nothing about which stations those are,
-# so a device attached to a child router is not in here.
+# this list by itself: it learns a station count per BSS from AP Metrics (0x94) and nothing about which stations
+# those are, so what it cannot say comes in as a child's own report, below.
+#
+# What a child router did report is filed by the controller's peer codec as peers/<its AL MAC>.assoc - the clients
+# on that child's access points, with the SSID of each. Those rows are merged in too, and `via` names the child
+# they came from: a phone on a child's radio is a wireless device of this mesh, not a wired one of this router,
+# even though the only tables here that know its address are the lease and the neighbour table. A report older
+# than ASSOC_AGE is a child that stopped answering, and its rows are dropped rather than shown as if they were now.
 #
 # The tables are merged by MAC, and the answer says which tables saw the device, because they age differently: a
 # lease outlives the device by up to its lease time and a neighbour entry lives as long as the kernel keeps talking
@@ -38,6 +44,10 @@ LEASES=${ZTE_MESH_LEASE:-/tmp/dhcp.leases}
 DEBUG=${ZTE_MESH_MAC80211_DEBUG:-/sys/kernel/debug/ieee80211}
 RUNDIR=${ZTE_MESH_RUNDIR:-/run/zte-mesh}
 STATE=$RUNDIR/state.json
+PEERS=$RUNDIR/peers
+# Six controller query intervals, the same freshness the station counts get: a node that stopped answering has
+# nothing to say about who is on its radios any more.
+ASSOC_AGE=30
 IP=${ZTE_MESH_IP:-$(command -v ip)}
 UBUS=${ZTE_MESH_UBUS:-$(command -v ubus)}
 JSONFILTER=${ZTE_MESH_JSONFILTER:-$(command -v jsonfilter)}
@@ -125,6 +135,34 @@ node_macs() {
 	"$JSONFILTER" -i "$STATE" -e '@.nodes[*].mac' 2>/dev/null | tr 'A-F' 'a-f'
 }
 
+# assoc_clients -> A <mac> <ssid> <node> <epoch>: what a child router said is associated to its own access points.
+# The file name is that child's AL MAC and the stamp is when its report arrived here; a row whose file name is not
+# a MAC, whose stamp does not parse, or whose stamp is older than ASSOC_AGE is not a report this page can stand
+# behind. The SSID comes from the child because this router has no table that knows which radio of another router
+# a device is on.
+assoc_clients() {
+	[ -d "$PEERS" ] || return 0
+	[ "$now" -gt 0 ] || return 0
+	for file in "$PEERS"/*.assoc; do
+		[ -f "$file" ] || continue
+		node=${file##*/}
+		node=${node%.assoc}
+		case "$node" in
+		[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) ;;
+		*) continue ;;
+		esac
+		epoch=$(sed -n '1s/^epoch=//p' "$file" 2>/dev/null)
+		case "$epoch" in ''|*[!0-9]*) continue ;; esac
+		age=$((now - epoch))
+		[ "$age" -ge 0 ] && [ "$age" -le "$ASSOC_AGE" ] || continue
+		tail -n +2 "$file" | awk -F"$TAB" -v node="$node" -v epoch="$epoch" '
+		$1 ~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/ {
+			ssid = (NF >= 3) ? $3 : ""
+			printf "A\t%s\t%s\t%s\t%s\n", $1, ssid, node, epoch
+		}'
+	done
+}
+
 now=$("$CLOCK" +%s 2>/dev/null)
 case "$now" in ''|*[!0-9]*) now=0 ;; esac
 nodes=$(node_macs | tr '\n' ' ')
@@ -136,19 +174,28 @@ nodes=$(node_macs | tr '\n' ' ')
 	leases
 	neighbours
 	stations
+	assoc_clients
 } | awk -F"$TAB" '
 {
 	kind = $1; mac = tolower($2)
 	if (kind == "L") { le_ip[mac] = $3; le_name[mac] = $4; le_end[mac] = $5; hit[mac] = hit[mac] "L" }
 	else if (kind == "N") { nb_ip[mac] = $3; hit[mac] = hit[mac] "N" }
 	else if (kind == "W") { w_ifn[mac] = $3; w_ssid[mac] = $4; hit[mac] = hit[mac] "W" }
+	else if (kind == "A") {
+		# Two children can both list a device for a moment while it roams; the report that arrived last wins,
+		# and the node name breaks a tie so the same pair of reports does not flip between page refreshes.
+		if (!(mac in a_epoch) || $5 + 0 > a_epoch[mac] || ($5 + 0 == a_epoch[mac] && $4 < a_node[mac])) {
+			a_ssid[mac] = $3; a_node[mac] = $4; a_epoch[mac] = $5 + 0
+		}
+		hit[mac] = hit[mac] "A"
+	}
 	seen[mac] = 1
 }
 END {
 	for (mac in seen) {
 		ip = nb_ip[mac]
 		if (ip == "") ip = le_ip[mac]
-		printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", mac, ip, le_name[mac], le_end[mac], w_ifn[mac], w_ssid[mac], hit[mac]
+		printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", mac, ip, le_name[mac], le_end[mac], w_ifn[mac], w_ssid[mac], hit[mac], a_ssid[mac], a_node[mac]
 	}
 }' | LC_ALL=C sort | awk -F"$TAB" -v epoch="$now" -v nodes="$nodes" '
 BEGIN {
@@ -156,19 +203,24 @@ BEGIN {
 	sep = ""
 }
 {
-	mac = $1; ip = $2; name = $3; end = $4; ifn = $5; ssid = $6; hit = $7
+	mac = $1; ip = $2; name = $3; end = $4; ifn = $5; ssid = $6; hit = $7; via = ""
 	gsub(/["\\\\]/, "", name); gsub(/["\\\\]/, "", ssid)
 	gsub(/[^0-9a-fA-F:.]/, "", ip)
 	if (ip == "") ip = "-"
 	gsub(/[^0-9A-Za-z_.:@-]/, "", ifn)
 	if (end !~ /^[0-9]+/) end = "0"
+	# A device associated to this router is on this router, whatever a child said a moment earlier: this side
+	# has the station in front of it, and `via` is for the ones no table here can place.
+	if (hit !~ /W/ && hit ~ /A/) { ssid = $8; via = $9 }
+	gsub(/[^0-9a-f:]/, "", via)
 	sources = ""
 	if (hit ~ /L/) sources = "lease"
 	if (hit ~ /N/) sources = sources (sources == "" ? "" : " ") "neigh"
 	if (hit ~ /W/) sources = sources (sources == "" ? "" : " ") "wlan"
+	if (hit ~ /A/) sources = sources (sources == "" ? "" : " ") "assoc"
 	isnode = "false"
 	if (" " nodes " " ~ " " mac " ") isnode = "true"
-	printf "%s{\"mac\":\"%s\",\"ip\":\"%s\",\"name\":\"%s\",\"ssid\":\"%s\",\"iface\":\"%s\",\"lease_end\":%s,\"sources\":\"%s\",\"node\":%s}", sep, mac, ip, name, ssid, ifn, end, sources, isnode
+	printf "%s{\"mac\":\"%s\",\"ip\":\"%s\",\"name\":\"%s\",\"ssid\":\"%s\",\"iface\":\"%s\",\"lease_end\":%s,\"sources\":\"%s\",\"node\":%s,\"via\":\"%s\"}", sep, mac, ip, name, ssid, ifn, end, sources, isnode, via
 	sep = ","
 }
 END { printf "]}\n" }

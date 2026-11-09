@@ -47,15 +47,20 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 - **状态**：服务每秒写 `/run/zte-mesh/state.json`（节点、动作结果、调度状态），rpcd 和 LuCI 读它。
 - **子节点的终端数从哪来（实例 `sta-collect`）**：原厂 agent 的 `0x94` 是驱动经 `cspd` 填的，沙箱两样都没有，`ns-run` 又不挂
   `/sys`——实测它收到 AP Metric Query（`0x800b`）一声不响，所以 OpenWrt 子节点在页面上只能是"没数据"。数只能在宿主测：
-  `sta-collect` 每 5 秒把本机 AP 的关联数写进 `/run/zte-mesh/ap-sta`（`epoch=` 加每路一行 `BSSID 数`，整表原子替换），
-  这个目录本来就 bind 进私有根，`agent-ap-metrics.c` 在沙箱里读它拼 `0x800c`。表超过 30 秒没刷新就不回——
+  `sta-collect` 每 5 秒把本机 AP 的关联写进 `/run/zte-mesh/ap-sta`（`epoch=`，之后每路一行 `b <BSSID> <数> <SSID>`，再跟若干
+  `s <BSSID> <终端 MAC>`；整表原子替换），这个目录本来就 bind 进私有根，`agent-ap-metrics.c` 在沙箱里读它拼 `0x800c`——
+  `0x94` 只带数目，终端 MAC、BSSID 与 SSID 另放进自定的 vendor 子 TLV `0x70`（OUI `00:19:c6`，号与边界见
+  `controller-1905.h`；原厂 agent 不发它，主控就退回只知数目）。表超过 30 秒没刷新就不回——
   **过期即沉默，不报一个陈旧的数**。主控那头由服务定时发查询（见 [SERVICE.md](SERVICE.md)）。
 
 - **本机看得到的设备（宿主侧 `device-list`）**：页面「设备」一节不是控制器给的——控制器只有每 BSS 的终端数（上一段），
   没有"是哪几个"。所以这一节由宿主当场读三张本机表并按 MAC 合并、逐行说明哪几张表见过它：`/tmp/dhcp.leases`（本机
   dnsmasq 发过谁，静态地址的设备不在这张表里）、`ip neigh`（内核知道谁，租约过期但还在线的只有这张表）、本机 AP 的
-  debugfs `stations`（只取 netifd 报的 `mode=ap`，回程的 sta 接口数进来就把主控算成本机的终端）。**边界**：另一台
-  路由器上的设备不在这里；有线设备只说"有线"不标端口（镜像里没有 `bridge` 命令，`ip neigh` 也没有这个信息）。
+  debugfs `stations`（只取 netifd 报的 `mode=ap`，回程的 sta 接口数进来就把主控算成本机的终端）。**第四张表是子节点上报**：
+  主控收到带 `0x70` 的应答后 `controller-peer.c` 写 `peers/<AL MAC>.assoc`（`epoch=` 加每行 `<终端 MAC> <BSSID> <SSID>`），
+  `device-list` 只认 30 秒内、文件名是完整 MAC 的那几份，同一 MAC 取时间戳最新的一份——页面上"无线/有线"与「节点」那一列
+  就出自这里：本机 `stations` 优先，其次是上报，两样都没有才是有线。**边界**：子节点不上报的设备仍然看不到（原厂子节点
+  就是这种）；有线设备只说"有线"不标端口（镜像里没有 `bridge` 命令，`ip neigh` 也没有这个信息）。
   它不读、不写任何配置，`luci.zte-mesh devices` 只是把这行 JSON 原样转给页面。
 
 - **有线口的自愈（实例 `attach`）**：沙箱这头的 `veth-lab` 和宿主那头的 `zmesh0` 是一对 veth，删掉任一端两个一起没了；
@@ -83,8 +88,8 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 | `controller-route.c` | 沙箱，preload | 接口身份；`SSEND(0xa96e)` 启动计数替身 |
 | `controller-trace.c` | 沙箱，preload | 受限日志、ASEND 记录、把收到的 1905 帧交给 `controller-peer.c`，并把 `0x800b` 交给 `agent-ap-metrics.c` 应答（回帧从查询到达的那个 socket 直接发出，不走本文件的 `sendto` 包装）；每一行先过 `controller-log.c` 的预算 |
 | `controller-log.c`、`controller-log.h` | 沙箱，preload + 主机测试 | 纯函数：一段格式文本 + 调用方给的时钟 → 这一行打不打、打不成时发哪条提示（措辞固定，只有采样那句带一个累计丢弃数——值行打的是 daemon 格式化好的结果，提示里绝不掺它）。设备的日志落点是 logd 那圈 128 KiB 环，一次配置推送里原厂 daemon 重复的状态行能把它占满，所以按类分预算、重复行按分钟采样；带密钥/SSID/BSS 的格式永不展开值 |
-| `controller-peer.c`、`controller-peer.h` | 沙箱，preload | 一帧 → `peers/<MAC>.<kind>`：指示灯、终端数、BSS 数、直连还是中继、动作回执；终端数还**按 BSSID 各存一个 `peers/<MAC>.<BSSID>.sta`**（各自的时间戳，服务读 `controller_peer_bss_load()` 把没过期的一路一路加起来，并拿到按 BSSID 的明细去拼 `state.json` 的 `bss_detail`——摘要只留最后一帧的总数，按射频分别上报时会互相顶掉）；落盘目录是 `ZTE_MESH_PEERS_DIR`，所以主机测试能在临时目录上验整条链 |
-| `agent-ap-metrics.c`、`agent-ap-metrics.h` | 沙箱，preload | 子节点终端数的替身应答：一帧 `0x800b` + `/run/zte-mesh/ap-sta` → 一帧 `0x800c`（指定的那几路各回一条 `0x94`，空列表＝本机跑的每一路）。没有表、表超过 30 秒没刷新、`epoch` 在未来、查询指定的 BSSID 一个都不认识 ⇒ 回 0 字节＝不吭声；认得的路数照答，**没测到的那一路不补 0**。自己不开 socket，发回哪儿由 `controller-trace.c` 决定；表的路径是 `ZTE_MESH_AP_STA_FILE`，所以主机测试能自备一张表 |
+| `controller-peer.c`、`controller-peer.h` | 沙箱，preload | 一帧 → `peers/<MAC>.<kind>`：指示灯、终端数、BSS 数、直连还是中继、动作回执；终端数还**按 BSSID 各存一个 `peers/<MAC>.<BSSID>.sta`**（各自的时间戳，服务读 `controller_peer_bss_load()` 把没过期的一路一路加起来，并拿到按 BSSID 的明细去拼 `state.json` 的 `bss_detail`——摘要只留最后一帧的总数，按射频分别上报时会互相顶掉）；带 `0x70` 的应答另写 `peers/<MAC>.assoc`（终端明细，`epoch` 用主控自己的时钟）；落盘目录是 `ZTE_MESH_PEERS_DIR`，所以主机测试能在临时目录上验整条链 |
+| `agent-ap-metrics.c`、`agent-ap-metrics.h` | 沙箱，preload | 子节点终端数的替身应答：一帧 `0x800b` + `/run/zte-mesh/ap-sta` → 一帧 `0x800c`（指定的那几路各回一条 `0x94`，空列表＝本机跑的每一路）。没有表、表超过 30 秒没刷新、`epoch` 在未来、查询指定的 BSSID 一个都不认识 ⇒ 回 0 字节＝不吭声；认得的路数照答，**没测到的那一路不补 0**。每路除了 `0x94`，还把该路的 SSID 与挂在它上面的终端 MAC 收进一条自定的 vendor 子 TLV `0x70`（按 BSSID 分组、跨组去重；一组终端都没有的 BSS 不报组，整帧一组都没有时仍发 `0x70` 把主控的旧记录清掉）。自己不开 socket，发回哪儿由 `controller-trace.c` 决定；表的路径是 `ZTE_MESH_AP_STA_FILE`，所以主机测试能自备一张表 |
 | `controller-1905.c`、`controller-steer.c` | 沙箱 + 主机测试 | 纯函数解码与组帧：CMDU 头与 TLV 走查、原厂 vendor 容器（0x0b/0x21）、`0x94` 按 BSSID 的 `{BSSID, 终端数}`（拆不出可信的一份就整体返回 0，宁缺毋滥）、`0x93` 的查询解码与 `0x800b`/`0x800c` 的组帧、终端引导三类报文 |
 | `controller-packet.c`、`controller-wsc*.c` | 沙箱 + 测试环境 | 合成对端和独立的 M2 校验器（只用公开测试值）；主控侧发 `0x800b` 查询（`controller_ap_metrics_query()`：从 `veth-lab` 发、源取 `br0` 的 AL MAC、发出即不读——应答按那个 MAC 回到 daemon 自己的 socket） |
 | `config-bridge-probe.c`、`exec-check.c`、`zte-debugcmd.c` | 测试环境 | 早期桥接测试、加载检查、原厂 `sendcmd` 调试通道客户端 |
