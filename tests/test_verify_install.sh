@@ -584,6 +584,32 @@ check_line bss_detail_rows 0
 check_line nodes_rows 1
 check_line nodes_online 1
 
+# The probe is stripped by `apk`, so its sha256 cannot be compared with prebuilt/ on the router; the build id can,
+# and it is the only marker that tells this batch's probe from an earlier one (all four strings packed_copy greps
+# are in r23's copy too, which is how a repack that swapped the binary back passed twice). Both sides are built
+# here from the same note bytes: a 20-byte desc after the 04/14/03/"GNU\0" header, which is the shape build_id
+# reads with od.
+CASE=probe-build-id
+PROBE_APKS=$T/apks-probe
+PROBE_TREE=$T/probe-tree
+rm -rf "$PROBE_APKS" "$PROBE_TREE" "$T/probe-outer"
+mkdir -p "$PROBE_APKS" "$T/probe-outer" "$PROBE_TREE/usr/lib/zte-mesh/root/bin"
+{ printf '\177ELF'; printf '\004\000\000\000\024\000\000\000\003\000\000\000GNU\000'; printf '0123456789abcdefghij'; } \
+	> "$PROBE_TREE/usr/lib/zte-mesh/root/bin/db-engine-probe"
+tar -czf "$T/probe-outer/data.tar.gz" -C "$PROBE_TREE" .
+tar -czf "$PROBE_APKS/zte-mesh-0.1.0-r99.apk" -C "$T/probe-outer" data.tar.gz
+cp "$PROBE_TREE/usr/lib/zte-mesh/root/bin/db-engine-probe" "$ROOTFS/root/bin/db-engine-probe"
+sh "$SCRIPT" "$PROBE_APKS" > "$out" 2>&1
+check_line probe_build_id 303132333435363738396162636465666768696a
+check_line probe_build_id_matches yes
+# the previous batch's copy says so: the same header with a different id must not read as yes
+{ printf '\177ELF'; printf '\004\000\000\000\024\000\000\000\003\000\000\000GNU\000'; printf 'jihgfedcba9876543210'; } \
+	> "$ROOTFS/root/bin/db-engine-probe"
+sh "$SCRIPT" "$PROBE_APKS" > "$out" 2>&1
+if grep -q 'FAIL probe_build_id_matches expected=yes got=no' "$out"; then pass=$((pass + 1)); else
+	fail=$((fail + 1)); echo "FAIL case $CASE: a different build id on the installed probe must fail"; fi
+printf 'bss_detail\n' > "$ROOTFS/root/bin/db-engine-probe"
+
 # the same machine with the files a real child produces: two BSS rows and a version string
 CASE=packed-readback-full
 printf '3\n' > "$RUN/peers/02:00:00:00:19:e3.02:00:00:00:19:e4.sta"

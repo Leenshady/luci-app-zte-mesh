@@ -33,7 +33,7 @@ def main():
                          "Written to a temp file inside /run/zte-mesh and renamed over config, so the service never reads a half-written file")
     ap.add_argument("--action", action="append", default=[], metavar="SECONDS:REQUEST",
                     help="after the trigger, SECONDS later, hand the service one node action request, e.g. 90:'light d4:b7:09:0d:77:30 0' or "
-                         "'150:reboot d4:b7:09:0d:77:30' (repeatable). Written to /run/zte-mesh/actions/<n>.act; the result is in state.json/service.log")
+                         "'150:reboot d4:b7:09:0d:77:30' (repeatable). Written to /run/zte-mesh/<n>.act; the result is in state.json/service.log")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     if not re.fullmatch(r"[a-zA-Z0-9_.@-]+", a.host) or not re.fullmatch(r"[a-zA-Z0-9_.-]+", a.bridge):
@@ -138,13 +138,13 @@ def main():
             if delay > 0:
                 time.sleep(delay)
             if kind == "action":
-                r = subprocess.run(ssh + [f"umask 077 && cat > /run/zte-mesh/actions/a{n}.act.tmp && mv /run/zte-mesh/actions/a{n}.act.tmp /run/zte-mesh/actions/a{n}.act && date +%s"],
+                r = subprocess.run(ssh + [f"t=$(mktemp /run/.zte-mesh-act.XXXXXX) && cat > \"$t\" && mv -fT \"$t\" /run/zte-mesh/a{n}.act && date +%s"],
                                    input=what + "\n", capture_output=True, text=True, timeout=30)
                 log("node action '%s' at +%.0f s: rc=%d router_epoch=%s" % (what, time.time() - t_trigger, r.returncode, r.stdout.strip()))
                 report.setdefault("actions", []).append({"after": sec, "request": what, "rc": r.returncode, "router_epoch": r.stdout.strip()})
                 continue
             name = what
-            r = subprocess.run(ssh + ["umask 077 && cat > /run/zte-mesh/.config.swap && mv /run/zte-mesh/.config.swap /run/zte-mesh/config && date +%s"],
+            r = subprocess.run(ssh + ["t=$(mktemp /run/.zte-mesh.XXXXXX) && cat > \"$t\" && mv -fT \"$t\" /run/zte-mesh/config && date +%s"],
                                input=name.read_text(), capture_output=True, text=True, timeout=30)
             log("config swap %s at +%.0f s: rc=%d router_epoch=%s" % (name.name, time.time() - t_trigger, r.returncode, r.stdout.strip()))
             report.setdefault("swaps", []).append({"after": sec, "file": name.name, "rc": r.returncode, "router_epoch": r.stdout.strip()})

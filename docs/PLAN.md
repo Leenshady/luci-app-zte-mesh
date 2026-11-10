@@ -43,7 +43,7 @@ H-20 的 ①②③；④⑤ 仍待，登记在第 5 节）。**逐项状态、�
 
 **排给下一批（主机可测）**——攒够 3–5 项再按第 6 节的节奏触发一次 CI：
 
-- **25 待排（H）· init 的 ARM32 判定表漏了 32 位 ARM 那种架构**（2026-11-06 写 README「支持的架构」时读
+- **25 已完成（H）· init 的 ARM32 判定表漏了 32 位 ARM 那种架构**（2026-11-06 写 README「支持的架构」时读
   `zte-mesh.init` 读出来的）：`zte-mesh.init` 的 `case "$(uname -m)"` 只有 `aarch64|arm64)` 那一个分支去问内核，
   `*)` 那一个分支的注释写"x86-64 and anything else can never run the ARM32 daemon natively"——`armv7l` 走进这支被判
   `compat=0`，于是**在能原生执行 ARM32 的机器上**打一条"这个内核跑不了 32 位 ARM 守护进程并且 `$ROOT` 里没有
@@ -52,12 +52,17 @@ H-20 的 ①②③；④⑤ 仍待，登记在第 5 节）。**逐项状态、�
   `compat=1`（32 位内核执行 32 位 ARM 不需要 COMPAT），注释里那句"anything else"改成真的只剩非 ARM。**主机可测**：
   `test_init.sh` 把假的 `uname` 冒充成 `armv7l`，断言不出现那句、`ZTE_MESH_QEMU` 不传给 `ns-run`。上机读数与 H-16
   一起等一台 32 位 ARM 的 OpenWrt 路由器（三台测试机是 x86_64／aarch64／x86_64，Z506 不吃 apk），所以这一条只有主机判据。
+  **2026-11-10 做完**：判定拆成 `arm32_native()`（`armv7*` 直接判原生；`aarch64|arm64` 仍先读
+  `/proc/config.gz`、读不到再 exec `ld-linux.so.3` 看 usage；`*)` 只剩非 ARM）与 `choose_emulator()`，
+  `start_service` 只调后者。`test_init.sh` 里 `uname -m` 换成可换值的桩：`armv7l` + 私有根里**真放一份
+  `qemu-arm-static`** ⇒ `emulator` 为空且不出现"cannot run"那句；`x86_64` 有/无那份模拟器 ⇒ 分别得到
+  `/qemu-arm-static` 与那句提示。判据 185 条 0 败（含 8r 那组符号链接反证，见第 27 项）。
 - **26 待排（H）· CI 里 `tools/install` 那一步到底有没有少做事**：构建缓存命中的那一轮它仍走满 772 个目录访问、
   约 1000 秒，是整轮里最大的一块。要读的是它的 stamp 与 `build_dir/hostpkg` 有没有活过缓存恢复（在不在缓存 path 里）。
   判据是 `run_stage` 报的**目录访问计数掉下来**；不掉就说明这一步与缓存无关，那两百秒的浮动只是镜像与磁盘的。
   计时与计数的实现见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节。
 
-- **27 待排（H）· 宿主侧还有 6 处往交换目录写，跟着沙箱放的符号链接走**（2026-11-07 顺着 B12 那一类查出来的）：
+- **27 已完成（H）· 宿主侧还有 6 处往交换目录写，跟着沙箱放的符号链接走**（2026-11-07 顺着 B12 那一类查出来的）：
   `zte-mesh.init` 的 `.wlan-plan.$$`（`:510/540`）、`.config.$$`（`:630/763`，**这份带 Wi-Fi 密钥**）、`.bss-plan.$$`（`:734`）
   三个临时文件都建在共享目录里、名字用可预测的 `$$`，最后一步 `mv` 没有 `-T`；`version_mode.host`（`:764`）与
   `restart.sig`（`:795`）是直接 `>`，连临时文件都没有；`sta-collect:115/128` 的 `.ap-sta.$$` 同第一组。
@@ -65,7 +70,13 @@ H-20 的 ①②③；④⑤ 仍待，登记在第 5 节）。**逐项状态、�
   `/run`（chroot 只 bind 挂 `/run/zte-mesh` 本身，父目录够不着），再 `mv -fT` 一次 rename 覆盖。这 6 处的目标父目录就是
   `/run/zte-mesh` 本身，沙箱换不掉它（换它要宿主 `/run` 的写权限），所以不必动沙箱挂载。主机可测：`test_init.sh` 与
   `test_sta_collect.sh` 各加一组"预先放链接 → 读回受害文件未改、目标是普通文件、目录里没被搬进东西"。
-- **28 待排（H）· rpcd 的 `actions/` 收件目录多一层：目录本身就能被换掉**（同上轮查出，**原方案已撤销**）：
+  **2026-11-10 做完**：`zte-mesh.init` 新增 `rundir_tmp()`（`mktemp` 建在 `${RUNDIR%/*}`，相对路径退回 `.`），
+  上面五处都走它并改成 `mv -fT`；`sta-collect` 的 `collect()` 同样把表格暂存在 `$DIR` 的父目录。
+  测试各加一组反证：把旧的固定名（`.config.$$` 等）**预放成指向受害文件的符号链接**、把 `config` /
+  `version_mode.host` / `restart.sig` / `wlan-plan` 也预放成链接（其中 `wlan-plan` 还有一次指向目录，
+  看 `-T` 在不在），再断言受害文件未改、目标是普通文件、目录里没被搬进东西，并用 `mktemp` 桩读回暂存目录
+  就是父目录本身。`test_init.sh` 185 条、`test_sta_collect.sh` 39 条，0 败。
+- **28 已改（H，待真起服务验）· rpcd 的 `actions/` 收件目录多一层：目录本身就能被换掉**（同上轮查出，**原方案已撤销**）：
   `luci.zte-mesh:30` 往 `$RUNDIR/actions/.$id.tmp` 写，`actions/` 是共享目录的**子目录**，沙箱能把它整个换成指向别处的
   符号链接，宿主 root 这次写入就跟着出去。一度改成兄弟目录 `/run/zte-mesh-actions`，**那是错的并已还原**：消费它的
   `action_reconcile()` 在 `controller_service()` 里，而这个进程跑在 chroot 内（`zte-mesh.init:987` → `ns-run.c:161` →
@@ -74,7 +85,12 @@ H-20 的 ①②③；④⑤ 仍待，登记在第 5 节）。**逐项状态、�
   `mktemp` 建在 `/run` 再 `mv -fT`；消费者 `readdir` 已按 `.act` 后缀与长度过滤，改成扫交换目录本身即可。
   **主机测试表达不出这一条的判据**：`test_rpcd.sh` 的服务是 shell 假替身，只验插件侧，不跑真消费者——上一轮那三条回归
   在假替身上是绿的，端到端却是坏的。改完要在测试环境真起一次服务，按页面按钮读 `state.json` 的 `actions`。
-- **29 待排（H）· 装机验证认不出"运行包里换进一枚旧 probe"**（2026-11-07 批末 repack 时发现的）：
+  **2026-11-10 改完，待上机**：`ACTION_DIR` 直接等于 `SERVICE_DIR`（启动时那句 `mkdir` 一并删掉），消费侧
+  `readdir` 沿用的 `.act` 后缀与长度过滤不变；`luci.zte-mesh` 的请求文件改为 `$RUNDIR/<id>.act`，暂存文件用
+  `mktemp "${RUNDIR%/*}/.zte-mesh-act.XXXXXX"` 再 `mv -fT`（与第 27 项同一套）；`tools/capture/mreplay.py`
+  的两处同改。`test_rpcd.sh` 的假服务改成扫 `$T/run/*.act`，并加了"暂存目录是父目录、暂存失败回 -5、
+  插件里没有 `actions/`"三条；它仍只验插件侧，端到端要看装机后按一次按钮。
+- **29 已完成（H）· 装机验证认不出"运行包里换进一枚旧 probe"**（2026-11-07 批末 repack 时发现的）：
   `verify-install.sh` 的 `packed_copy()` 只 grep `bss_detail` 与按 BSSID 那个文件名两个标记，`tests/test_runtime.py`
   的标记同理——**这四个标记 r23 里全都有**，所以 tar.gz 里换进上一批的 `db-engine-probe`，两处照样绿。本轮是靠
   `.note.gnu.build-id` 判出来的：OpenWrt 构建时 strip 包里的 ELF，装上的字节数与 tar.gz 成员对不上（probe 189 155
@@ -82,6 +98,13 @@ H-20 的 ①②③；④⑤ 仍待，登记在第 5 节）。**逐项状态、�
   `prebuilt/db-engine-probe.sha256`（repack 换进去的就是那枚，精确相等）；**装机侧**只能问 build ID（strip 之后
   sha256 必然不同），而 `ax3600` 上没有 `readelf`，所以要自带一个从 ELF 里取 note 的读法（`hexdump` 就够）。
   主机可测：`test_runtime.py` 拿一份故意换成旧 probe 的 tar.gz 当反证，必须红。
+  **2026-11-10 做完**：主机侧比对的是"本次构建"的 sha256——`out/db-engine-probe` 在就用它，没有才退回
+  `prebuilt/db-engine-probe`（本仓库的运行包是 `make-runtime.py` 从 out/ 打的，与 prebuilt 那枚字节并不相等，
+  硬绑 prebuilt 会在每次 `runtime.sh install` 后误报）；反证是把同一份包里的 probe 翻一个字节再比，必须不匹配。
+  装机侧 `verify-install.sh` 新增 `build_id()`（`od -tu1` 找 note 的形状：`04 00 00 00 | descsz | 03 00 00 00 |
+  GNU\0`，不依赖 `readelf`）与 `probe_copy()`：从本批 apk 的 `data.tar.gz` 里取出同一个成员，比两枚 ELF 的
+  build ID；取不到任一侧时只报 `probe_build_id_matches=unknown(...)`，不冒充通过。`test_verify_install.sh`
+  新增 `CASE=probe-build-id`：两侧同源时 `yes`，把装上的那份换一个 id 必须红。
 
 - **30 已完成（A28）· 跨节点设备明细**：页面「设备」一节原先只有本机视角——控制器从 AP Metrics 只学到每 BSS
   的终端**数**，学不到终端 MAC（见 [ARCHITECTURE](ARCHITECTURE.md) 那一节的边界）。本轮没有取证窗口（H-21 仍未做），

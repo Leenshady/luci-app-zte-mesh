@@ -786,9 +786,10 @@ struct service_state {
 };
 
 /* Node actions requested from the host (reboot / LED of a child router, FEATURE_MAP section 17 / REPLAY_RESULTS section 16):
- * the rpcd plugin writes a one-line request file into ACTION_DIR, the main loop executes it with the factory-style
- * helper and keeps the last results for state.json. Requests left over from before the service started are discarded. */
-#define ACTION_DIR SERVICE_DIR "/actions"
+ * the rpcd plugin writes a one-line request file named <id>.act into the service directory itself, the main loop executes
+ * it with the factory-style helper and keeps the last results for state.json. No requests/ subdirectory: it would be one
+ * more thing the sandbox could replace with a symlink. Requests left over from before the service started are discarded. */
+#define ACTION_DIR SERVICE_DIR
 #define ACTION_KEEP 8U
 struct action_result { char id[40], action[8], mac[18]; int value, status; long epoch; };
 static struct action_result action_results[ACTION_KEEP];
@@ -2020,7 +2021,6 @@ int controller_service(void)
         if (dir)
             closedir(dir);
     }
-    (void)mkdir(ACTION_DIR, 0700);
     /* A daemon in the agent role is not a controller: the node actions, renews, policy pushes and radio/MLO pushes below
      * all address *its* agents, which do not exist (docs/research/AGENT_PROBE.md). */
     int slave = config.role_set && config.role == CONTROLLER_ROLE_SLAVE;

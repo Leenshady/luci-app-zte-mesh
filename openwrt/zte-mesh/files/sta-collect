@@ -117,9 +117,12 @@ sta_base() {
 # leaves its last table sitting there and the responder would go on quoting it for ever. A row is only worth
 # answering with while the file behind it is fresh.
 collect() {
-	local tmp="$DIR/.ap-sta.$$" ifn bssid ssid base dir mac n sta_macs
+	local tmp ifn bssid ssid base dir mac n sta_macs
+	# The temp goes in the host parent of $DIR, not in $DIR itself: the sandbox runs as the same UID and can
+	# pre-place a symlink under any name it can guess, and only $DIR is bind-mounted into the chroot. mktemp
+	# refuses an existing name, and the rename over the table is one step (same as wlan-sync's status file).
+	tmp=$(mktemp "$(dirname "$DIR")/.zte-mesh.XXXXXX") || return 1
 	AP_COUNT=0
-	( umask 077; : > "$tmp" ) || return 1
 	{
 		printf 'epoch=%s\n' "$("$CLOCK" +%s)"
 		ap_ifaces | while IFS="$TAB" read -r ifn ssid; do
@@ -149,7 +152,7 @@ collect() {
 	# it wrote are the count.
 	AP_COUNT=$(awk '$1 == "b" { rows++ } END { print rows + 0 }' "$tmp" 2>/dev/null)
 	case "$AP_COUNT" in ''|*[!0-9]*) AP_COUNT=0 ;; esac
-	if mv -f "$tmp" "$FILE"; then
+	if mv -fT "$tmp" "$FILE"; then
 		return 0
 	fi
 	rm -f "$tmp"

@@ -11,7 +11,7 @@ trap 'kill $SVC 2>/dev/null; rm -rf "$T"' EXIT
 PY=$(command -v python3 || command -v python) || { echo "test_rpcd: no python3/python" >&2; exit 1; }
 export PY
 export ZTE_MESH_RUNDIR=$T/run ZTE_MESH_ACTION_WAIT=3
-mkdir -p "$T/run/actions"
+mkdir -p "$T/run"
 # The stub is a python file run through a shell function of the sourcing shell: the container that runs make test-host mounts
 # /tmp noexec, so a script under $T could not be executed directly.
 cat > "$T/jf.py" <<'PY'
@@ -107,7 +107,7 @@ case "$status_out" in
 *) echo "FAIL status-sync-none: got '$status_out'"; fail=$((fail + 1)) ;;
 esac
 ( while :; do
-	for f in "$T"/run/actions/*.act; do
+	for f in "$T"/run/*.act; do
 		[ -e "$f" ] || continue
 		id=$(basename "$f" .act); cat "$f" >> "$T/seen"; rm -f "$f"
 		printf '{"actions":[{"id":"%s","action":"x","mac":"-","value":0,"status":0,"epoch":1}]}\n' "$id" > "$T/run/state.json.new"
@@ -128,12 +128,27 @@ check newline-mac "$(call light_node '{"mac":"d4:b7:09:0d:77:30\nreboot aa:aa:aa
 check bad-on "$(call light_node '{"mac":"d4:b7:09:0d:77:30","on":"maybe"}')" '{"result":-2}'
 check no-on "$(call light_node '{"mac":"d4:b7:09:0d:77:30"}')" '{"result":-2}'
 check nothing-written "$(cat "$T/seen" 2>/dev/null | tr '\n' '|')" ''
-check leftovers "$(ls "$T/run/actions" | tr '\n' ' ')" ''
+check leftovers "$(find "$T/run" -maxdepth 1 -name '*.act' | wc -l | tr -d ' ')" '0'
+# The request is staged beside the shared directory, never inside it: the sandbox runs as this same UID and may
+# pre-place a link under any name it can guess there. A staging failure is -5 and nothing is published.
+REAL_MKTEMP=$(command -v mktemp); export REAL_MKTEMP ZTEST_DIR=$T/temp-dir
+mkdir -p "$T/mktmp"
+cat > "$T/mktmp/mktemp" <<'STUB'
+#!/bin/sh
+tmp=$("$REAL_MKTEMP" "$@") || exit 1
+printf '%s\n' "$(cd "$(dirname "$tmp")" && pwd)" > "$ZTEST_DIR"
+rm -f "$tmp"; exit 1
+STUB
+chmod +x "$T/mktmp/mktemp"
+: > "$T/temp-dir"
+check staging-failure "$( ( PATH="$T/mktmp:$PATH"; export PATH; call reboot_node '{"mac":"d4:b7:09:0d:77:30"}' ) )" '{"result":-5}'
+check staging-parent "$(cat "$T/temp-dir")" "$T"
+check no-actions-subdir "$(grep -c 'actions/' "$PLUGIN")" '0'
 # a service that never answers: null after the wait
 kill $SVC; wait $SVC 2>/dev/null; SVC=
 check no-answer "$(call reboot_node '{"mac":"d4:b7:09:0d:77:30"}')" '{"result":null}'
-# actions directory missing (service not started yet): -5
-rm -rf "$T/run/actions"
+# run directory missing (service not started yet): -5
+rm -rf "$T/run"
 check no-dir "$(call reboot_node '{"mac":"d4:b7:09:0d:77:30"}')" '{"result":-5}'
 echo "rpcd test: $pass passed, $fail failed"
 [ "$fail" = 0 ]

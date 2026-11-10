@@ -218,5 +218,45 @@ check "resumed: says it is collecting" "1" "$(log_has 'collecting 2 access point
 check "resumed: no pause line left" "0" "$(log_has 'paused by')"
 printf '1700000000\n' > "$FIX/epoch"
 
+# 11. the table is published from the host parent, not from $RUN: the sandbox runs as this same UID and may
+#     pre-place a link under any name it can guess, and only the run directory itself is bind-mounted into
+#     the chroot. mktemp must land in the parent, and a planted link at the destination must be unlinked by
+#     the rename instead of followed -- a directory target also shows whether the rename used -T.
+SBIN=$T/sbin
+mkdir -p "$SBIN" "$T/victim-dir"
+printf 'protected file\n' > "$T/victim"
+printf 'protected directory\n' > "$T/victim-dir/keep"
+REAL_MKTEMP=$(command -v mktemp)
+cat > "$SBIN/mktemp" <<'STUB'
+#!/bin/sh
+tmp=$("$SB_REAL_MKTEMP" "$@") || exit 1
+dir=$(cd "$(dirname "$tmp")" && pwd) || exit 1
+printf '%s\n' "$dir" > "$SB_ROOT/temp-dir"
+case "$dir/" in
+"$SB_ROOT/run/"*) rm -f "$tmp"; ln -s "$SB_ROOT/victim" "$tmp" || exit 1 ;;
+esac
+printf '%s\n' "$tmp"
+STUB
+chmod +x "$SBIN/mktemp"
+symlink_run() {
+	: > "$LOG"
+	rm -f "$T/temp-dir"
+	ZTE_MESH_UBUS=$BIN/ubus ZTE_MESH_JSONFILTER=$BIN/jsonfilter ZTE_MESH_CLOCK=$BIN/date \
+	ZTE_MESH_NET="$NET" ZTE_MESH_MAC80211_DEBUG="$DBG" ZTE_MESH_FIX="$FIX" ZTE_MESH_LOG="$LOG" \
+	SB_REAL_MKTEMP="$REAL_MKTEMP" SB_ROOT="$T" \
+	PATH="$SBIN:$BIN:$PATH" sh "$STA_COLLECT" "$TABLE" 5 --once
+}
+rm -f "$TABLE"; ln -s "$T/victim" "$TABLE"
+symlink_run
+check "symlink: publishes a regular table" yes "$([ -f "$TABLE" ] && [ ! -L "$TABLE" ] && echo yes)"
+check "symlink: file target untouched" "protected file" "$(cat "$T/victim")"
+check "symlink: temp beside the run directory, not in it" "$T" "$(cat "$T/temp-dir" 2>/dev/null)"
+check "symlink: no temporary left beside it" "ap-sta" "$(ls "$RUN" | tr '\n' ' ' | sed 's/ $//')"
+rm -f "$TABLE"; ln -s "$T/victim-dir" "$TABLE"
+symlink_run
+check "symlink to a directory: replaced by a regular table" yes "$([ -f "$TABLE" ] && [ ! -L "$TABLE" ] && echo yes)"
+check "symlink to a directory: content untouched" "protected directory" "$(cat "$T/victim-dir/keep")"
+check "symlink to a directory: nothing moved into it" "1" "$(find "$T/victim-dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+
 echo "sta-collect: $pass passed, $fail failed"
 [ "$fail" = 0 ]

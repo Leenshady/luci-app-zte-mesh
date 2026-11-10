@@ -26,6 +26,15 @@ fi
 
 logger() { for _a; do :; done; echo "$_a" >> "$LOGF"; }
 date() { printf '%s\n' "${STUB_TZ:-+0000}"; }
+# The architecture table is answered by this stub: armv7 boards still have no machine on the bench
+# (PLAN H-16), and the `*)` branch used to treat them as "cannot run the ARM32 daemon".
+STUB_MACHINE=''
+uname() {
+	case "${1:-}" in
+	-m) printf '%s\n' "${STUB_MACHINE:-$(command uname -m)}" ;;
+	*) command uname "$@" ;;
+	esac
+}
 # Track assigned names to avoid forking a pipeline to scan all shell variables.
 config_load() {
 	SECS=""; LOADED=''; local line cur="" n=0 k v t
@@ -1477,13 +1486,128 @@ done
 # (stock ImmortalWrt on an ax3600, for one) is read as "no CONFIG_COMPAT" and pushed onto an
 # emulator that no package ships, and the sandbox then dies with a bare execv errno=8 -- which is
 # exactly what a fresh install hit on 2026-10-31 before this existed.
-for needle in 'CONFIG_COMPAT=y' 'ld-linux.so.3' 'sage:' 'qemu-arm-static' 'no qemu-arm-static was found'; do
+for needle in 'CONFIG_COMPAT=y' 'ld-linux.so.3' 'sage:' 'qemu-arm-static' 'no qemu-arm-static was found' 'ZTE_MESH_QEMU=$emulator'; do
 	if grep -q -- "$needle" "$INIT"; then
 		pass=$((pass + 1))
 	else
 		fail=$((fail + 1)); echo "FAIL emulator source: $needle"
 	fi
 done
+
+# 8q. The architecture table itself, answered without the board: 32-bit ARM kernels run the daemon
+# natively, so armv7 must not be sent down the "cannot run" branch (PLAN item 25 -- no armv7 machine
+# exists, and the old `*)` branch caught it). A qemu-arm-static is put inside the throwaway root on
+# purpose: the point is that armv7 ignores it rather than picking it up and slowing the daemon down.
+ARCHROOT=$T/archroot
+mkdir -p "$ARCHROOT/lib"
+printf '#!/bin/sh\necho "ld.so usage: no arguments"\n' > "$ARCHROOT/lib/ld-linux.so.3"
+: > "$ARCHROOT/qemu-arm-static"
+chmod 755 "$ARCHROOT/lib/ld-linux.so.3" "$ARCHROOT/qemu-arm-static"
+ARCH_UCI=$T/arch-uci
+printf "config zte_mesh 'main'\n" > "$ARCH_UCI"
+ROOT_SAVED=$ROOT
+arch_case() {
+	local machine="$1" want_emulator="$2" want_log="$3" name="$4" rc
+	STUB_MACHINE=$machine; : > "$LOGF"; ROOT=$ARCHROOT
+	UCI=$ARCH_UCI; config_load
+	choose_emulator; rc=$?
+	ROOT=$ROOT_SAVED
+	if [ "$rc" != 0 ]; then
+		fail=$((fail + 1)); echo "FAIL $name: choose_emulator rc=$rc want 0"; return
+	fi
+	if [ "$emulator" != "$want_emulator" ]; then
+		fail=$((fail + 1)); echo "FAIL $name: emulator='$emulator' want '$want_emulator'"; return
+	fi
+	if [ "$want_log" = yes ]; then
+		grep -q 'cannot run the 32-bit ARM daemon' "$LOGF" || {
+			fail=$((fail + 1)); echo "FAIL $name: the 'cannot run' line is missing"; return; }
+	else
+		grep -q 'cannot run the 32-bit ARM daemon' "$LOGF" && {
+			fail=$((fail + 1)); echo "FAIL $name: said it cannot run a daemon this kernel runs natively"; return; }
+	fi
+	pass=$((pass + 1))
+}
+arch_case armv7l "" no armv7-native
+arch_case x86_64 /qemu-arm-static no x86-uses-qemu
+rm -f "$ARCHROOT/qemu-arm-static"
+arch_case x86_64 "" yes x86-without-qemu
+STUB_MACHINE=''
+
+# 8r. A save writes four files into the shared directory, and the sandbox runs as this same UID: any name it
+# can predict may already be a symlink, and a write through one lands on a host file as root. The temp must be
+# created in the host parent (mktemp refuses an existing name), and the destination must be replaced by one
+# rename so a planted link is unlinked rather than followed. This is the same shape test_wlan_sync.sh uses
+# for the status file; the fixed-name links below are the names the old code wrote.
+SS=$T/ss
+mkdir -p "$SS/bin" "$SS/victim-dir"
+printf 'protected file\n' > "$SS/victim"
+printf 'protected directory\n' > "$SS/victim-dir/keep"
+SS_UCI=$T/ss-uci
+printf '%s\n' "$BASE
+	option wifi_5g_ssid 'home-5'
+	option wifi_5g_key 'password-5g'
+	option apply_local '1'" > "$SS_UCI"
+REAL_MKTEMP=$(command -v mktemp)
+cat > "$SS/bin/mktemp" <<'SSMKTEMP'
+#!/bin/sh
+tmp=$("$SS_REAL_MKTEMP" "$@") || exit 1
+dir=$(cd "$(dirname "$tmp")" && pwd) || exit 1
+printf '%s\n' "$dir" > "$SS_RECORD/temp-dir"
+# Win the same-UID race deterministically whenever the caller puts the temp in the shared directory.
+case "$dir/" in
+"$SS_RECORD/shared/"*) rm -f "$tmp"; ln -s "$SS_RECORD/victim" "$tmp" || exit 1 ;;
+esac
+printf '%s\n' "$tmp"
+SSMKTEMP
+chmod +x "$SS/bin/mktemp"
+SS_SAVED_RUNDIR=$RUNDIR
+ss_run() {
+	rm -f "$SS/temp-dir"
+	: > "$LOGF"
+	UCI=$SS_UCI; config_load
+	( SS_REAL_MKTEMP=$REAL_MKTEMP; SS_RECORD=$SS; export SS_REAL_MKTEMP SS_RECORD
+	  PATH="$SS/bin:$PATH"; RUNDIR=$SS/shared; write_config )
+}
+ss_regular() { [ -f "$SS/shared/$1" ] && [ ! -L "$SS/shared/$1" ] && echo yes; }
+
+mkdir -p "$SS/shared"
+ln -s "$SS/victim" "$SS/shared/config"
+for f in ".config.$$" ".wlan-plan.$$" ".wlan-plan.body.$$" ".bss-plan.$$"; do
+	ln -s "$SS/victim" "$SS/shared/$f"
+done
+ss_run
+ss_ok=1
+[ "$(cat "$SS/victim")" = "protected file" ] || { ss_ok=0; echo "FAIL symlink: a write followed a planted link"; }
+for f in ".config.$$" ".wlan-plan.$$" ".wlan-plan.body.$$" ".bss-plan.$$"; do
+	[ -L "$SS/shared/$f" ] || { ss_ok=0; echo "FAIL symlink: $f was consumed"; }
+done
+[ "$(ss_regular config)" = yes ] || { ss_ok=0; echo "FAIL symlink: config is not a regular file"; }
+[ "$(cat "$SS/temp-dir" 2>/dev/null)" = "$SS" ] || { ss_ok=0; echo "FAIL symlink: temp not in the host parent"; }
+if [ "$ss_ok" = 1 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+
+# ... and the other three destinations, each planted as a link before the save. A directory target also shows
+# whether the rename used -T: without it mv would move the temp *into* that directory.
+for f in version_mode.host restart.sig wlan-plan; do
+	rm -rf "$SS/shared"; mkdir -p "$SS/shared"
+	ln -s "$SS/victim" "$SS/shared/$f"
+	ss_run
+	if [ "$(ss_regular "$f")" = yes ] && [ "$(cat "$SS/victim")" = "protected file" ]; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL symlink: $f followed a planted link"
+	fi
+done
+rm -rf "$SS/shared"; mkdir -p "$SS/shared"
+ln -s "$SS/victim-dir" "$SS/shared/wlan-plan"
+ss_run
+if [ "$(ss_regular wlan-plan)" = yes ] &&
+	[ "$(cat "$SS/victim-dir/keep")" = "protected directory" ] &&
+	[ "$(find "$SS/victim-dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = 1 ]; then
+	pass=$((pass + 1))
+else
+	fail=$((fail + 1)); echo "FAIL symlink: wlan-plan was moved into the planted directory"
+fi
+RUNDIR=$SS_SAVED_RUNDIR
 
 # start_service() also owns the controller address (only the last byte is configurable, and the value is
 # handed to both the emulated daemon and mesh-search), so guard the source the same way.

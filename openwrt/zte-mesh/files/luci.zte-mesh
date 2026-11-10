@@ -13,24 +13,30 @@
 # stations on this router's own access points). The controller cannot answer it: it knows a station count per BSS
 # and nothing about which stations those are.
 #
-# reboot_node / light_node hand a one-line request to the running controller service (a file in
-# /run/zte-mesh/actions, consumed within a second) and wait a few seconds for its answer in state.json:
+# reboot_node / light_node hand a one-line request to the running controller service (a file named <id>.act
+# directly in /run/zte-mesh, consumed within a second) and wait a few seconds for its answer in state.json:
 # {"result": 0} = sent to the daemon, -3 = no such online ZTE node, -4 = daemon not ready, -2 = malformed,
 # -5 = the controller is not running, null = no answer yet.
 
 RUNDIR=${ZTE_MESH_RUNDIR:-/run/zte-mesh}
 STATE="$RUNDIR/state.json"
-ACTIONS="$RUNDIR/actions"
 
 # node_action VERB MAC [ARG]: writes the request, waits up to 8 s for its result, prints the JSON reply
 node_action() {
-	local id req i res
-	[ -d "$ACTIONS" ] && [ -s "$STATE" ] || { printf '{ "result": -5 }\n'; return; }
+	local id req i res tmp tmpdir
+	[ -d "$RUNDIR" ] && [ -s "$STATE" ] || { printf '{ "result": -5 }\n'; return; }
 	id="$(date +%s)-$$"
 	req="$1 $2"
 	[ -n "$3" ] && req="$req $3"
-	( umask 077; printf '%s\n' "$req" > "$ACTIONS/.$id.tmp" && mv "$ACTIONS/.$id.tmp" "$ACTIONS/$id.act" ) ||
-		{ printf '{ "result": -5 }\n'; return; }
+	# Staged in the parent of the shared directory and renamed in, for the same reason the service stages its own
+	# files there: the sandbox runs as this same UID and may pre-place a link under a name it can guess. A
+	# subdirectory would not help -- the directory itself could be swapped for a link -- so the request lives in
+	# $RUNDIR itself; the consumer scans it for the .act suffix.
+	tmpdir=${RUNDIR%/*}
+	[ "$tmpdir" = "$RUNDIR" ] && tmpdir=.
+	tmp=$(mktemp "$tmpdir/.zte-mesh-act.XXXXXX") || { printf '{ "result": -5 }\n'; return; }
+	{ printf '%s\n' "$req" > "$tmp" && mv -fT "$tmp" "$RUNDIR/$id.act"; } ||
+		{ rm -f "$tmp"; printf '{ "result": -5 }\n'; return; }
 	i=0
 	while [ "$i" -lt "${ZTE_MESH_ACTION_WAIT:-8}" ]; do
 		sleep 1

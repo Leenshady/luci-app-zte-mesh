@@ -21,8 +21,11 @@ the same archive, so these checks are the drift guard:
 Run directly:  python3 tests/test_runtime.py
 """
 import hashlib
+import io
+import shutil
 import sys
 import tarfile
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -100,6 +103,40 @@ def main():
         check(f"db-engine-probe in the archive carries {marker.decode()}", marker in probe,
               "the packed copy predates the current sources; rebuild prebuilt/db-engine-probe with "
               "build-lab-tools.yml and repack with openwrt/repack-runtime.py --replace")
+
+    # Those four markers are all present in r23's probe too, so none of them can tell a repack that swapped the
+    # previous batch's binary back in -- which is how the archive went out twice. Compare the member with a build
+    # made from these sources instead: out/db-engine-probe when this checkout has one (make database), else the
+    # audited prebuilt/db-engine-probe. An older probe matches neither. The archive is packed before the package
+    # build strips anything, so the bytes are compared as they are.
+    refs = [p for p in (REPO / "out/db-engine-probe", REPO / "prebuilt/db-engine-probe") if p.is_file()]
+    if not refs:
+        check("a reference db-engine-probe build exists (out/ or prebuilt/)", False)
+    else:
+        digests = {r: hashlib.sha256(r.read_bytes()).hexdigest() for r in refs}
+        digest = hashlib.sha256(probe).hexdigest()
+        match = next((r for r in refs if digests[r] == digest), None)
+        check("db-engine-probe in the archive is a current build", match is not None,
+              "the archive member matches neither " + " nor ".join(str(r.relative_to(REPO)) for r in refs) +
+              ": repackage with openwrt/repack-runtime.py --replace "
+              "root/bin/db-engine-probe=<fresh build>")
+        # The comparison only means something if it rejects the file it was meant to catch, so run it on a copy
+        # of this archive with one byte of the probe flipped.
+        stale = Path(tempfile.mkdtemp()) / "stale.tar.gz"
+        with tarfile.open(stale, "w:gz") as out_tar:
+            for member in members.values():
+                if not member.isfile():
+                    out_tar.addfile(member)
+                    continue
+                data = blobs[member.name]
+                if member.name == "root/bin/db-engine-probe":
+                    data = data[:-1] + bytes([data[-1] ^ 0xff])
+                out_tar.addfile(member, io.BytesIO(data))
+        with tarfile.open(stale, "r:gz") as stale_tar:
+            stale_probe = stale_tar.extractfile("root/bin/db-engine-probe").read()
+        check("the comparison rejects an archive with other probe bytes",
+              hashlib.sha256(stale_probe).hexdigest() not in digests.values())
+        shutil.rmtree(stale.parent, ignore_errors=True)
 
     # Same hazard on the preload side, and this one is easy to hit: three batches of controller-peer.c /
     # controller-1905.c changes went out with the archive untouched, because nothing on the host looked at

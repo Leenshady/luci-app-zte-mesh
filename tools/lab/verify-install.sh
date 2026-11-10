@@ -28,13 +28,15 @@
 # controller's own database row now carries (`smoke_cur_hop_override`); a machine with no such file judges nothing.
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
-# installed (`packed_copy`), the five that say the batch's shell files are (`package_scripts` -- a batch that changes
+# installed (`packed_copy`), the build id that says the probe itself is this batch's (`probe_copy` -- `apk` strips the
+# installed copy, so the markers in packed_copy are present in earlier batches too and cannot tell a repack), the five
+# that say the batch's shell files are (`package_scripts` -- a batch that changes
 # only the init script and the applier leaves nothing in the rootfs), the three that say this machine has a launcher it
 # can exec (`launcher_evidence` -- the package is architecture-independent now and the install-time board gate is gone,
 # so the answer moved here), one more there that only reports whether the separate zte-mesh-launcher package is still
 # on the box, the collector's own table (`ap_sta_evidence`), the
 # peer files it has produced (`peer_files`) and whether the state document carries the per-BSS key (`state_nodes`).
-# Those are evidence lines, and only the ten markers are counted as assertions -- an empty peer directory on a link
+# Those are evidence lines, and only the eleven markers are counted as assertions -- an empty peer directory on a link
 # whose peer reports no station count is not a fault of ours.
 # Two more pairs turn PLAN's on-machine questions into lines you can read twice. `smoke_mesh_compat` judges the page
 # option against the key the daemon reads (they answer opposite questions), and `smoke_backhaul` judges the four uci
@@ -661,6 +663,57 @@ packed_copy() {
 	check probe_bss_detail yes "$probe"
 }
 
+build_id() {
+	# build_id FILE -> the hex of NT_GNU_BUILD_ID, or "none". `apk` strips the installed copy, so its sha256 no
+	# longer matches prebuilt/; the note lives in an allocated section and survives stripping. readelf is not on
+	# these routers and od is a busybox applet, so the note is found by its shape: namesz=4, descsz, type=3,
+	# "GNU\0", then descsz bytes of id.
+	od -An -v -tu1 "$1" 2>/dev/null | awk '
+		{ for (i = 1; i <= NF; i++) b[n++] = $i }
+		END {
+			for (i = 0; i + 16 < n; i++)
+				if (b[i] == 4 && b[i+1] == 0 && b[i+2] == 0 && b[i+3] == 0 &&
+				    b[i+8] == 3 && b[i+9] == 0 && b[i+10] == 0 && b[i+11] == 0 &&
+				    b[i+12] == 71 && b[i+13] == 78 && b[i+14] == 85 && b[i+15] == 0) {
+					d = b[i+4] + b[i+5] * 256 + b[i+6] * 65536
+					if ((d != 8 && d != 16 && d != 20 && d != 32) || i + 16 + d > n) continue
+					s = ""
+					for (j = 0; j < d; j++) s = s sprintf("%02x", b[i+16+j])
+					print s
+					exit
+				}
+			print "none"
+		}'
+}
+
+probe_copy() {
+	# packed_copy's four markers are all present in r23's probe, so a repack that swaps in the previous batch's
+	# binary passes them. The installed copy is stripped and cannot be hashed against prebuilt/, but the build id
+	# can: read the same member out of this batch's apk (still in the directory the install came from) and compare.
+	installed="$ROOTFS/root/bin/db-engine-probe"
+	have=$(build_id "$installed")
+	say probe_build_id "$have"
+	apk=$(batch_apk zte-mesh)
+	if [ -z "$apk" ]; then
+		say probe_build_id_matches "unknown(no batch apk to compare with)"
+		return 0
+	fi
+	tmp=$(mktemp -d 2>/dev/null) || tmp=
+	member=
+	ref=none
+	if [ -n "$tmp" ] && tar -xzf "$apk" -C "$tmp" data.tar.gz 2>/dev/null; then
+		member=$(tar -tzf "$tmp/data.tar.gz" 2>/dev/null | grep 'bin/db-engine-probe$' | head -n 1)
+		[ -n "$member" ] && tar -xzf "$tmp/data.tar.gz" -C "$tmp" "$member" 2>/dev/null &&
+			ref=$(build_id "$tmp/$member")
+	fi
+	[ -n "$tmp" ] && rm -rf "$tmp"
+	if [ "$ref" = none ] || [ "$have" = none ]; then
+		say probe_build_id_matches "unknown(want=$ref)"
+		return 0
+	fi
+	check probe_build_id_matches yes "$([ "$have" = "$ref" ] && echo yes || echo no)"
+}
+
 package_scripts() {
 	# A batch that changes only the package's own shell files leaves nothing in the rootfs tree: the r18 child borrows
 	# its seed from the air (`live_ap_iface` in the init script) and its applier compares flags by meaning (`set_flag`
@@ -835,6 +888,7 @@ smoke_cur_hop_override
 smoke_mesh_compat
 smoke_backhaul
 packed_copy
+probe_copy
 package_scripts
 launcher_evidence
 ap_sta_evidence
