@@ -22,5 +22,5 @@ arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -
   -Wl,--no-as-needed,--start-group -l:ld-linux.so.3 -l:libc.so.6 -l:libcapability.so -l:libcfapi.so -l:libcmapi.so -l:libcommfun.so -l:libcrypto.so.1.0.0 -l:libctype.so -l:libdb.so -l:libdhcp4ccfapi.so -l:libdhcp4ccmapi.so -l:libdhcp4scfapi.so -l:libdhcp4scmapi.so -l:libdl.so.2 -l:libevent.so -l:libgcc_s.so.1 -l:libieee1905cfapi.so -l:libieee1905cmapi.so -l:libjsonunify.so -l:libm.so.6 -l:libmultiapcfapi.so -l:libmultiapcmapi.so -l:liboss.so -l:libpthread.so.0 -l:libsha256.so -l:libssl.so.1.0.0 -l:libzte_slibc.so -lgcc -Wl,--end-group \
   /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtend.o /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crtn.o -o out/db-engine-probe
 rc=0
-prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=d426802a92835cc04ea9771ec9c32ce103b0d60c, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 211708 Nov  7 08:55 prebuilt/db-engine-probe
+prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=46a63857162e5f43aec0405197b164a6658b74a9, for GNU/Linux 3.2.0, not stripped
+-rwxr-xr-x 1 runner runner 211792 Nov 10 03:03 prebuilt/db-engine-probe
