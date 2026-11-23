@@ -171,7 +171,7 @@ jobs:
                    arm-linux-gnueabi-gcc --version | head -1 &&
                    ldd --version | head -1 &&
                    python3 tools/lab/bootstrap-out.py &&
-                   make out/db-engine-probe out/runtime/lib/libzte_controller_trace.so ARTIFACTS=out \
+                   make out/db-engine-probe "$PWD/out/runtime/lib/libzte_controller_trace.so" ARTIFACTS=out \
                      ARMCC="arm-linux-gnueabi-gcc -D_TIME_BITS=32"' >>"$LOG" 2>&1
           rc=$?
           # The container writes out/ as root; only the copied binary has to stay
