@@ -21,6 +21,24 @@ arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -
   -L/src/out/runtime/lib -Wl,-rpath-link,/src/out/runtime/lib -Wl,--dynamic-linker=/lib/ld-linux.so.3 \
   -Wl,--no-as-needed,--start-group -l:ld-linux.so.3 -l:libc.so.6 -l:libcapability.so -l:libcfapi.so -l:libcmapi.so -l:libcommfun.so -l:libcrypto.so.1.0.0 -l:libctype.so -l:libdb.so -l:libdhcp4ccfapi.so -l:libdhcp4ccmapi.so -l:libdhcp4scfapi.so -l:libdhcp4scmapi.so -l:libdl.so.2 -l:libevent.so -l:libgcc_s.so.1 -l:libieee1905cfapi.so -l:libieee1905cmapi.so -l:libjsonunify.so -l:libm.so.6 -l:libmultiapcfapi.so -l:libmultiapcmapi.so -l:liboss.so -l:libpthread.so.0 -l:libsha256.so -l:libssl.so.1.0.0 -l:libzte_slibc.so -lgcc -Wl,--end-group \
   /usr/lib/gcc-cross/arm-linux-gnueabi/12/crtend.o /usr/lib/gcc-cross/arm-linux-gnueabi/12/../../../../arm-linux-gnueabi/lib/crtn.o -o out/db-engine-probe
+arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden -fno-unwind-tables -fno-asynchronous-unwind-tables -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
+  -Wl,-z,defs -Wl,-soname,libzte_controller_trace.so \
+  -L/src/out/runtime/lib -Wl,-rpath-link,/src/out/runtime/lib src/controller-trace.c src/controller-log.c src/controller-peer.c src/controller-1905.c src/controller-steer.c src/agent-ap-metrics.c \
+  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o /src/out/runtime/lib/libzte_controller_trace.so
+arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden -fno-unwind-tables -fno-asynchronous-unwind-tables -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
+  -Wl,-z,defs -Wl,-soname,libzte_controller_profile.so \
+  -L/src/out/runtime/lib -Wl,-rpath-link,/src/out/runtime/lib src/controller-profile.c \
+  -Wl,--no-as-needed,--start-group -l:ld-linux.so.3 -l:libc.so.6 -l:libcapability.so -l:libcfapi.so -l:libcmapi.so -l:libcommfun.so -l:libcrypto.so.1.0.0 -l:libctype.so -l:libdb.so -l:libdhcp4ccfapi.so -l:libdhcp4ccmapi.so -l:libdhcp4scfapi.so -l:libdhcp4scmapi.so -l:libdl.so.2 -l:libevent.so -l:libgcc_s.so.1 -l:libieee1905cfapi.so -l:libieee1905cmapi.so -l:libjsonunify.so -l:libm.so.6 -l:libmultiapcfapi.so -l:libmultiapcmapi.so -l:liboss.so -l:libpthread.so.0 -l:libsha256.so -l:libssl.so.1.0.0 -l:libzte_slibc.so -lgcc -Wl,--end-group -o /src/out/runtime/lib/libzte_controller_profile.so
+arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden -fno-unwind-tables -fno-asynchronous-unwind-tables -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
+  -Wl,-z,defs -Wl,-soname,libzte_controller_route.so \
+  -L/src/out/runtime/lib -Wl,-rpath-link,/src/out/runtime/lib src/controller-route.c \
+  -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o /src/out/runtime/lib/libzte_controller_route.so
 rc=0
-prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=d426802a92835cc04ea9771ec9c32ce103b0d60c, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 211708 Nov  7 08:55 prebuilt/db-engine-probe
+prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=6337f876355255151a10175eba4c1a6eb70ba3d6, for GNU/Linux 3.2.0, not stripped
+-rwxr-xr-x 1 runner runner 211980 Nov 23 11:41 prebuilt/db-engine-probe
+prebuilt/libzte_controller_trace.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=f0ae51dff30654c3d1a7b9585155fba799cb5d83, not stripped
+-rw-r--r-- 1 runner runner 35056 Nov 23 11:41 prebuilt/libzte_controller_trace.so
+prebuilt/libzte_controller_profile.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=762958504fad80a9819504b3dc50de6487700a84, not stripped
+-rwxr-xr-x 1 runner runner 11092 Nov 23 11:41 prebuilt/libzte_controller_profile.so
+prebuilt/libzte_controller_route.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=60081e63896d7912ad5e880a33c692e72c9583f9, not stripped
+-rwxr-xr-x 1 runner runner 6304 Nov 23 11:41 prebuilt/libzte_controller_route.so
