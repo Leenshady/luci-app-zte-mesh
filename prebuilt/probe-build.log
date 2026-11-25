@@ -1,10 +1,10 @@
 Unable to find image 'debian:bookworm' locally
 bookworm: Pulling from library/debian
-69245854ad58: Pulling fs layer
-69245854ad58: Verifying Checksum
-69245854ad58: Download complete
-69245854ad58: Pull complete
-Digest: sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8
+1e6e7ca511b9: Pulling fs layer
+1e6e7ca511b9: Verifying Checksum
+1e6e7ca511b9: Download complete
+1e6e7ca511b9: Pull complete
+Digest: sha256:1d04200c2ece1d4d75a2a6f8e11ebce7d86a2ae28b34bb2c9cbb3ee9f4953e75
 Status: Downloaded newer image for debian:bookworm
 debconf: delaying package configuration, since apt-utils is not installed
 arm-linux-gnueabi-gcc (Debian 12.2.0-14) 12.2.0
@@ -34,11 +34,11 @@ arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -
   -L/src/out/runtime/lib -Wl,-rpath-link,/src/out/runtime/lib src/controller-route.c \
   -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o /src/out/runtime/lib/libzte_controller_route.so
 rc=0
-prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=6337f876355255151a10175eba4c1a6eb70ba3d6, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 211980 Nov 23 11:41 prebuilt/db-engine-probe
-prebuilt/libzte_controller_trace.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=f0ae51dff30654c3d1a7b9585155fba799cb5d83, not stripped
--rw-r--r-- 1 runner runner 35056 Nov 23 11:41 prebuilt/libzte_controller_trace.so
+prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=b4119d268199cb8586d51c7b2b3f69658a320675, for GNU/Linux 3.2.0, not stripped
+-rwxr-xr-x 1 runner runner 216132 Nov 25 13:34 prebuilt/db-engine-probe
+prebuilt/libzte_controller_trace.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=3257363f6ba8319122dbec22532009e68a89671d, not stripped
+-rw-r--r-- 1 runner runner 35084 Nov 25 13:34 prebuilt/libzte_controller_trace.so
 prebuilt/libzte_controller_profile.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=762958504fad80a9819504b3dc50de6487700a84, not stripped
--rwxr-xr-x 1 runner runner 11092 Nov 23 11:41 prebuilt/libzte_controller_profile.so
+-rw-r--r-- 1 runner runner 11092 Nov 25 13:34 prebuilt/libzte_controller_profile.so
 prebuilt/libzte_controller_route.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=60081e63896d7912ad5e880a33c692e72c9583f9, not stripped
--rwxr-xr-x 1 runner runner 6304 Nov 23 11:41 prebuilt/libzte_controller_route.so
+-rw-r--r-- 1 runner runner 6304 Nov 25 13:34 prebuilt/libzte_controller_route.so
