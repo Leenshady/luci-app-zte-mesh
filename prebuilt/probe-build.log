@@ -34,11 +34,11 @@ arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -
   -L/src/out/runtime/lib -Wl,-rpath-link,/src/out/runtime/lib src/controller-route.c \
   -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o /src/out/runtime/lib/libzte_controller_route.so
 rc=0
-prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=b4119d268199cb8586d51c7b2b3f69658a320675, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 216132 Nov 25 13:34 prebuilt/db-engine-probe
-prebuilt/libzte_controller_trace.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=3257363f6ba8319122dbec22532009e68a89671d, not stripped
--rw-r--r-- 1 runner runner 35084 Nov 25 13:34 prebuilt/libzte_controller_trace.so
+prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=137993e7923b805cc53ecfc37dc36fca5a26df40, for GNU/Linux 3.2.0, not stripped
+-rwxr-xr-x 1 runner runner 216220 Nov 25 14:02 prebuilt/db-engine-probe
+prebuilt/libzte_controller_trace.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=68d79dbaa71d87ee67d7e392db5bf1e5cce40816, not stripped
+-rw-r--r-- 1 runner runner 35108 Nov 25 14:02 prebuilt/libzte_controller_trace.so
 prebuilt/libzte_controller_profile.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=762958504fad80a9819504b3dc50de6487700a84, not stripped
--rw-r--r-- 1 runner runner 11092 Nov 25 13:34 prebuilt/libzte_controller_profile.so
+-rw-r--r-- 1 runner runner 11092 Nov 25 14:02 prebuilt/libzte_controller_profile.so
 prebuilt/libzte_controller_route.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=60081e63896d7912ad5e880a33c692e72c9583f9, not stripped
--rw-r--r-- 1 runner runner 6304 Nov 25 13:34 prebuilt/libzte_controller_route.so
+-rw-r--r-- 1 runner runner 6304 Nov 25 14:02 prebuilt/libzte_controller_route.so
