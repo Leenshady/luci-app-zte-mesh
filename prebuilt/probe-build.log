@@ -1,7 +1,6 @@
 Unable to find image 'debian:bookworm' locally
 bookworm: Pulling from library/debian
 1e6e7ca511b9: Pulling fs layer
-1e6e7ca511b9: Verifying Checksum
 1e6e7ca511b9: Download complete
 1e6e7ca511b9: Pull complete
 Digest: sha256:1d04200c2ece1d4d75a2a6f8e11ebce7d86a2ae28b34bb2c9cbb3ee9f4953e75
@@ -35,10 +34,10 @@ arm-linux-gnueabi-gcc -D_TIME_BITS=32 -O2 -std=c11 -Wall -Wextra -Werror -fPIC -
   -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc -o /src/out/runtime/lib/libzte_controller_route.so
 rc=0
 prebuilt/db-engine-probe: ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.3, BuildID[sha1]=137993e7923b805cc53ecfc37dc36fca5a26df40, for GNU/Linux 3.2.0, not stripped
--rwxr-xr-x 1 runner runner 216220 Nov 25 16:35 prebuilt/db-engine-probe
+-rwxr-xr-x 1 runner runner 216220 Nov 25 16:38 prebuilt/db-engine-probe
 prebuilt/libzte_controller_trace.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=b111ee7fe48c5feb8784d4e51d264d23ada3d6ec, not stripped
--rw-r--r-- 1 runner runner 35108 Nov 25 16:36 prebuilt/libzte_controller_trace.so
+-rw-r--r-- 1 runner runner 35108 Nov 25 16:38 prebuilt/libzte_controller_trace.so
 prebuilt/libzte_controller_profile.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=762958504fad80a9819504b3dc50de6487700a84, not stripped
--rw-r--r-- 1 runner runner 11092 Nov 25 16:36 prebuilt/libzte_controller_profile.so
+-rw-r--r-- 1 runner runner 11092 Nov 25 16:38 prebuilt/libzte_controller_profile.so
 prebuilt/libzte_controller_route.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=a633fce50db652d5059132d565ff334ed64ea498, not stripped
--rw-r--r-- 1 runner runner 6384 Nov 25 16:36 prebuilt/libzte_controller_route.so
+-rw-r--r-- 1 runner runner 6384 Nov 25 16:38 prebuilt/libzte_controller_route.so

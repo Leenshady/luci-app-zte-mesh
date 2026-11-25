@@ -1,4 +1,3 @@
-/usr/lib/gcc-cross/arm-linux-gnueabi/13/../../../../arm-linux-gnueabi/bin/ld: /tmp/ccgOLy45.o: in function `log_record':
-shim.c:(.text+0xe4): undefined reference to `__clock_gettime64'
-collect2: error: ld returned 1 exit status
-rc=1
+rc=0
+prebuilt/libzte_mesh_shim.so: ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, BuildID[sha1]=bb2c6158a428deb4cfb175472062d3a9e1d571e4, not stripped
+-rwxr-xr-x 1 runner runner 10916 Nov 25 16:38 prebuilt/libzte_mesh_shim.so
