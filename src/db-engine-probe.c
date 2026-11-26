@@ -109,7 +109,7 @@ static int client(void)
             map_cfg_scalar(query, MAP_SYNC_ENABLE) == 1 &&
             map_cfg_scalar(query, MAP_MASTER_ONLY) == 1 &&
             map_cfg_scalar(query, MAP_MAX_HOP) == 2 &&
-            (int32_t)map_cfg_scalar(query, MAP_CUR_HOP) == -2 &&
+            (int32_t)map_cfg_scalar(query, MAP_CUR_HOP) == 2 &&
             !strcmp(map_cfg_string(query, MAP_IF_LINK), "br-lan") &&
             !strcmp(map_cfg_string(query, MAP_MESH_NAME), "zte-shim-lab"),
             "public-master-fixture-values");
