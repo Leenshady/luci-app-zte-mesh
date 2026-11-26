@@ -15,25 +15,22 @@ name: Build lab tools
 #              recompiled here keeps the device on the old behaviour while the
 #              config it is fed already uses the new keys.
 #
-# All of them are published to this branch so a device can fetch them over plain https:
+# Nothing here is part of a router image, and nothing lands in the repository: the
+# outputs are published as the `lab-tools` artifact of the run. To use them, download
+# that artifact, unpack it into prebuilt/ (git-ignored) and repack the runtime with
+# `openwrt/repack-runtime.py --replace`.
 #
-#   wget -O /usr/libexec/zte-mesh/ns-run \
-#     https://raw.githubusercontent.com/<owner>/<repo>/main/prebuilt/ns-run-x86_64
-#
-# Nothing here is part of a router image.
-#
-# The build log is published even when a build fails (that is the only way to
-# read a failure log without a token in this setup), so the commit always lands
-# and the job conclusion still reports the truth.
+# The build log travels with the artifact even when a build fails, which is the only
+# way to read a failure log without a token in this setup.
 
-# Manual only. This used to run on every push to the lab-tools branch and commit
-# its own output back; prebuilt/ now lives on main, and nothing here should fire
-# on its own any more (a commit landing on main would otherwise start Build APK).
+# Manual only. This used to run on every push to the lab-tools branch and commit its
+# own output back; nothing here should fire on its own any more (a commit landing on
+# main would otherwise start Build APK).
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: lab-tools
@@ -61,6 +58,9 @@ jobs:
         id: nsrunarm
         run: |
           set +e
+          # prebuilt/ is git-ignored, so a fresh checkout has no such directory:
+          # the log below is the first thing that needs it.
+          mkdir -p prebuilt
           LOG=prebuilt/build-aarch64.log
           : > "$LOG"
           # Same rule again, this time for the router's own architecture: an
@@ -131,7 +131,7 @@ jobs:
           # nothing newer than the gLibc 2.26 the daemon actually links against.
           arm-linux-gnueabi-gcc -O2 -std=c11 -Wall -Wextra -Werror -fPIC -fvisibility=hidden \
             -fno-unwind-tables -fno-asynchronous-unwind-tables \
-            -march=armv7-a -mfloat-abi=soft -shared -nostdlib \
+            -march=armv7-a -mfloat-abi=soft -shared -nostdlib -D_TIME_BITS=32 \
             -Wl,-z,defs -Wl,-soname,libzte_mesh_shim.so \
             -L"$L" -Wl,-rpath-link,"$L" src/shim.c \
             -l:libdl.so.2 -l:libc.so.6 -l:ld-linux.so.3 -lgcc \
@@ -147,7 +147,7 @@ jobs:
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Build db-engine-probe + controller libs (ARM32, vendor glibc)
+      - name: Build db-engine-probe (ARM32, vendor glibc)
         id: probe
         run: |
           set +e
@@ -170,7 +170,7 @@ jobs:
                      gcc-arm-linux-gnueabi libc6-dev-armel-cross make python3 >/dev/null &&
                    arm-linux-gnueabi-gcc --version | head -1 &&
                    ldd --version | head -1 &&
-                   python3 tools/lab/bootstrap-out.py &&
+                   python3 tools/build/bootstrap-out.py &&
                    make out/db-engine-probe \
                      "$PWD/out/runtime/lib/libzte_controller_trace.so" \
                      "$PWD/out/runtime/lib/libzte_controller_profile.so" \
@@ -190,11 +190,10 @@ jobs:
             arm-linux-gnueabi-nm -u prebuilt/db-engine-probe 2>/dev/null | grep -E '__time64|__clock_gettime64|__ioctl_time64|__isoc23_' >>"$LOG" 2>&1 &&
               { echo "new-glibc symbols leaked into the link" >>"$LOG"; rc=3; }
             sha256sum prebuilt/db-engine-probe > prebuilt/db-engine-probe.sha256
-            # The preload libraries are what write the device log, and they call
-            # time()/clock_gettime()/ioctl() just like the probe does. Built on the
-            # runner's glibc 2.39 they would link __time64 / __clock_gettime64 /
-            # __ioctl_time64, which the factory glibc 2.26 does not export, so they are
-            # compiled in the same container with the same pinned 32-bit time bits.
+            # The preload libraries write the device log and call time()/clock_gettime()
+            # just like the probe, so they are compiled in the same container with the
+            # same pinned 32-bit time bits; built on the runner's glibc 2.39 they would
+            # reference __time64/__clock_gettime64, which the factory glibc 2.26 lacks.
             for lib in libzte_controller_trace.so libzte_controller_profile.so libzte_controller_route.so; do
               cp "out/runtime/lib/$lib" "prebuilt/$lib"
               file "prebuilt/$lib" >>"$LOG" 2>&1
@@ -244,16 +243,8 @@ jobs:
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Publish to this branch
-        run: |
-          git config user.name "lab-tools"
-          git config user.email "lab-tools@users.noreply.github.com"
-          git add -f prebuilt/
-          git commit -m "lab: ns-run rc=${{ steps.nsrun.outputs.rc }}/${{ steps.nsrunarm.outputs.rc }} shim rc=${{ steps.shim.outputs.rc }} probe rc=${{ steps.probe.outputs.rc }} agent-mm rc=${{ steps.agentmm.outputs.rc }} $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-
-      - name: Upload as artifacts too
-        if: steps.nsrun.outputs.rc == '0' && steps.nsrunarm.outputs.rc == '0' && steps.shim.outputs.rc == '0' && steps.probe.outputs.rc == '0' && steps.agentmm.outputs.rc == '0'
+      - name: Upload as artifact (logs included, also on failure)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lab-tools
@@ -263,5 +254,5 @@ jobs:
       - name: Fail if a build did not produce a binary
         if: steps.nsrun.outputs.rc != '0' || steps.nsrunarm.outputs.rc != '0' || steps.shim.outputs.rc != '0' || steps.probe.outputs.rc != '0' || steps.agentmm.outputs.rc != '0'
         run: |
-          echo "see prebuilt/*.log on this branch" >&2
+          echo "see the *-build.log files in the lab-tools artifact" >&2
           exit 1

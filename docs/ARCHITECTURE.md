@@ -47,21 +47,9 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 - **状态**：服务每秒写 `/run/zte-mesh/state.json`（节点、动作结果、调度状态），rpcd 和 LuCI 读它。
 - **子节点的终端数从哪来（实例 `sta-collect`）**：原厂 agent 的 `0x94` 是驱动经 `cspd` 填的，沙箱两样都没有，`ns-run` 又不挂
   `/sys`——实测它收到 AP Metric Query（`0x800b`）一声不响，所以 OpenWrt 子节点在页面上只能是"没数据"。数只能在宿主测：
-  `sta-collect` 每 5 秒把本机 AP 的关联写进 `/run/zte-mesh/ap-sta`（`epoch=`，之后每路一行 `b <BSSID> <数> <SSID>`，再跟若干
-  `s <BSSID> <终端 MAC>`；整表原子替换），这个目录本来就 bind 进私有根，`agent-ap-metrics.c` 在沙箱里读它拼 `0x800c`——
-  `0x94` 只带数目，终端 MAC、BSSID 与 SSID 另放进自定的 vendor 子 TLV `0x70`（OUI `00:19:c6`，号与边界见
-  `controller-1905.h`；原厂 agent 不发它，主控就退回只知数目）。表超过 30 秒没刷新就不回——
+  `sta-collect` 每 5 秒把本机 AP 的关联数写进 `/run/zte-mesh/ap-sta`（`epoch=` 加每路一行 `BSSID 数`，整表原子替换），
+  这个目录本来就 bind 进私有根，`agent-ap-metrics.c` 在沙箱里读它拼 `0x800c`。表超过 30 秒没刷新就不回——
   **过期即沉默，不报一个陈旧的数**。主控那头由服务定时发查询（见 [SERVICE.md](SERVICE.md)）。
-
-- **本机看得到的设备（宿主侧 `device-list`）**：页面「设备」一节不是控制器给的——控制器只有每 BSS 的终端数（上一段），
-  没有"是哪几个"。所以这一节由宿主当场读三张本机表并按 MAC 合并、逐行说明哪几张表见过它：`/tmp/dhcp.leases`（本机
-  dnsmasq 发过谁，静态地址的设备不在这张表里）、`ip neigh`（内核知道谁，租约过期但还在线的只有这张表）、本机 AP 的
-  debugfs `stations`（只取 netifd 报的 `mode=ap`，回程的 sta 接口数进来就把主控算成本机的终端）。**第四张表是子节点上报**：
-  主控收到带 `0x70` 的应答后 `controller-peer.c` 写 `peers/<AL MAC>.assoc`（`epoch=` 加每行 `<终端 MAC> <BSSID> <SSID>`），
-  `device-list` 只认 30 秒内、文件名是完整 MAC 的那几份，同一 MAC 取时间戳最新的一份——页面上"无线/有线"与「节点」那一列
-  就出自这里：本机 `stations` 优先，其次是上报，两样都没有才是有线。**边界**：子节点不上报的设备仍然看不到（原厂子节点
-  就是这种）；有线设备只说"有线"不标端口（镜像里没有 `bridge` 命令，`ip neigh` 也没有这个信息）。
-  它不读、不写任何配置，`luci.zte-mesh devices` 只是把这行 JSON 原样转给页面。
 
 - **有线口的自愈（实例 `attach`）**：沙箱这头的 `veth-lab` 和宿主那头的 `zmesh0` 是一对 veth，删掉任一端两个一起没了；
   而沙箱里没有 `/proc`、没有 `/sys`、没有 `ip`、也没有 `CAP_NET_ADMIN`，daemon 又在 `bind()` 时把 ifindex 绑死了——
@@ -88,13 +76,13 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
 | `controller-route.c` | 沙箱，preload | 接口身份；`SSEND(0xa96e)` 启动计数替身 |
 | `controller-trace.c` | 沙箱，preload | 受限日志、ASEND 记录、把收到的 1905 帧交给 `controller-peer.c`，并把 `0x800b` 交给 `agent-ap-metrics.c` 应答（回帧从查询到达的那个 socket 直接发出，不走本文件的 `sendto` 包装）；每一行先过 `controller-log.c` 的预算 |
 | `controller-log.c`、`controller-log.h` | 沙箱，preload + 主机测试 | 纯函数：一段格式文本 + 调用方给的时钟 → 这一行打不打、打不成时发哪条提示（措辞固定，只有采样那句带一个累计丢弃数——值行打的是 daemon 格式化好的结果，提示里绝不掺它）。设备的日志落点是 logd 那圈 128 KiB 环，一次配置推送里原厂 daemon 重复的状态行能把它占满，所以按类分预算、重复行按分钟采样；带密钥/SSID/BSS 的格式永不展开值 |
-| `controller-peer.c`、`controller-peer.h` | 沙箱，preload | 一帧 → `peers/<MAC>.<kind>`：指示灯、终端数、BSS 数、直连还是中继、动作回执；终端数还**按 BSSID 各存一个 `peers/<MAC>.<BSSID>.sta`**（各自的时间戳，服务读 `controller_peer_bss_load()` 把没过期的一路一路加起来，并拿到按 BSSID 的明细去拼 `state.json` 的 `bss_detail`——摘要只留最后一帧的总数，按射频分别上报时会互相顶掉）；带 `0x70` 的应答另写 `peers/<MAC>.assoc`（终端明细，`epoch` 用主控自己的时钟）；落盘目录是 `ZTE_MESH_PEERS_DIR`，所以主机测试能在临时目录上验整条链 |
-| `agent-ap-metrics.c`、`agent-ap-metrics.h` | 沙箱，preload | 子节点终端数的替身应答：一帧 `0x800b` + `/run/zte-mesh/ap-sta` → 一帧 `0x800c`（指定的那几路各回一条 `0x94`，空列表＝本机跑的每一路）。没有表、表超过 30 秒没刷新、`epoch` 在未来、查询指定的 BSSID 一个都不认识 ⇒ 回 0 字节＝不吭声；认得的路数照答，**没测到的那一路不补 0**。每路除了 `0x94`，还把该路的 SSID 与挂在它上面的终端 MAC 收进一条自定的 vendor 子 TLV `0x70`（按 BSSID 分组、跨组去重；一组终端都没有的 BSS 不报组，整帧一组都没有时仍发 `0x70` 把主控的旧记录清掉）。自己不开 socket，发回哪儿由 `controller-trace.c` 决定；表的路径是 `ZTE_MESH_AP_STA_FILE`，所以主机测试能自备一张表 |
+| `controller-peer.c`、`controller-peer.h` | 沙箱，preload | 一帧 → `peers/<MAC>.<kind>`：指示灯、终端数、BSS 数、直连还是中继、动作回执；终端数还**按 BSSID 各存一个 `peers/<MAC>.<BSSID>.sta`**（各自的时间戳，服务读 `controller_peer_bss_load()` 把没过期的一路一路加起来，并拿到按 BSSID 的明细去拼 `state.json` 的 `bss_detail`——摘要只留最后一帧的总数，按射频分别上报时会互相顶掉）；落盘目录是 `ZTE_MESH_PEERS_DIR`，所以主机测试能在临时目录上验整条链 |
+| `agent-ap-metrics.c`、`agent-ap-metrics.h` | 沙箱，preload | 子节点终端数的替身应答：一帧 `0x800b` + `/run/zte-mesh/ap-sta` → 一帧 `0x800c`（指定的那几路各回一条 `0x94`，空列表＝本机跑的每一路）。没有表、表超过 30 秒没刷新、`epoch` 在未来、查询指定的 BSSID 一个都不认识 ⇒ 回 0 字节＝不吭声；认得的路数照答，**没测到的那一路不补 0**。自己不开 socket，发回哪儿由 `controller-trace.c` 决定；表的路径是 `ZTE_MESH_AP_STA_FILE`，所以主机测试能自备一张表 |
 | `controller-1905.c`、`controller-steer.c` | 沙箱 + 主机测试 | 纯函数解码与组帧：CMDU 头与 TLV 走查、原厂 vendor 容器（0x0b/0x21）、`0x94` 按 BSSID 的 `{BSSID, 终端数}`（拆不出可信的一份就整体返回 0，宁缺毋滥）、`0x93` 的查询解码与 `0x800b`/`0x800c` 的组帧、终端引导三类报文 |
 | `controller-packet.c`、`controller-wsc*.c` | 沙箱 + 测试环境 | 合成对端和独立的 M2 校验器（只用公开测试值）；主控侧发 `0x800b` 查询（`controller_ap_metrics_query()`：从 `veth-lab` 发、源取 `br0` 的 AL MAC、发出即不读——应答按那个 MAC 回到 daemon 自己的 socket） |
 | `config-bridge-probe.c`、`exec-check.c`、`zte-debugcmd.c` | 测试环境 | 早期桥接测试、加载检查、原厂 `sendcmd` 调试通道客户端 |
 | `prepare.py`、`jffs2.py`、`vendor_elf.py`、`schema.py`、`profile_schema.py`、`startup-schema.py`、`bridge_evidence.py`、`cm-profile-evidence.py` | mac | 从固件提取运行环境、按固定哈希审计 ABI、核对表结构与偏移证据 |
-| `openwrt/` | 路由器 | init（UCI 映射）、rpcd 插件、LuCI 页面、`wlan-sync`、`sta-collect`（宿主侧量终端数）、`device-list`（宿主侧列本机看得到的设备，只读页用）、`make-runtime.py`、`repack-runtime.py` |
+| `openwrt/` | 路由器 | init（UCI 映射）、rpcd 插件、LuCI 页面、`wlan-sync`、`sta-collect`（宿主侧量终端数）、`make-runtime.py`、`repack-runtime.py` |
 
 ## 4. 固件来源
 
@@ -132,7 +120,7 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 | `0x414dc` / `0x60070` | `master_init` / `slave_init` | 控制器初始化与控制消息注册；Agent 侧（`EnMasterOnly=1` 时跳过） |
 | `0x6f758` / `0x6edd0` | `acdsRcvApAutoConfigSearch` / `_acdsRcvApAutoConfigWSCM1` | Search → Response（含设备过滤）；WSC M1 处理 |
 | `0x7ca90` / `0x464ac` | `acdsBuildVendorMsg` / `multiap_get_vendor_oui` | 私有消息构造（按 msgtype 找回调，加 6 字节厂商头）；OUI `00 19 c6` |
-| `0x6a344` / `0x3be98` | `baseVendorTypeExtract` / `I5TlvVendorP1905ComCfgSyncInsert` | 按设备身份维护通信许可（[FINDINGS](research/FINDINGS.md) 第 4 节）；厂商 TLV `0x60` |
+| `0x6a344` / `0x3be98` | `baseVendorTypeExtract` / `I5TlvVendorP1905ComCfgSyncInsert` | 按设备身份维护通信许可（[FINDINGS](FINDINGS.md) 第 4 节）；厂商 TLV `0x60` |
 
 ## 5. ABI 与沙箱约束
 
@@ -147,21 +135,15 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
   **换掉的还有装机时的架构判定**：以前那句 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 在一台不匹配的
   机器上会让整串 `apk add` 一起失败（apk 求解全有或全无），现在什么机器都收，"这台不在包里"由入口脚本自己说，
   `zte-mesh.init` 在把实例交给 procd 之前问一次 `--launcher-check`——**只有 127 算这一问的答案**，其余非零另说一行。
-  布局、映射表与构建脚本见 [LAB](LAB.md) 第 4.3 节。
+  布局、映射表与构建脚本见 [DEVELOPMENT](DEVELOPMENT.md) 第 11.3 节。
 - 内核要 `CONFIG_COMPAT`（AArch32 用户态）、SysV IPC（原厂数据库是 SysV 共享内存）与 raw socket（`CONFIG_PACKET`，
   1905 帧由 `multiapd` 在用户态自己收）。这三条原来是根目录那份 `kernel.fragment`，零引用、没被任何构建吃过，删掉并把话写在这里。
 - 私有根里保留原厂 loader 和 glibc，不碰 OpenWrt 的 `/lib`；原厂进程看不到 MTD、厂商设备和宿主配置。
 - chroot 和 preload 都不是完整的安全边界。沙箱靠命名空间：私有 network/IPC/mount，宿主可写的只有 `/run/zte-mesh`，
-  只读字符设备只有内核 urandom。**沙箱与宿主同一个 UID**（那个目录 root 所有、`mode & 022` 为 0，owner 写得进去），
-  所以目录里的符号链接是沙箱能放的：宿主侧要原子替换一个文件，临时文件必须建在**它的父目录**（chroot 只 bind 挂共享目录本身，
-  父目录够不着）再 `mv -fT` 覆盖，不能在共享目录里开一个固定名字的临时文件——换成随机名字也不够，同 UID 仍能在
-  `mktemp` 与重新打开之间抢换。`wlan-sync` 的状态文件走的就是这条，见 [FEATURE_STATUS](FEATURE_STATUS.md) B12。
+  只读字符设备只有内核 urandom。
 - `SSEND`/`ASEND` 区分内部任务和外部服务，有同步应答语义，不能一律忽略。只替身确实发给 `cspd` 而控制器需要应答的消息
   （例如启动计数 `0xa96e`），其余照原样走原厂 OSS。
 - 外部进程不能直接调 `ASEND/SSEND`（需要 OSS 身份）：`zte-meshctl` 用 `liboss_pub.so` + `InitAppComm`，由服务 fork/exec。
-- 原厂订阅者池由真实的 `SubShmSrvInit` 建立：SysV key `0xabcb`、128 KiB、固定映射 `0x68000000`，链表初始状态、共享段尺寸
-  与原厂锁都要验；`OSSStart` 不被换成空成功。`src/controller-run.c` 启动行里的 `real_subscriber_server=1 shared_bytes=131072
-  lock_verified=1` 报的就是这三件事。
 - 守护进程环境里只能有一个变量（`ZTE_MESH_START_COUNT`），多一个 `setenv` 会让原厂 ld.so 断言失败（exit 127）。
   要给 preload 库传状态，经数据库。
 - 原厂程序带旧 OpenSSL（1.0.0），要考虑安全维护和再分发许可。
@@ -171,51 +153,9 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
 | 路线 | 结论 |
 | --- | --- |
 | 原厂 `multiapd` + 兼容运行环境 + 垫片 | 采用。中兴子节点的准入、私有 TLV、M2 内容都在原厂代码里，实测逐字节一致，协议层不用维护 |
-| 开源 EasyMesh 栈（prplMesh）+ 中兴扩展 | 没走：中兴子节点有一串身份、市场码、私有 TLV 的准入门槛（[FINDINGS](research/FINDINGS.md) 第 4 节），要逐项复刻 |
+| 开源 EasyMesh 栈（prplMesh）+ 中兴扩展 | 没走：中兴子节点有一串身份、市场码、私有 TLV 的准入门槛（[FINDINGS](FINDINGS.md) 第 4 节），要逐项复刻 |
 | 自写轻量 1905/中兴控制器 | 没走：等于重写原厂协议和 WSC，维护和安全测试成本最高 |
 
 垫片的边界（仍然适用）：只覆盖**平台边界**（数据库、接口身份、少数外部服务消息），保留协议引擎和 OSS 内部调度，
 不写"全部返回成功"的空函数库；没有本地 Wi-Fi 不等于没有无线配置——控制器仍要远端 AP 的 SSID、密码、安全模式和频段配置，
 这些是逻辑配置，不伪造本地无线能力；同一 LAN 上不能有两个 1905 控制器。
-
-## 7. 配置桥 V1 的线上格式与写入边界
-
-宿主侧 `config-bridge-probe` 与沙箱侧之间只有这一条通道：每个进程只处理一个请求，必须收满整个 message 并读到 EOF，
-任何追加字节或第二帧都拒绝；读写都有 deadline，长度上限写死；**输入的拒绝校验发生在创建私有 DB 之前**，所以被拒绝的请求
-不会留下任何半个数据库。源文件是 `src/mesh-bridge.h`（`MESH_BRIDGE_*` 常量与两个长度）与 `src/mesh-bridge.c`（收发与校验）。
-
-请求 **120 字节，big endian**：
-
-| 偏移 | 字段 |
-| ---: | --- |
-| 0 | magic `ZMB1` |
-| 4 | u16 version=1 |
-| 6 | u16 opcode=1：更新逻辑 AP profile |
-| 8 | u32 length=120 |
-| 12 | u32 request_id，不能为 0 |
-| 16 | u8 radio，只允许 0/1 |
-| 17 | u8 bss，当前只允许 0 |
-| 18 | u8 security=1：WPA2-PSK/AES |
-| 19 | u8 enabled=0/1 |
-| 20 / 21 | u8 SSID/key 长度 |
-| 22 | u16 reserved=0 |
-| 24 | 32-byte SSID slot |
-| 56 | 64-byte key slot |
-
-保守限制：SSID 是 1..31 字节可打印 ASCII、passphrase 是 8..63 字节可打印 ASCII，slot 未使用部分必须全零。
-**二进制 SSID、完整 32 字节 SSID、64-hex 原始 PSK、其他 BSS、其他安全模式、接口名与真实 radio 映射都不支持。**
-
-响应 **24 字节**：`ZMR1` / version=1 / u16 status / length=24 / request_id / u32 generation / u32 flags。响应里没有 SSID、
-密钥、DB 缓冲区、指针或诊断原文。成功只允许 `generation=1`、flags=`READBACK|OTHER_ROW`；失败 `generation=0`，
-并区分 `REJECTED` / `ROLLED_BACK` / `ROLLBACK_ERROR`。generation 只是新建私有 DB 的单次序号，**不是持久化版本号、
-事务 ID，也不是重放防护**。
-
-写进去的东西与不宣称的部分：`tools/dev/bridge_evidence.py` 固定核对 CFAPI（SHA256
-`66b4f5a8e3761e82a13960718733c45e076decdfd6b560af844782239d10b099`）里的公开 enum 表，并核对实际编译使用的 header 常量——
-`tWlanBeaconTypeTable @0x77868`（`11i`=3 → BeaconType）、`tWlanWPA11IAuthModeTable @0x78790`（`PSKAuthentication`=0 → 11iAuthMode）、
-`tWlanWPA11IEncrypTypeTable @0x77848`（`AESEncryption`=1 → 11iEncryptType）。ARM32 端只更新 `WLANCfg` 的 ESSID/Enable 与上述三个
-enum，以及 `WLANPSK` 的 KeyPassphrase，并清空 `PreSharedKey` 以免旧 raw-PSK 抢优先级；行 key 仍由原厂 formatter 生成，
-线上不接受任意 instance。写前完整校验并 snapshot，写后读回选中字段、同一行未选中字段与另一行。
-
-**两张表是两次 `dbAPISetView`，不宣称跨表原子性**：失败按 snapshot 恢复并读回验证；恢复失败返回明确的 `ROLLBACK_ERROR`
-且进程退出 81，不能当成功。真实 `cspd` callbacks、并发 Controller reader、OSS 通知都没接进来，这条通道不能直接当生产事务。

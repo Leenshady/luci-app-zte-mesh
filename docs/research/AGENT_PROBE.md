@@ -1,11 +1,10 @@
-# 子路由（Slave）角色的判定性实验：M2 到底写进哪里
-
-> **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
+# 子路由（Slave）角色的判定性实验：M2 到底落到哪里
 
 > 2026-10-29。这是对"能不能让装了插件的路由器同时当子路由"这一问题的**第一步判定实验**，只做静态分析，不运行原厂程序。
 > 复跑：`python3 tools/probe/agent-surface.py`（加 `--trace` 打印全部直接调用）。输入是两个固定哈希的原厂二进制，脚本直接读运行包里那一份：
 > `multiapd` `a0ba6bee…`、`libcmapi.so` `e19109de…`（后者是 `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` 里的那份）。
-> 协议层背景见 [FINDINGS.md](FINDINGS.md)，控制器侧已验证能力见 [CONTROLLER_CAPABILITIES.md](CONTROLLER_CAPABILITIES.md)。
+> 文中提到的 `tools/lab/` 实验脚本（`spark.c`、`elfx.py` 等）已从仓库移除，`tools/lab/enroller.c` 现在是根目录的 `enroller.c`。
+> 协议层背景见 [FINDINGS.md](../FINDINGS.md)，控制器侧已验证能力见 [CONTROLLER_CAPABILITIES.md](../CONTROLLER_CAPABILITIES.md)。
 
 ## 1. 结论
 
@@ -26,7 +25,7 @@
 | 缺口 | 内容 | 量级 |
 |---|---|---|
 | 返回值替身 | 让 `CmSendMsg2MM`（libcmapi，**已导出**，0x33df8）在没有 cspd 时返回 0。和 `controller-route.c` 里替身 `SSEND(0xa96e)` 是同一套做法 | 几十行 C，一个符号 |
-| 库 → hostapd 同步器 | 轮询/监听 `WLANCfg`、`WLANPSK`、`WLANBase`，把 SSID、密钥、安全模式、使能、隐藏、`MapAccessAttr`（32 fronthaul / 64 backhaul）写进 hostapd / UCI | 真正的工作量，但数据源已经全在库里 |
+| 库 → hostapd 同步器 | 轮询/监听 `WLANCfg`、`WLANPSK`、`WLANBase`，把 SSID、密钥、安全模式、使能、隐藏、`MapAccessAttr`（32 fronthaul / 64 backhaul）落到 hostapd / UCI | 真正的工作量，但数据源已经全在库里 |
 | 选举触发 | `cspd` 的 `MapCooperatorACDUpProc`/`V4AddrProc` 置 `g_TriggerSelectFlag` 后才调 `CfIeee1905RoleElect`。没有 cspd 就要像 `zte-meshctl renew-acd` 那样直接向 `multiapd.acd.acd` 发事件 `0x909b` | 复用现有 ctl |
 | 无线电状态 | agent 启动和上报要读本机无线电（`slave_local_dev_load` → `MeshGetDevInfo`/`MeshWlanGetBaseCfgByBand`，`CmWlanGetStaProfile`、`CmWLANGetChannelList` 等）。控制器侧靠 `SSIDSyncRadio=1` 绕过的 `bRadioStatusOn()`，这里绕不过去，要按 iwinfo 如实回答 | 中等，且与硬件相关 |
 
@@ -55,7 +54,7 @@
 
 即：**不会整体中止**，但整函数的成功标记 `r5` 不会被置 1。所以表现会是"每个频段都写了库、但 M2 被当成应用失败"，对主控表现为入网/配置失败。【代码】
 
-## 5. 尚未验证（要么要运行时，要么要上机）
+## 5. 尚未验证（要么要运行时，要么要真机）
 
 1. `WlanCfgDbWrite`/`WlanPSKDbWrite` 在 `db-engine-probe` 的库上是否真的成功——`WLANCfg`/`WLANPSK` 的行已经由 `wlan-profiles.c` 写好并注册，但写入方向从没在这个库上跑过。
 2. 无线电状态/能力查询（`CmWLANGetChannelList`、`CmWlanGetStaProfile` 等）在沙箱里的返回值要如实反映本机无线，否则 agent 上报的能力是空的，主控不会给它下发配置。
@@ -73,7 +72,7 @@
 
 ## 7. 与产品范围的关系
 
-2026-10-17 定过范围：**只做 AC（master-only），Slave 角色不算缺口**（原 GAP 分析第 1 节；这个决定后来被推翻，子节点角色现在是主线之一）。
+[GAP_ANALYSIS.md](GAP_ANALYSIS.md) 第 1 节记录过 2026-10-17 的范围决定：**只做 AC（master-only），Slave 角色不算缺口**。
 本文不改变那个决定的理由，只更新它的成本依据：Slave 不再是"重写 cspd"，而是"一个返回值替身 + 一个库到 hostapd 的同步器 + 无线电状态适配"，
 剩下的不确定性集中在驱动和无线电状态查询上。
 
@@ -83,7 +82,7 @@
 `controller_agent_startup()` 用 `controller-packet.c` 的合成主控陪 daemon 走完
 Topology Discovery → Query → AP-autoconfig Search → Search Response → M1 → M2。
 
-### 8.1 让 M2 被接受需要的四处帧情况
+### 8.1 让 M2 被接受需要的四处帧形状
 
 | 位置 | 原来（错） | 现在（对） | 依据 |
 |---|---|---|---|
@@ -202,9 +201,9 @@ after   DEV.WIFI.AP1.PSK1 key_len=18 m2_match=1   DEV.WIFI.AP5.PSK1 key_len=20 m
 
 ### 9.4 剩下的工程项
 
-1. `CmSendMsg2MM` 的**正式**替身（而不是 lab 的返回值覆盖）：把 set 消息直接写进库 + 返回 0，让 notify 链路在无 cspd 时也自洽。
+1. `CmSendMsg2MM` 的**正式**替身（而不是 lab 的返回值覆盖）：把 set 消息直接落到库 + 返回 0，让 notify 链路在无 cspd 时也自洽。
 2. `libzte_agent_mm.so`：把上述替身做成插件自己的库，而不是测试用的 preload。
-3. 库 → hostapd 同步器：`WLANCfg`/`WLANPSK`/`WLANBase` 的变更写进 UCI/hostapd。
+3. 库 → hostapd 同步器：`WLANCfg`/`WLANPSK`/`WLANBase` 的变更落到 UCI/hostapd。
 4. UCI/init/LuCI 暴露 `mesh_role=slave`（`openwrt/zte-mesh/files/zte-mesh.init:337` 目前只接受 `master|auto`）。
 
 
@@ -225,7 +224,7 @@ ZTE_PACKET_TLV daemon cmdu=0x0009 bytes=617 tlvs=11:539,85:47   # 0x85 前 6 字
 ```
 
 改成按 radio 标识去重、逐个回答（最多 4 个 radio），并且**每个频段给不同的 profile**——
-否则"第二份 M2 写进了正确的行"和"同一行被写了两次"在数据库里看起来一样：
+否则"第二份 M2 落到了正确的行"和"同一行被写了两次"在数据库里看起来一样：
 
 ```
 after  WLANCfg [0 ssid=zte-agent-2g][1 ssid=zte-agent-5g]
@@ -253,7 +252,7 @@ The WSC-0 will cfg to 1 0   → CmWLANSetAPConfig DEV.WIFI.AP5     → CmWLANSet
 ### 10.2 重启：库保留，磁盘不写，agent 每次重新入网
 
 方法：`controller_respawn_daemon()`——SIGKILL 后重新 fork/exec，数据库与订阅池留在本进程里，
-这就是工厂 `multiapd_mgr` 的 restart（真实路由器上库在 cspd 里，也只有 daemon 会消失）。
+这就是工厂 `multiapd_mgr` 的 restart（真机上库在 cspd 里，也只有 daemon 会消失）。
 
 第一次跑出来是 `reboot_m1=0`，很容易误读成"它记得自己已经配置过了"。实际不是：
 新 daemon 构建了 M1 报文（`acdCreatWpaApConfileForM1` / `Build M1 phrase`）却**一帧都没发出去**，
@@ -277,7 +276,7 @@ wsc_m1_after_reboot bytes=617 mid=0xcbf4 band=1 answered=0
 | 问题 | 答案 |
 |---|---|
 | 库里的行跨 daemon 重启还在吗 | **在**（`reboot-before` 与 `reboot-after` 一致，`m2_match=1`） |
-| daemon 会把它写到磁盘吗 | **不会**（0 个文件被写）。真实路由器上这一步是 cspd 的职责 |
+| daemon 会把它写到磁盘吗 | **不会**（0 个文件被写）。真机上这一步是 cspd 的职责 |
 | 重启后 agent 还认为自己已配置吗 | **不会**（acd 从 0 起，重新发全部 M1，未回答还会重试） |
 
 对插件的含义：子路由重启后**必须能接受重复下发的 M2**，不能假设"配置一次就够"；
@@ -366,8 +365,8 @@ rows=2
 `openwrt/zte-mesh/files/wlan-sync` 是沙箱外的另一半：按 band 找 radio 段、找该 radio 上主 AP 的
 `wifi-iface`，把 `ssid/key/encryption/hidden/disabled` 写进 `/etc/config/wireless`，只在真的变了时才
 `uci commit` + `wifi reload`。安全模式按 `BeaconType` 映射（0 none、3 psk2、6 psk-mixed、10 sae、12 sae-mixed）；
-不认识的模式**不动**那个接口并记一行日志，而不是猜。额外 SSID 序号（slot 1..3）只记录不应用：
-那部分在真实路由器上由原厂驱动接口负责，在这里造 hostapd 段只会产生第二个真相源。
+不认识的模式**不动**那个接口并记一行日志，而不是猜。额外 SSID 槽位（slot 1..3）只记录不应用：
+那部分在真机上由原厂驱动接口负责，在这里造 hostapd 段只会产生第二个真相源。
 
 服务侧挂在 `controller_service()` 的 slave 分支上（每秒一次，幂等），`--agent-startup` 的观测循环里
 每 2 秒一次，退出前再发布一次。主控角色完全不调用它（`ZTE_AGENT_SYNC` 一行都不会出现）。
@@ -400,7 +399,7 @@ ZTE_MESH_SERVICE startup_renew=skipped role=slave
 | 测试 | 覆盖 | 结果 |
 |---|---|---|
 | `tests/agent-sync-codec.c`（新） | 计划文本（`=` 与制表符/换行的转义、不可读行、容量不足）、变化检测（SSID/密钥哈希/使能/BeaconType/hidden/行数） | 通过 |
-| `tests/test_wlan_sync.sh`（新） | 用带 `uci` 语义的桩跑 `wlan-sync`：两个 band 的映射、幂等（第二次不 commit 不 reload）、关闭/open 网络、序号跳过、未知加密模式不动 | 21 项通过 |
+| `tests/test_wlan_sync.sh`（新） | 用带 `uci` 语义的桩跑 `wlan-sync`：两个 band 的映射、幂等（第二次不 commit 不 reload）、关闭/open 网络、槽位跳过、未知加密模式不动 | 21 项通过 |
 | `tests/test_init.sh` | 新增 `role-slave` 用例；把 `mesh_role slave` 从"拒绝"列表移出（改成 `child`） | 66 项通过 |
 | `controller-*-codec`、`bridge-codec`、`cm-profile-codec` | 未改动路径 | 162 / 331 / 87 等断言全过 |
 
@@ -410,11 +409,10 @@ ZTE_MESH_SERVICE startup_renew=skipped role=slave
 ### 11.5 仍然缺的
 
 - **驱动层**：`wlan-sync` 落的是 UCI + `wifi reload`。回程 BSS 的 Multi-AP 标记已经接上（§11.6），
-  但 4 地址是否真的在驱动里生效只能在真实路由器上看（`ip -d link` 的 `4addr on`）。
-  > 2026-11-02：这一条已在主机侧查清（`4addr` 跟 `wds` 走，不跟 `multi_ap`），见 §15；真实路由器上只剩端到端是否互通。
-- **`CmWLANMapSsidCfgSync2Repeater`** 仍然执行不到（no-op），它在真实路由器上把 SSID 推到 repeater 侧。
-- **`CurHop`**：slave_init 自己会写；lab 里用 `-2` 顶替，真实路由器上要确认它被真正更新。
-- 子路由的 `wlan-sync` 只处理主 BSS 和回程 BSS；额外序号（1、2）需要一套和原厂驱动接口对齐的方案。
+  但 4 地址是否真的在驱动里生效只能在真机上看（`ip -d link` 的 `4addr on`）。
+- **`CmWLANMapSsidCfgSync2Repeater`** 仍然执行不到（no-op），它在真机上把 SSID 推到 repeater 侧。
+- **`CurHop`**：slave_init 自己会写；lab 里用 `-2` 顶替，真机上要确认它被真正更新。
+- 子路由的 `wlan-sync` 只处理主 BSS 和回程 BSS；额外槽位（1、2）需要一套和原厂驱动接口对齐的方案。
 
 ### 11.6 2026-10-29 第五轮：回程 BSS 走 Multi-AP，不走 802.11s
 
@@ -447,7 +445,7 @@ Multi-AP 的 backhaul BSS 正是 4 地址 BSS，正好是这套控制面缺的�
 
 几个刻意的取舍：
 
-- **按 `MapAccessAttr` 的位判断，不按 slot 号。** 序号含义各型号不同（REAL_CHILD §… 记录了 Z506 的
+- **按 `MapAccessAttr` 的位判断，不按 slot 号。** 槽位含义各型号不同（REAL_CHILD §… 记录了 Z506 的
   0/1/2/3），而 32/64 这两位是 `wlan-profiles.c:305` 与子节点原值一致的通用约定。
 - **没有回程行就不造。** SSID 和密钥全部来自主控下发的行；plan 里没有 `access=64` 的行时，本节
   什么都不创建，只让主 BSS 带上 fronthaul 标记。不在脚本里发明 `ZMESH-xxxx` 这类名字。
@@ -469,30 +467,28 @@ Multi-AP 的 backhaul BSS 正是 4 地址 BSS，正好是这套控制面缺的�
 
 #### 仍缺
 
-- **4 地址的真实路由器确认**：UCI 只写了 `multi_ap`；`4addr` 由 hostapd 依这个值去设置。真实路由器上要看的
+- **4 地址的真机确认**：UCI 只写了 `multi_ap`；`4addr` 由 hostapd 依这个值去设置。真机上要看的
   是 `ip -d link show` 里回程 BSS 有没有 `4addr on`，以及 `brctl show` 里它在不在 `br-lan`。
-  > 2026-11-02 更正：这条推断只对 AP 侧成立。客户端侧的 4 地址与入桥只看 UCI 的 `wds`（`multi_ap` 只翻译成
-  > `multi_ap_backhaul_sta`，决定关联能否被接受）。见 §15。
 - **wpad 变体**：`multi_ap` 需要完整的 wpad（`wpad-mbedtls`），`wpad-basic` 里没有。镜像必须选对。
 - **对端**：这一轮只做了 AP 侧（主控方向的下行 BSS）。子路由自己作为 backhaul STA 去关联主控那一半
-  （`multi_ap_backhaul_sta`）还没写。→ 2026-11-02 已写，见 §15。
+  （`multi_ap_backhaul_sta`）还没写。
 
 
 ### 11.7 2026-10-29 第六轮：解除主控/子路由的配置耦合
 
 上一轮结束时留下的两个耦合，症状都出在"一个包两种角色"这件事上：配置校验和界面都不知道角色。
 
-**1. 子路由不再需要一份"假 SSID"。** `write_config()` 的配置完整性检查排在 `mesh.role` 被读出来之前，
+**1. 子路由不再需要一份"假 SSID"。** `write_config()` 的档案完整性检查排在 `mesh.role` 被读出来之前，
 于是子路由即使 SSID 来自 M2，也必须在本地填一份 2.4G 名称+密码才能启动——用户的第一件事是编一个
-永远不会生效的名字。现在先把 `mesh_role` 读出来：角色是 `slave` 且本地配置为空时，从本机
+永远不会生效的名字。现在先把 `mesh_role` 读出来：角色是 `slave` 且本地档案为空时，从本机
 `/etc/config/wireless` 里借一套（`borrow_profile()`），也就是这台子路由**正在广播**的那个网络。
 借来的值只用于让守护进程起来，控制器一下发就被 `wlan-sync` 覆盖，所以既没有发明配置，也没有改动射频。
 借不到（有线网关，没有 wireless 段）仍然拒绝启动，但错误信息改成说明子路由到底需要什么；
 主控角色保持原来的严格行为不变。
 
-为什么不是"干脆允许没有配置"：服务侧的 `parse_config()` 现在要求 `radio0.enabled/ssid/key` 三件齐
-（`controller-service.c:516` 那条 `seen != …` 的判定），去掉配置会整份配置被拒、守护进程起不来。
-要真做到"子路由无配置"，得同时改解析器和启动时的 `startup_identity()`，代价与风险都不小，而收益只是
+为什么不是"干脆允许没有档案"：服务侧的 `parse_config()` 现在要求 `radio0.enabled/ssid/key` 三件齐
+（`controller-service.c:516` 那条 `seen != …` 的判定），去掉档案会整份配置被拒、守护进程起不来。
+要真做到"子路由无档案"，得同时改解析器和启动时的 `startup_identity()`，代价与风险都不小，而收益只是
 省掉一次"借用"。
 
 **2. 界面按角色只显示有效的那一半。** LuCI 里 `mesh_role` 原来只是个下拉框，选 `slave` 之后
@@ -524,7 +520,7 @@ Multi-AP 的 backhaul BSS 正是 4 地址 BSS，正好是这套控制面缺的�
 
 ## 12. 2026-10-31 两台设备真的组网了：AL MAC 冲突是唯一堵点
 
-第 11 节把 `mesh_role=slave` 做到"能起来"，但真实路由器上控制器一直 `nodes: []`、两端
+第 11 节把 `mesh_role=slave` 做到"能起来"，但真机上控制器一直 `nodes: []`、两端
 `logread | grep -c rx1905` 都是 0。这一节是把它查通的过程与结论。
 
 ### 12.1 先给"线上有没有帧"装一只眼睛：`tools/lab/spark.c`
@@ -561,7 +557,7 @@ Multi-AP 的 backhaul BSS 正是 4 地址 BSS，正好是这套控制面缺的�
 02:00:00:00:19:06 > 01:80:c2:00:00:13  cmdu=0x0000  (Discovery)
 ```
 
-这也解释了为什么第 8、9 节的 lab 能跑通而真实路由器不行：lab 里只有一个节点，自己发自己收，
+这也解释了为什么第 8、9 节的 lab 能跑通而真机不行：lab 里只有一个节点，自己发自己收，
 不存在冲突。
 
 ### 12.3 修复：AL MAC 从 LAN MAC 派生，可覆盖
@@ -609,7 +605,7 @@ cooperator 推一把，而沙箱里没有 cspd。
 > `spark <iface> listen|discovery [秒]`。注意网桥端口的 ingress 帧对绑定在该端口的套接字不可见，
 > 要抓"从线上进来的帧"请用 `tcpdump -i eth0`，要抓"daemon 发了什么"请用 `br-lan`。
 
-## 13. 2026-10-31 第二轮：枚举跑通了，M2 写进子路由的库
+## 13. 2026-10-31 第二轮：枚举跑通了，M2 落到子路由的库
 
 第 12.5 节判定的"M1 生成但没发出"是**测量假象**，它后面还藏着三个真 bug。这一节按发现顺序记。
 
@@ -645,7 +641,7 @@ agent 等 Search/Response，控制器等 cspd，`0x0007` 在控制器出现之�
 ### 13.3 补上控制器缺的那一步：`tools/lab/enroller.c`
 
 一个静态二进制，监听子节点的 `0x0007`，用 `0x0008` 回它；`--al-mac` 可以冒充控制器的 AL MAC，让 M1
-单播回沙箱控制器，由它跑真正的 M2。帧情况与 `controller-packet.c:controller_autoconfig_response()`
+单播回沙箱控制器，由它跑真正的 M2。帧形状与 `controller-packet.c:controller_autoconfig_response()`
 逐字节一致（35 B：`0x0f` searched role=registrar、`0x10` frequency band、`0x80` service=controller）。
 
 线上时序（`tools/lab/enroller.c` + `libzte_controller_trace.so` 双端）：
@@ -700,18 +696,18 @@ ZTE_AGENT_MM setter=CmWLANSetAPConfig instid=DEV.WIFI.AP5 status=-3 row_applied=
 plan**。对一个被 M2 现场配置的子路由来说这正好是反的：plan 是入网之后才出现的，而没人去应用它。
 
 改成 content 摘要（`md5sum` 优先，`stat` 次之，`ls -ln` 兜底）。之后日志出现
-`applied; wireless committed and reloaded`，`uci show wireless` 里 `ssid='ZTEMESHCTRL'` 才写进配置。
+`applied; wireless committed and reloaded`，`uci show wireless` 里 `ssid='ZTEMESHCTRL'` 落地。
 
 ### 13.6 第四个 bug：band 是名字，不是 section
 
-`radio_section_of 5g` 原来取"第一个 band 为 5g 的 wifi-device"。测试环境这台 ax3600 有**两个**：
+`radio_section_of 5g` 原来取"第一个 band 为 5g 的 wifi-device"。实验室这台 ax3600 有**两个**：
 `radio0`（PCIe 5G 卡，ath10k，`disabled=1`）与 `radio1`（SoC 的 5G，ath11k）。于是控制器下发的 5G 行
-写进了那张空卡的 `default_radio0`，实际在广播的 `default_radio1` 一直是 `ImmortalWrt`——看起来就像
+写进了那张空卡的 `default_radio0`，真正在空中的 `default_radio1` 一直是 `ImmortalWrt`——看起来就像
 "5G 行没被应用"。
 
 现在按顺序判定：`zte_mesh.main.wifi_2g` / `wifi_5g` 明确指定 > 该 band 只有一个设备 > 该 band 只有一个
 设备没被关掉（老镜像常把备用 radio 关着）。两个都活着且没有显式指定时**不猜**：该 band 一个字段都不写，
-日志里指定 `zte_mesh.main.wifi_5g`。写错设备比不写更难查——空卡被写上控制器的 SSID，而本机广播什么都没有。
+日志里点名 `zte_mesh.main.wifi_5g`。写错设备比不写更难查——空卡被写上控制器的 SSID，而空中什么都没有。
 
 ### 13.7 现在的事实
 
@@ -721,12 +717,12 @@ plan**。对一个被 M2 现场配置的子路由来说这正好是反的：plan
 | 子路由（192.168.1.1） | `running=1`，`cur_hop=2 max_hop=2`（此前 `-2`） |
 | M1 次数 | 一个服务生命周期 1 次（此前 3 次） |
 | 下发的 Wi-Fi | `/run/zte-mesh/wlan-plan` 与 `/etc/config/wireless` 都是控制器的 `ZTEMESHCTRL` |
-| 没写进配置 | 本机三个 `wifi-device` 都是 `disabled=1`（镜像/自配状态），所以 BSS 谁都没起来；见 13.8，现在由 `wlan-sync` 在 plan 启用某 band 时把对应设备打开 |
+| 未落地 | 本机三个 `wifi-device` 都是 `disabled=1`（镜像/自配状态），所以 BSS 谁都没起来；见 13.8，现在由 `wlan-sync` 在 plan 启用某 band 时把对应设备打开 |
 
 ### 13.8 第五个改动（B 方案）：plan 说这个 band 要开，就把关着的 radio 设备打开
 
-配置已经对了、本机广播什么都没有，是因为 radio 设备本身 `disabled=1`——而 `wlan-sync` 过去只写 `wifi-iface`，
-从不碰 radio 的开关。这在这台机上不是偶发：出厂镜像和测试环境的 ax3600，三个 `wifi-device` **全是关的**。
+配置已经对了、空中什么都没有，是因为 radio 设备本身 `disabled=1`——而 `wlan-sync` 过去只写 `wifi-iface`，
+从不碰 radio 的开关。这在这台机上不是偶发：出厂镜像和实验室的 ax3600，三个 `wifi-device` **全是关的**。
 
 现在 `apply_plan` 在某个 band 的主 BSS `enabled=1` 时调 `enable_radio`；backhaul 行也一样，回程 BSS 同样需要
 radio 开着才有地方承载。
@@ -761,14 +757,14 @@ return E([
 异常，改后通过——子路由页面至少不会因为这条路径再白一次。
 
 
-## 14. 2026-10-31 第三轮：角色拆成三个，主路由也能把配置写进本机
+## 14. 2026-10-31 第三轮：角色拆成三个，主路由也能把档案落到本机
 
 ### 14.1 为什么拆
 
 原厂那台"主路由"是**既当主控、又自己发 Wi-Fi**的盒子，一个开关就够。但 OpenWrt 这边的现实是反过来的：
 SR1010 这类机器是**有线网关、没有射频**，当年给它做主的正是它。所以"控制"和"自己也发"必须能分开：
 
-| `mesh_role` | 给子路由下发配置 | 应用到本机 `/etc/config/wireless` | 线上 `mesh.role` |
+| `mesh_role` | 给子路由下发档案 | 应用到本机 `/etc/config/wireless` | 线上 `mesh.role` |
 |---|---|---|---|
 | `master`（默认；未设置也等于它） | 是 | **不动** | `master` |
 | `main` | 是 | **是**（plan 由 `write_config` 写） | `auto` |
@@ -778,10 +774,6 @@ SR1010 这类机器是**有线网关、没有射频**，当年给它做主的正
 （第 12 节）。旧的 `auto` 值继续被接受、含义与 `main` 相同，升级过的配置不用动。反过来，语义变化只有一处：
 以前 LuCI 把 `master` 叫作"主路由"，现在 `master` 是"仅主控"——它在**行为上**和以前一样（以前也没人改本机
 无线），只是名字改了；想真的把网络发出去，得选"主路由"。
-
-**2026-11-06 更正**：这张三值表已作废。现在 `mesh_role` 只有 `master`/`slave`，
-"要不要把这份 Wi-Fi 配置也发到本机"改由独立开关 `apply_local` 决定，`main`/`auto` 在 init 里折算成
-`master` + `apply_local=1`（见 [SERVICE](../SERVICE.md)「设备角色（两个开关）」与 [FEATURE_STATUS](../FEATURE_STATUS.md) A13）。
 
 ### 14.2 一个 plan 只能有一个生产者
 
@@ -794,7 +786,7 @@ SR1010 这类机器是**有线网关、没有射频**，当年给它做主的正
 - `main`/`auto`：写 `$RUNDIR/wlan-plan`（0600）。
 - `slave`：**一个字节都不碰**。`write_config` 在 reload 时也会跑，删掉它等于把正在用的 plan 抽走，而服务只在
   行变化时才重发（`agent_sync_reset()` 只在启动时调）——子路由会安静地停止应用。`tests/test_init.sh` 的
-  `role-slave-keeps-plan` 就是防这个的。
+  `role-slave-keeps-plan` 就是钉这个的。
 - 其余（`master`、空）：`rm -f`。上一步角色留下的 plan 不该被一个已经不跑的 `wlan-sync` 应用。
 
 ### 14.3 5 GHz 的派生值要写第二遍，这是这次改动里唯一的知识重复
@@ -803,7 +795,7 @@ daemon 自己会用 `wifi.dual_band_sync` / `wifi.essid_suffix` 派生 5G 的名
 第二遍推导就是漂移的来源，所以：`emit_band_options` 顺手把该频段的 `hidden` / `beacon_type` 读回给调用方
 （`BAND_HIDDEN` / `BAND_BEACON`），5G 的名称/密钥只在 `write_config` 里算一次（`s1_air` / `k1_air`），
 emit 与 plan 都用它。测试用 `role-main`（sync 关、5G 全空 → `home-5G` / 2.4G 的密钥）和 `role-main-sync`
-（sync 开、`wifi_5g_ssid` 写了也被忽略、隐藏与加密跟随 2.4G）两条用例把它固定住。
+（sync 开、`wifi_5g_ssid` 写了也被忽略、隐藏与加密跟随 2.4G）两条用例把它钉住。
 
 ### 14.4 设备证据
 
@@ -827,7 +819,7 @@ ubus call luci.zte-mesh status → "role": "main"
 
 ```
 rc=0   /tmp/r2/wlan-plan 316 B -rw-------
-0.ssid=ImmortalWrt  0.key=Ztemesh2631!      # 本机自己的配置（sync=1，5G 跟随 2.4G）
+0.ssid=ImmortalWrt  0.key=Ztemesh2631!      # 本机自己的档案（sync=1，5G 跟随 2.4G）
 ```
 
 也就是说：**没有射频的控制器**里这台逻辑一条不差地跑通（只是最后一步无事可做），**有射频的机器**上它产出
@@ -839,48 +831,3 @@ rc=0   /tmp/r2/wlan-plan 316 B -rw-------
 不要"的组合，而这两种状态在页面上没法解释。仅主控要是还有射频，启动日志里会明说一句
 （`controller-only role: the Wi-Fi profile goes to the child routers only ...`），因为这是最容易看成"plan
 没生效"的一种配置。
-
-**2026-11-06 更正**：这个布尔值后来还是加了，就是上面那条更正说的 `apply_local`；这里记的"角色本身就是那个开关"
-已经不成立。
-
-## 15. 2026-11-02 回程的另一半：backhaul STA 需要两个选项，不是一个
-
-§11.6 结尾留的那条"对端还没写"这一轮补上了。写之前必须先搞清一件事：**OpenWrt 这一侧到底谁来决定 4 地址**。
-§11.6 的推断是"`4addr` 由 hostapd 依 `multi_ap` 去设"——在 AP 侧成立，在 STA 侧不成立，而回程客户端是 STA 侧。
-
-### 15.1 证据（ax3600，ImmortalWrt 25.12，直接读装机的 ucode）
-
-这台机的 wireless 后端是 ucode 版（`/usr/share/ucode/wifi/*.uc`），不是老的 `mac80211.sh`。行号以装机文件为准：
-
-| 位置 | 内容 | 意味着 |
-|---|---|---|
-| `supplicant.uc:75` | `set_default(config, 'multi_ap', 0)` | STA 接口有 `multi_ap` 这个键，默认 0 |
-| `supplicant.uc:83` | `case 'sta':` 里 `set_default(config, 'multi_ap_backhaul_sta', config.multi_ap)` | **UCI 的 `multi_ap` 在 sta 模式被改名成 wpa_supplicant 的 `multi_ap_backhaul_sta`** |
-| `supplicant.uc:278-279` | 接口挂 bridge 且 `mode == 'sta'` 且 `!wds && !multi_ap` → `netifd.setup_failed('BRIDGE_NOT_ALLOWED')` | 普通 STA 不许入桥；`multi_ap` 或 `wds` 任一非零才放行 |
-| `supplicant.uc:305` | `'4addr': !!interface.config.wds` | **4 地址只看 `wds`，跟 `multi_ap` 无关** |
-| `supplicant.uc:313-314` | `if (interface.config.wds) config.bridge = interface.bridge` | **入桥同样只看 `wds`**：没有它，`network` 写什么都不桥 |
-| `ap.uc:58` | `multi_ap` 在透传给 hostapd 的变量表里 | AP 侧 `multi_ap=2` 由 hostapd 自己在驱动里建 4 地址 BSS，不需要 `wds` |
-| `ap.uc:224` | `if (config.multi_ap == 1) config.wps_possible = false` | 顺带：fronthaul 标记会关掉 WPS，不影响我们 |
-
-wpa_supplicant 侧的语义（其文档）：`multi_ap_backhaul_sta: 0 = normal STA（默认），1 = backhaul STA`——它只决定
-**关联是否被回程 BSS 接受**（hostapd 那边 `multi_ap=2` 的 BSS 只收带这个标志的站），不决定数据面是不是 4 地址。
-
-### 15.2 结论
-
-一条回程行在子路由侧必须写**两个**选项，缺一不可：
-
-- `multi_ap 1` → `multi_ap_backhaul_sta=1`：让关联被接受（否则 STA 连不上那个隐藏 BSS）。
-- `wds 1`：打开 `4addr` 并把接口桥进 `network`（否则帧是 3 地址，1905 的 CMDU 到不了主控的 `br-lan`，而且
-  netifd 会直接 `BRIDGE_NOT_ALLOWED` 起不来）。
-
-所以 §11.6 "仍缺"里那条"4 地址的真实路由器确认"在主机侧就有了答案，不需要等上机：`ip -d link` 该看到 `4addr on`
-是因为 `wds`，不是因为 `multi_ap`。真实路由器（H-01）要验的是这两条在**原厂子路由**与我们的回程 BSS 之间真的能通，
-以及 `wpad` 变体——实装机是 `wpad-openssl` + `hostapd-common`（完整 wpad，Multi-AP 可用），`iw 6.17`。
-
-### 15.3 实现落点
-
-`wlan-sync` 新增 `backhaul_side()`（读 `zte_mesh.main.mesh_role`：`slave` → `sta`，其余 → `ap`）与
-`apply_backhaul_sta()`（段名 `zte_backhaul_sta_<band>`，`mode sta` + `multi_ap 1` + `wds 1` + 名称/密钥/加密来自
-plan 那行，不写 `hidden`——那是 AP 的概念）。`clear_backhaul` 加了参数：换角色时把**对端**那一半还回去，只留
-当前角色该用的段。回程行"声称加密但 plan 里没有密钥"两端都拒绝应用（写下去就是一个连不上的 BSS/STA）。
-`zte-mesh.init` 的 `start_service` 对 `backhaul=multi_ap` + 主控 + `apply_local=0` 这个无事可做的组合明说一句。

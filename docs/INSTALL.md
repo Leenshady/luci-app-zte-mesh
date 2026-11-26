@@ -2,7 +2,7 @@
 
 只回答一件事：**从一台刚刷好 OpenWrt / ImmortalWrt 的路由器开始，怎么把它和中兴路由器组起来**。原理见
 [ARCHITECTURE](ARCHITECTURE.md)，每个选项的完整语义见 [SERVICE](SERVICE.md)，构建与测试命令和各套测试的条数基线见
-[DEVELOPMENT](DEVELOPMENT.md)，测试机清单见 [LAB](LAB.md)——这里不重复它们，只给最短路径和判据。
+[DEVELOPMENT](DEVELOPMENT.md)，测试机清单见 [DEVELOPMENT](DEVELOPMENT.md) 第 1 节——这里不重复它们，只给最短路径和判据。
 
 目标是 [PLAN](PLAN.md) 第 1 节四个场景里的前两个：**S1 主控**（OpenWrt 路由器当主控，一台中兴原厂路由器不刷机、网线连过来）和
 **S2 子节点（有线回程）**（OpenWrt 路由器挂在中兴原厂路由器下面当子节点，一根网线）。S3（无线回程）配置面已经就绪，**端到端还没在
@@ -12,9 +12,9 @@
 
 | 要确认 | 怎么看 | 不对会怎样 |
 |---|---|---|
-| **这台机器能不能直接跑 32 位 ARM 程序** | `uname -m` 是 `aarch64` 且固件带 `CONFIG_COMPAT=y` → 能。`x86_64` 或没有 compat 的 arm64 → 不能，要么自己把 `qemu-arm-static` 放进私有根 `/usr/lib/zte-mesh/root`，要么把 `zte_mesh.main.emulator` 设成**这台机器上的任意绝对路径**（比如 `/usr/bin/qemu-arm-static`）——服务会先比 sha256，不同才拷一份进私有根的 `usr/bin/`，拷不进去就不起并说清原因 | 控制器实例每 5 秒以 `execv errno=8` 退出，页面显示没跑起来。模拟器**不在任何包里**，判定表与三条出路见 [LAB](LAB.md) 第 4.2 节。多数固件不导出 `/proc/config.gz`（两台测试机都没有），所以这一条别看配置文件，看服务起来没起来、日志有没有 `errno=8` |
+| **这台机器能不能直接跑 32 位 ARM 程序** | `uname -m` 是 `aarch64` 且固件带 `CONFIG_COMPAT=y` → 能。`x86_64` 或没有 compat 的 arm64 → 不能，要么自己把 `qemu-arm-static` 放进私有根 `/usr/lib/zte-mesh/root`，要么把 `zte_mesh.main.emulator` 设成**这台机器上的任意绝对路径**（比如 `/usr/bin/qemu-arm-static`）——服务会先比 sha256，不同才拷一份进私有根的 `usr/bin/`，拷不进去就不起并说清原因 | 控制器实例每 5 秒以 `execv errno=8` 退出，页面显示没跑起来。模拟器**不在任何包里**，判定表与三条出路见 [DEVELOPMENT](DEVELOPMENT.md) 第 11.2 节。多数固件不导出 `/proc/config.gz`（两台测试机都没有），所以这一条别看配置文件，看服务起来没起来、日志有没有 `errno=8` |
 | **无线回程要完整 `wpad`** | `apk info wpad`（`wpad-openssl` 这类变体也算，它 provides `wpad`）。25.12 起的 ImmortalWrt 用 apk，**机器上没有 `opkg` 这个命令**，`opkg list-installed \| grep wpad` 只在老 release 上有意义；`wpad-basic` 不够 | 只有开 `backhaul`（第 5、6 节）才受影响；`wlan-sync` 会把原因写进日志与页面状态行，不会静默失败 |
-| **flash 够不够** | `zte-mesh` 这个 apk 同时带运行环境和三个 CPU 的各一份启动器，当前那份 `zte-mesh-0.1.0-r23.apk` 是 **4 460 826 字节**；设备上以 `apk info -s zte-mesh` 为准（两台测试机读 **9017 KiB**）。LuCI 与中文包是 KB 量级。**要跑模拟器的那台机器上，占地方的是你自己放的那份 `qemu-arm-static`（10.7 MB），不是包** | 换 `wpad` 变体也可能挤爆小 flash |
+| **flash 够不够** | `zte-mesh` 这个 apk 现在同时带运行环境和三个 CPU 的各一份启动器：合并后的 `zte-mesh-0.1.0-r22.apk` 是 **5 101 814 字节**（合并前那两份产物 3.9 MB + 1.2 MB，两份相加 5 104 550，所以合成一个还小了 2 736 字节）；LuCI 与中文包是 KB 量级。设备上以 `apk info -s zte-mesh` 为准——**装 r22 后两台测试机都读 10 MiB**（合并前 `zte-mesh` r21 单独是 8 034 KiB；更早文档里那个 8 007 KiB 只覆盖运行环境那部分，别拿它当合并后的数）。**要跑模拟器的那台机器上，占地方的是你自己放的那份 `qemu-arm-static`（10.7 MB），不是包** | 换 `wpad` 变体也可能挤爆小 flash |
 
 ## 2. 装包
 
@@ -22,7 +22,7 @@
 
 | 包 | 架构 | 内容 |
 |---|---|---|
-| `zte-mesh` | `all` | 服务本体：`/etc/init.d/zte-mesh`、`attach` / `wlan-sync` / `sta-collect`、rpcd 插件、默认 `/etc/config/zte_mesh`、带原厂 `multiapd` 的运行包（解到 `/usr/lib/zte-mesh/root`）。**启动器也在这个包里**：现编的 `ns-run` 与 `mesh-search`，**一个 apk 带三个 CPU 的各一份**——`/usr/libexec/zte-mesh/arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}`，而 `/usr/libexec/zte-mesh/{ns-run,mesh-search}` 这两个名字下面是同一份 shell 入口，按 `uname -m` 选目录、按 `$0` 选程序，选中就 `exec`（pid 不变）。依赖 `ip-full`、`kmod-veth`、`kmod-sched-core`（三项写进 apk 的 depends，`apk add` 会一并装；CI 那个 target 自己不编它们，靠 `EXTRA_DEPENDS` 保住这条声明，见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节）。缺 veth 内核模块时启动器停在 `error=private-service-network errno=2`（建私有网线之前先 `stat /sys/module/veth`）。以前这两部分是两个包（`zte-mesh-launcher`），2026-11-05 合并——理由与代价见 [ARCHITECTURE](ARCHITECTURE.md) 第 5 节 |
+| `zte-mesh` | `all` | 服务本体：`/etc/init.d/zte-mesh`、`attach` / `wlan-sync` / `sta-collect`、rpcd 插件、默认 `/etc/config/zte_mesh`、带原厂 `multiapd` 的运行包（解到 `/usr/lib/zte-mesh/root`）。**启动器也在这个包里**：现编的 `ns-run` 与 `mesh-search`，**一个 apk 带三个 CPU 的各一份**——`/usr/libexec/zte-mesh/arch/{aarch64,armv7,x86_64}/{ns-run,mesh-search}`，而 `/usr/libexec/zte-mesh/{ns-run,mesh-search}` 这两个名字下面是同一份 shell 入口，按 `uname -m` 选目录、按 `$0` 选程序，选中就 `exec`（pid 不变）。依赖 `ip-full`、`kmod-veth`、`kmod-sched-core`。缺 veth 内核模块时启动器停在 `error=private-service-network errno=2`（建私有网线之前先 `stat /sys/module/veth`）。以前这两部分是两个包（`zte-mesh-launcher`），2026-11-05 合并——理由与代价见 [ARCHITECTURE](ARCHITECTURE.md) 第 5 节 |
 | `luci-app-zte-mesh` | `all` | 配置页面（`网络 → ZTE Mesh`） |
 | `luci-i18n-zte-mesh-zh-cn` | `all` | 中文文案。**装应用包不会自动带上它**，要中文就单独装 |
 
@@ -30,8 +30,8 @@
 四个文件都能匿名下载（2026-11-06 发布；tag 指本次构建吃的树 `9696812`，不是它上面那份只改文档的提交）。
 更早那两个 `v0.1.0`、`v0.2.0` 的 release 与 tag 已删除。另一条路是把本仓库登记成 feed、在 ImmortalWrt 树里编出来，
 或者从 `build-apk.yml` 那次运行的 `zte-mesh-apk` artifact 取（下载 artifact 要认证，匿名 401；取法见 [DEVELOPMENT](DEVELOPMENT.md) 第 8 节）。
-仓库 Makefile 里当前的包版本串是三个包同一个号 `0.1.0-r27`（2026-11-06 起 `r` 号对齐，一批一个号，规矩见 [PLAN](PLAN.md) 第 6.3 节）——**它还没发布**：上面那个 release 仍是 `v0.1.0-r23`，`r24`–`r27` 只在 CI 产物与两台测试机上（`r27` 是批 28，2026-11-09 起两台测试机装的都是它，`zte-mesh` 那份 **4 470 707 字节**）。要装最新一批就走 artifact 或自己当 feed 编；
-`ci/batch24` 那一轮按 `0.1.0-r23` 出过产物，三个文件名都带 `0.1.0-r23`，两台测试机当时装完读回三行同为 `0.1.0-r23`。
+仓库当前构建的包版本串是三个包同一个号 `0.1.0-r23`（2026-11-06 起 `r` 号对齐，一批一个号，规矩见 [PLAN](PLAN.md) 第 6.3 节）；
+`ci/batch24` 那一轮已经按这个号出过产物，三个文件名都带 `0.1.0-r23`，两台测试机装完读回三行同为 `0.1.0-r23`。
 包没签名，所以要 `--allow-untrusted`：
 
 ```sh
@@ -45,12 +45,12 @@ sha256sum -c SHA256SUMS.txt                   # 三条 OK 才往下走
 
 # 2) 推到路由器并装
 ssh root@<这台路由器的IP> 'mkdir -p /tmp/zte-apk'
-scp dist/*.apk dist/SHA256SUMS.txt root@<这台路由器的IP>:/tmp/zte-apk/   # 校验清单跟着一起走，下一行才有东西可核
+scp dist/*.apk root@<这台路由器的IP>:/tmp/zte-apk/     # 只放这一批；目标目录不存在时 scp 会把文件写成那个名字
 ssh root@<这台路由器的IP> 'cd /tmp/zte-apk && sha256sum -c SHA256SUMS.txt'
 ssh root@<这台路由器的IP> 'apk add --allow-untrusted /tmp/zte-apk/zte-mesh-[0-9]*.apk /tmp/zte-apk/luci-*.apk'
 ```
 
-上面第 2 步的 `dist/*.apk` 是本机或 CI 构建出来的那份；从 release 下的四个文件在 `/tmp/zte-apk`，scp 那一行换成 `scp /tmp/zte-apk/*.apk /tmp/zte-apk/SHA256SUMS.txt` 就行。**清单必须一起传**：只传 apk 时路由器上那句 `sha256sum -c SHA256SUMS.txt` 读不到文件，当场失败——而它正是"传到这台机器的字节没坏"的唯一判据。目标目录由上一行的 `mkdir -p` 建好；目录不存在时 scp 会把第一个源文件写成那个名字。
+上面第 2 步的 `dist/*.apk` 是本机或 CI 构建出来的那份；从 release 下的四个文件在 `/tmp/zte-apk`，scp 那一行换成 `scp /tmp/zte-apk/*.apk` 就行。
 
 - **`zte-mesh-[0-9]` 那个 `-` 加数字不是排版**：`zte-mesh*.apk` 会把这一台机器上**上一批留下的** `zte-mesh-launcher-*.apk`（合并前那个独立的启动器包）一并匹配进来，那条命令于是当场多装一个包——它装的是旧一半的启动器，而新的 `zte-mesh` 已经带着这些文件。装机读回 `verify-install.sh` 现在用同一条 glob，并且专门有一行会拒绝"这个目录里还有 launcher 包"。
 
@@ -80,15 +80,15 @@ cat /run/zte-mesh/wlan-sync.status      # 配置写进本机无线配置的结�
 | **装完重启两次**：`/etc/init.d/rpcd restart` 和 `/etc/init.d/zte-mesh restart` | `apk add` 只换文件，rpcd 还拿着装之前加载的那份插件（状态里连 `local` 这个键都没有）、`attach` 报着 running 而 `zmesh0` 早就不存在；重启之后 `attached=true`、`zmesh0` 重新挂回 `br-lan` | — |
 
 这三条加"实例集合对不对、主控给的 SSID 有没有写到本机"就是装机验收的一条命令：把 apk 放机器上 `/tmp/zte-apk`，跑
-`sh tools/lab/verify-install.sh /tmp/zte-apk`（不带目录只读不装）。它输出 `KEY=VALUE` 证据行和末尾 `RESULT=PASS|FAIL`，
+`sh tools/dev/verify-install.sh /tmp/zte-apk`（不带目录只读不装）。它输出 `KEY=VALUE` 证据行和末尾 `RESULT=PASS|FAIL`，
 判定逻辑由 `sh tests/test_verify_install.sh` 在主机上守着；**带目录那种架构会装、会重启服务**，读到的是这一批跑起来的样子。
 每个键的意思只在这里写一次：
 
 | 键 | 它答什么 | 不作判定的情况 |
 |---|---|---|
 | `ssid_wait=<秒>` / `ssid_pending=0 1` | 主控的 SSID 有没有写到本机无线：该项会**等配置写进本机并生效**再判（上限 `SSID_WAIT`，默认 60 秒），等不到才 FAIL 并列出没生效的行号 | 刚重启的那十几秒里无线配置可能还是上一个名字——问得太早会把一台健康的子节点判成 FAIL |
-| `trace_per_bss_name`、`probe_bss_detail`、`init_seed_from_air`、`sync_flag_by_meaning`、`collect_pause_in_collector` | **这一批有没有真装进机器**。apk 打包会剥掉 ELF 节，设备上的 `.so` 和仓库成员不是同一串字节，只能按字符串认：前两个 `yes` 说明**写入方**在机器上；后三个认的是包里三个 shell 文件（`/etc/init.d/zte-mesh` 的 `live_ap_iface`、`/usr/libexec/zte-mesh/wlan-sync` 的 `set_flag`、`/usr/libexec/zte-mesh/sta-collect` 的 `collect-pause`）——**一批只改脚本时 rootfs 里一个字都没变，只读那两个库就会把"没装上"读成"装上了"** | 机器上没有那份文件时打 `unreadable`、不作判定（环境事实不是批次判定）。`peers_sta` / `peers_software` / `peer_reports_stations` / `peers_assoc` / `ap_sta_rows` / `ap_sta_clients` / `ap_sta_age` / `state_bss_detail` 是读到的数据，只当证据不当判据 |
-| `ap_sta_rows=<个数>` / `ap_sta_clients=<个数>` / `ap_sta_age=<秒>` | **这台子节点的采集循环有没有在跑**。表是 `/run/zte-mesh/ap-sta`（`epoch=<秒>` 一行，再一路 AP 一行 `b <BSSID> <数> <SSID>`，下面跟该路每个终端一行 `s <BSSID> <终端 MAC>`）：`ap_sta_rows` 数 `b` 行，`ap_sta_clients` 数 `s` 行（A28 跨节点设备表就从这里来——读不到终端 MAC 的机器有 `b` 行而没有 `s` 行），`ap_sta_age` 是现在减那个 `epoch`。年龄一小就说明还在更新时间戳，年龄大到越过应答那 30 秒的窗口就说明循环停了或工具没了——**沉默是设计**，跟原厂 agent 收到查询不回一样，报一个陈旧的数才是编造 | 表读不到 → 三行都 `absent`（主控本来不写这张表，不是故障）；`epoch=` 那行没了 → 前面两行照数、`ap_sta_age=unreadable`。暂停开关 `touch /run/zte-mesh/collect-pause` 之后年龄会一直涨、行数不动，这就是"停了但表还在"的样子（[SERVICE](SERVICE.md) 的 `sta-collect`） |
+| `trace_per_bss_name`、`probe_bss_detail`、`init_seed_from_air`、`sync_flag_by_meaning`、`collect_pause_in_collector` | **这一批有没有真装进机器**。apk 打包会剥掉 ELF 节，设备上的 `.so` 和仓库成员不是同一串字节，只能按字符串认：前两个 `yes` 说明**写入方**在机器上；后三个认的是包里三个 shell 文件（`/etc/init.d/zte-mesh` 的 `live_ap_iface`、`/usr/libexec/zte-mesh/wlan-sync` 的 `set_flag`、`/usr/libexec/zte-mesh/sta-collect` 的 `collect-pause`）——**一批只改脚本时 rootfs 里一个字都没变，只读那两个库就会把"没装上"读成"装上了"** | 机器上没有那份文件时打 `unreadable`、不作判定（环境事实不是批次判定）。`peers_sta` / `peers_software` / `peer_reports_stations` / `ap_sta_rows` / `ap_sta_age` / `state_bss_detail` 是读到的数据，只当证据不当判据 |
+| `ap_sta_rows=<个数>` / `ap_sta_age=<秒>` | **这台子节点的采集循环有没有在跑**。表是 `/run/zte-mesh/ap-sta`（`epoch=<秒>` 一行，再一路 AP 一行 `BSSID 数`）：`ap_sta_rows` 数里面的行，`ap_sta_age` 是现在减那个 `epoch`。年龄一小就说明还在更新时间戳，年龄大到越过应答那 30 秒的窗口就说明循环停了或工具没了——**沉默是设计**，跟原厂 agent 收到查询不回一样，报一个陈旧的数才是编造 | 表读不到 → 两行都 `absent`（主控本来不写这张表，不是故障）；`epoch=` 那行没了 → `ap_sta_rows` 照数、`ap_sta_age=unreadable`。暂停开关 `touch /run/zte-mesh/collect-pause` 之后年龄会一直涨、行数不动，这就是"停了但表还在"的样子（[SERVICE](SERVICE.md) 的 `sta-collect`） |
 | `peer_reads=<次数>` / `peer_input=yes\|no` | **主控这一趟到底有没有收到过终端数**（[PLAN](PLAN.md) H-13、H-15）。脚本连读快照直到有一处读到数为止，最多 `METRICS_READS` 次（默认 3，每次隔 5 秒）：`peer_reads` 是读了几次，`peer_input` 是 `.sta` 文件存在**或**摘要里有 `stations=`——两条来源任一成立都算有输入 | 只当证据。`peer_input=no` 分不出"这台没人上报"和"这台不在了"，那要看节点还在不在 `nodes_rows=`；替身按 BSSID 应答、不发摘要那一段，所以 `peers_sta=2` 旁边写 `peer_reports_stations=no` 是正常形态 |
 | `launcher_dispatch` / `launcher_second_name` / `launcher_arch_present` + `launcher_arch=<入口那一行>`（另有只报不判的 `legacy_launcher_package=`） | **这台机器有没有一份跑得动的启动器**（[FEATURE_STATUS](FEATURE_STATUS.md) C12）。启动器现在在 `zte-mesh` 这个 `all` 的包里，装机时不再挑架构，那句答案就搬到这里来了：`launcher_dispatch` 认 `/usr/libexec/zte-mesh/ns-run` 是不是那份入口脚本（按字符串 `--launcher-check` 认——apk 打包会剥掉 ELF 节，比字节没用），`launcher_second_name` 认同一个脚本的第二个名字 `mesh-search`（服务真会跑它，少了就是 search 实例起不来），`launcher_arch_present` 是问出来的那一行**退出码是不是 0**，也就是本机 `uname -m` 那种架构在不在包里。`launcher_arch=` 打印入口自己回答的第一行：有构建时是它选中的那个文件（`/usr/libexec/zte-mesh/arch/x86_64/ns-run`），没有时是那句"这台机器不在包里，包里带的是 `aarch64 armv7 x86_64`"——**问的就是装机要跑的同一份代码**，人手工跑 `ns-run --launcher-check`、init 记进日志的那行、这里读回来的是同一句话。`legacy_launcher_package=` 报这台机器上**还留着合并前那个独立 launcher 包**的版本号（没有则 `absent`）——两个包同时声称拥有 `/usr/libexec/zte-mesh/` 下那批文件时会发生什么是 apk 的判定，只报不判（[PLAN](PLAN.md) 第 5 节）。入口不在、读不到、或不是一份 dispatcher（比如手工放的旧二进制）→ 两行只报 `launcher_dispatch=<unreadable\|no>` 与 `launcher_arch=not-installed`，**不作判定**：环境事实不是批次判定。**"这台机器的 CPU 不在包里"是要判 FAIL 的**（`launcher_arch_present=no`），这是拿掉装机时那道架构门之后唯一的守门人 |
 | `applier_writes=<次数>` | 这一次重启里 `applier`（把配置写进 `/etc/config/wireless` 的那段）**真的写过几次配置**，即日志 `applied; wireless committed` 的行数增量。**比文件不行**：旧的初始配置先把本机 SSID 改掉、主控再改过来，`/etc/config/wireless` 前后一模一样而家里已经掉了两次线——只有 applier 自己那行留了痕 | 判 `0` 的前提是重启前本机广播已是配置里每个启用行的 SSID（`air_matched_plan=yes`），不是 `yes` 就只报数不作判定；这一趟没重启 `no-restart`、这个角色本来就没有 applier `no-applier`（纯主控）、`logread` 读不出来 `no-logread`（当成 0 行，而 `0 - 0` 正长得像一次安静重启）、日志环在窗口里绕了一圈 `wrapped`（窗口被截断，增量不是个数） |
@@ -96,13 +96,13 @@ cat /run/zte-mesh/wlan-sync.status      # 配置写进本机无线配置的结�
 | `db_profile_cur_hop=<数字>` / `absent` + `master_cur_hop=<数字>` | **测试环境里那个开关有没有真进到主控自己的那一行**（[PLAN](PLAN.md) H-14 第 ⑦ 步）。开关不是页面上的选项：往 `/run/zte-mesh/db-profile` 写一行 `MultiAPCfg 0 CurHop 5` 再重启服务，启动视图会把它读进数据库（`mesh-policies.c` 的 `profile_apply`），而主控启动路径本来不写 `CurHop` 这一列，所以它能活过一次重启。`db_profile_cur_hop` 报文件里那一行（没文件、没这一行都算 `absent`），`master_cur_hop` 拿 cfg 那行的 `cur_hop` 跟它比，**相等才算开关生效**——不然子节点读到 2 会看起来像一个结论，实际上主控根本没把 5 放进数据库 | 文件在但角色是子节点 → `not-master`（子节点启动路径会把 `-2` 写回来，它后来那个数是守护进程对本机广播状态的确认，归 `cur_hop` 那条判定）；环里没有那一行 → `no-cfg-line`；那一列读不到 → `not-read`；那一行太年轻（同一道 `CUR_HOP_GRACE`）只报告数值、不作判定。**`absent` 时整条不作判定**，正常机器就是这一种 |
 | `mesh_compat_uci` + `mesh_v2_line` + `mesh_compat_inverted` | **页面上那一项与守护进程读的那一行是不是反的**（[FEATURE_STATUS](FEATURE_STATUS.md) A12b）。`mesh_compat_uci` 是 UCI 里的 `mesh_compatible`（页面值），`mesh_v2_line` 是 `/run/zte-mesh/config` 里 `mesh.v2=` 那一行，判据是 `0→1`、`1→0`——反相只发生在 init 写那一行时，这里是唯一能在现场核对它的地方。`mesh_v2_legacy_uci` 报旧键 `mesh_v2` 还在不在（升级留下的配置常见 `0`），只当线索；`init_reads_mesh_compatible` 是包内脚本标记，认的是 `/etc/init.d/zte-mesh` 里那个新键名 | 页面没值（`unset`）而服务也没那一行 → **整条不下结论**：init 对没设过的选项不发 `mesh.v2`，守护进程用自己的默认（关＝接受任何子路由），这与旧键的默认是同一个行为，不是判定。`/run/zte-mesh/config` 读不到 → `mesh_v2_line=no-config`（控制器没跑起来，没东西可比）。**2026-11-04 两台测试环境机器装 r19/r11 就是这种“不下结论”的形态**：`/etc/config/zte_mesh` 被页面存过 → apk 留 `zte_mesh.apk-new` 而保留旧配置 → 新键 `unset`、旧键 `'0'`、服务无行 |
 | `backhaul_asked` + `backhaul_{mode,multi_ap,wds}_5g` + 六行 `backhaul_{iface,assoc,4addr_iw,4addr_ip,brport,station}_5g` | 无线回程（H-01）那六步里的**前四步**，一次连读。判的只有我们写的那三行 uci：`mode=sta`、`multi_ap=1`、`wds=1`（缺 `wds` 直接 FAIL，因为 netifd 会 `BRIDGE_NOT_ALLOWED`）。射频答的六行只报不判：接口在不在、`iw dev info` 有没有 `ssid` 行（关联上了才有）、`iw`/`ip` 两条 4 地址 grep、挂在哪个桥、`station dump` 的 `Authorized` | 只在本机是 `slave` **且** `backhaul=multi_ap` 时判那三行；`backhaul_asked=off`（默认）整段不触发。**那两条 4 地址 grep 顺带也是一次实测**：仓库一直写"`iw dev info` 打 `4addr on`"却没有实测出处，哪个构建会这么说，读一次就知道——r19 那次两台都是 `off`，这次实测还没有读数 |
-| `peers_seen` / `sta_file_sum` / `peer_software_bytes` / `bss_detail_rows` / `nodes_rows` / `nodes_online` / `peers_assoc` | H-12（子路由发不发 `0xd4`）与 H-13（`0x800c` 一帧列全还是一射频一帧）的读数，**每个计数都配一个成立条件**：`peers_seen` 是 `peers/` 里出现过几台 MAC，`peer_software_bytes` 是 `.software` 一共几个字节，`bss_detail_rows` 是 `state.json` 里 `"bssid":"` 出现几次，`nodes_rows`/`nodes_online` 是节点行数与在线数；`peers_assoc` 是 `.assoc` 的份数——主控收到带 `0x70` 的应答后写下的跨节点终端明细（A28，每份首行 `epoch=`，之后每行终端 MAC、BSSID、SSID） | 全部只报不判。`peer_software_bytes=0` 在 `peers_seen=0` 的机器上不说明 Z506 不发；"这一趟有没有输入"看上一行的 `peer_input`（它把 `.sta` 文件的个数与摘要里那行合起来判），**别看单次采样的 `peer_reports_stations`**——它读的是 `.metrics` 里那行 `stations=`，而 `.metrics` 只存最后到的那一帧，一帧不带终端数的状态帧会把这行抹掉只剩 `hops=`，下一次上报又写回来（2026-11-05 两台装 r20/r11 后八次连读，读到一次 `no`，同期 `peers_sta=2`、`bss_detail_rows=2`）。子角色本来没有自己的 agent，`state.json` 里没有 `bss_detail` 那把键（`state_bss_detail=absent`）、`nodes_rows=0`——这是结构，不是故障；`peers_assoc=0` 在原厂子节点、或子节点那次应答不带 `0x70` 时成立，不是故障 |
+| `peers_seen` / `sta_file_sum` / `peer_software_bytes` / `bss_detail_rows` / `nodes_rows` / `nodes_online` | H-12（子路由发不发 `0xd4`）与 H-13（`0x800c` 一帧列全还是一射频一帧）的读数，**每个计数都配一个成立条件**：`peers_seen` 是 `peers/` 里出现过几台 MAC，`peer_software_bytes` 是 `.software` 一共几个字节，`bss_detail_rows` 是 `state.json` 里 `"bssid":"` 出现几次，`nodes_rows`/`nodes_online` 是节点行数与在线数 | 全部只报不判。`peer_software_bytes=0` 在 `peers_seen=0` 的机器上不说明 Z506 不发；"这一趟有没有输入"看上一行的 `peer_input`（它把 `.sta` 文件的个数与摘要里那行合起来判），**别看单次采样的 `peer_reports_stations`**——它读的是 `.metrics` 里那行 `stations=`，而 `.metrics` 只存最后到的那一帧，一帧不带终端数的状态帧会把这行抹掉只剩 `hops=`，下一次上报又写回来（2026-11-05 两台装 r20/r11 后八次连读，读到一次 `no`，同期 `peers_sta=2`、`bss_detail_rows=2`）。子角色本来没有自己的 agent，`state.json` 里没有 `bss_detail` 那把键（`state_bss_detail=absent`）、`nodes_rows=0`——这是结构，不是故障 |
 
 开关只在 `/run` 下的一个文件里：**没有任何页面、UCI 选项或 apk 能设它**，所以到不了用户的机器。
 测完删掉那一行（或整个文件）再重启服务即可。**一个坑**：在页面上把角色来回切会经过 `controller-service.c`
 那处换角色的写列，往主控方向把 `CurHop` 写回 2——覆盖掉开关，直到下一次重启才重新生效；所以测这一条期间别动角色。
 
-只想驱动这一次重启来问 `applier_writes`：`RESTART_NOW=1 sh tools/lab/verify-install.sh`——**它会真掉线**，默认关着
+只想驱动这一次重启来问 `applier_writes`：`RESTART_NOW=1 sh tools/dev/verify-install.sh`——**它会真掉线**，默认关着
 （判据见第 6 节和 [PLAN](PLAN.md) H-14）。
 
 ## 4. 场景 S1：OpenWrt 路由器当主控，接一台中兴原厂路由器
@@ -139,15 +139,13 @@ applier 会把配置写进本机射频；换过角色或手改过 `/etc/config/z
 | 现象 | 为什么 | 怎么办 |
 |---|---|---|
 | 服务起不来，日志 `execv errno=8` | 内核跑不了 32 位 ARM 程序，且没有模拟器 | 第 1 节第一条（owrt 上实测：`ZTE_DB_SANDBOX error=execv errno=8` 每 5 秒一条，页面状态这时还是 `running=true`，只有 `attached=false` 这一项能看出异常） |
-| 服务起不来，日志 `zte-mesh has no launcher build for <本机 uname -m>: zte-mesh ns-run: no build for this machine (… ). The launcher on this box carries: aarch64 armv7 x86_64` | 这台机器的 CPU 不在这个包里。**包是 `all` 的，`apk add` 什么机器都收**（2026-11-05 之前它会在这里直接失败、四个包一个不装），所以那句拒绝改由启动器在运行时说；`zte-mesh.init` 在把实例交给 procd 之前先问一次 `--launcher-check`，**只有回 127 才写成这一句**——其余非零是另一行 `--launcher-check exited <码>`，不会冒充"这台不缺构建"。问不到就不起，否则 `respawn` 会每 5 秒重开一个 127，而日志里从头到尾不出现"架构"两个字**这一句在 r23 之后才干净**：`zte-mesh.init` 先把入口文件在不在单独问一次，缺文件的那种不再冒充这一句（见下一条）| 换一台 aarch64 / armv7 / x86_64 的机器，或给这种架构 CPU 现编一份放进 `/usr/libexec/zte-mesh/arch/<cpu>/`（`tools/build/launcher-arches.sh`，命令见 [LAB](LAB.md)）。装机读回把这一条判成 FAIL（`launcher_arch_present=no`），`launcher_arch=` 那行就是它给的原文 |
+| 服务起不来，日志 `zte-mesh has no launcher build for <本机 uname -m>: zte-mesh ns-run: no build for this machine (… ). The launcher on this box carries: aarch64 armv7 x86_64` | 这台机器的 CPU 不在这个包里。**包是 `all` 的，`apk add` 什么机器都收**（2026-11-05 之前它会在这里直接失败、四个包一个不装），所以那句拒绝改由启动器在运行时说；`zte-mesh.init` 在把实例交给 procd 之前先问一次 `--launcher-check`，**只有回 127 才写成这一句**——其余非零是另一行 `--launcher-check exited <码>`，不会冒充"这台不缺构建"。问不到就不起，否则 `respawn` 会每 5 秒重开一个 127，而日志里从头到尾不出现"架构"两个字**这一句在 r23 之后才干净**：`zte-mesh.init` 先把入口文件在不在单独问一次，缺文件的那种不再冒充这一句（见下一条）| 换一台 aarch64 / armv7 / x86_64 的机器，或给这种架构 CPU 现编一份放进 `/usr/libexec/zte-mesh/arch/<cpu>/`（`tools/build/launcher-arches.sh`，命令见 [DEVELOPMENT](DEVELOPMENT.md) 第 11.3 节）。装机读回把这一条判成 FAIL（`launcher_arch_present=no`），`launcher_arch=` 那行就是它给的原文 |
 | 服务起不来，日志 `… --launcher-check exited <非 127 的码>: …` | 入口脚本自己没答上这个问题。最常见是 `/usr/libexec/zte-mesh/ns-run` 站着的不是包里那份：批 20 之前手工放的旧 ELF 不认识 `--launcher-check`，只打 usage 并回 64（`owrt` 在 2026-11-05 分批装的那 4 秒里读到过一句假的架构拒绝，就是这么来的） | 重新 `apk add` 这个包（安装规则会覆盖这两个名字），或直接 `sh /usr/libexec/zte-mesh/ns-run --launcher-check` 看它说什么。**这一行不是"这台跑不了"**，别按上一条换机器 |
 | 服务起不来，日志 `<入口路径> is missing from package zte-mesh` | 包少了一个文件——`/usr/libexec/zte-mesh/ns-run` 这个（和它的第二个名字）根本不在这台机器上。`apk` 的卸载会把两个名字一并删掉：`owrt` 在 2026-11-05 那次叠加态里就是这么丢的，当时它答的是上面那句假的"这台不缺构建"（ash 对不存在的文件回 127，和架构那个码一模一样），r23 起改成先问文件在不在、分两句说。**这一句在 2026-11-06 上机读过一次**（`owrt`，把 `ns-run` 暂时挪走再 `start`）：`daemon.warn zte-mesh: /usr/libexec/zte-mesh/ns-run is missing from package zte-mesh`，同时 `/etc/init.d/zte-mesh status` 是 `active with no instances`；同一台把 `arch/x86_64` 挪走读到的是上一条那一句，两句不串台 | `apk add --allow-untrusted` 重装这个包（安装规则会同时装回两个名字）；**先确认这是"包缺一半"而不是"这台不行"**，别按上一条换机器 |
 | 回程开关设了，射频上什么都没有 | ①**手改 UCI 写进 `multi-ap` 这类第三种写法，不是"读成 off"，是整个配置被拒绝、服务不起**（`zte-mesh.init` 的取值表只认 `off` / `multi_ap`；owrt 上实测日志 `backhaul must be off or multi_ap; not starting`，状态变第 3 节那个 `state=null` 情况）——页面保存同样的写法是另一回事，它会当场拒绝并说明原因；②值本身合法但这台机器是不把配置应用到本机的主控，本来就不动射频：日志会明说 `zte_mesh.main.backhaul=multi_ap has nothing to do while apply_local is off: ...`（owrt 实测），并把两条出路写在那一句里 | 用页面而不是编辑器改它；确认这台会把配置应用到本机（角色是子路由，或者（「本机也广播」开着，或角色是子路由）。看页面「状态」与 `logread` |
-| 一个频段有两块射频，改了却没生效 | 控制器配置不知道该写到哪块射频，`wlan-sync` 会**放弃这个频段**，日志原文是 `several 5g radios (radio0 radio1) and no way to tell which one carries the mesh; set zte_mesh.main.wifi_5g to one of them, this band is left alone until then`——它指定的是 UCI 项，页面上对应「2.4 GHz 射频设备」/「5 GHz 射频设备」两个字段 | 按日志列出的候选名填进那两个字段（例如 `radio1`）。保存这两项会重启服务，因为不重启就等于没选。靠 `radio0.disabled=1` 把候选缩成一块的板子（测试环境的小米 AX3600 就是这样，见 [LAB](LAB.md) 第 2.1 节）测不出这一条，别把"没报错"当成"已验证" |
+| 一个频段有两块射频，改了却没生效 | 控制器配置不知道该写到哪块射频，`wlan-sync` 会**放弃这个频段**，日志原文是 `several 5g radios (radio0 radio1) and no way to tell which one carries the mesh; set zte_mesh.main.wifi_5g to one of them, this band is left alone until then`——它指定的是 UCI 项，页面上对应「2.4 GHz 射频设备」/「5 GHz 射频设备」两个字段 | 按日志列出的候选名填进那两个字段（例如 `radio1`）。保存这两项会重启服务，因为不重启就等于没选。靠 `radio0.disabled=1` 把候选缩成一块的板子（测试环境的小米 AX3600 就是这样，见 [DEVELOPMENT](DEVELOPMENT.md) 第 1 节）测不出这一条，别把"没报错"当成"已验证" |
 | 有线口显示"未接入" | veth 两端一起没了，只有重启实例才能重建 | `attach` 兼任看门狗：连续 20 秒看不到这个口就重启沙箱实例，owrt 实测删掉 `zmesh0` 后 25 秒自己长回来（[PLAN](PLAN.md) H-10，已验）；想立刻恢复就重启服务 |
 | 角色是子路由，手改的 `wifi_24g_ssid` 没动静 | 子路由的配置由主控下发，而服务起来时的**初始配置**是从本机当前广播的配置读回的（第 6 节第 2 条）。这几项在子角色上顶不上本机正在广播的那一段，页面上也根本不显示它们（[FEATURE_STATUS](FEATURE_STATUS.md) B9）；日志会明说 `child role: wifi_24g_ssid is not the seed on this router: ...` | 想改 SSID 就改**主控**的配置；想把这台变成能自己定的，就改成主控并开「本机也广播」。手工改 `/etc/config/wireless` 也能生效，但下一次 M2 到达时会被主控的配置盖掉 |
-| 页面把「启用」关掉并保存，控制器还在跑 | **r25 之前会这样**：页面保存走的是 `reload`，而 `enabled` 只有 `start` 读——`reload` 比的是配置签名，关着也写得成功、签名还一样，于是答"无事可做"。现在 `reload` 先读 `enabled`，不是开就停服务 | 升到 r25 及以后；暂时不能升就 `/etc/init.d/zte-mesh stop`。判据在主机 `test_init.sh`（8p 那组），真 procd 那一层的读数见 [PLAN](PLAN.md) H-19 |
-| 改了「LAN 桥」「控制器地址末字节」或手改的 `zte_mesh.main.emulator`，服务没重启 | 这三项进的是**启动实例时的输入**，不进配置文件也不进计划，所以以前不参与重启签名的比较。r25 起三项都在签名里，改了即重启 | 升到 r25 及以后；暂时不能升就 `/etc/init.d/zte-mesh restart` |
 
 ## 8. 卸载与版本
 
@@ -170,7 +168,7 @@ apk del luci-app-zte-mesh zte-mesh     # 再把装过的包名补进这条：luc
   **`/usr/libexec/zte-mesh/` 这两个名字现在归包**：`ns-run` 与 `mesh-search` 是同一个包里装的同一份入口脚本，
   它按 `uname -m` 去找 `arch/<cpu>/` 里的二进制，`apk add` 会覆盖你手工放在这两个位置的任何东西，`apk del` 把入口和
   `arch/` 一起删掉。自己编的那份要放进 `/usr/libexec/zte-mesh/arch/<cpu>/ns-run`（同名两个文件都要，见
-  [LAB](LAB.md) 第 4.3 节），放在外面这一层的那份不会被入口脚本找到；`attach` / `wlan-sync` / `sta-collect` 和启动器在同一层目录里，
+  [DEVELOPMENT](DEVELOPMENT.md) 第 11.3 节），放在外面这一层的那份不会被入口脚本找到；`attach` / `wlan-sync` / `sta-collect` 和启动器在同一层目录里，
   但在同一个包里由同一条安装规则放下。
 - 装的是哪一批从包版本读：`apk list --installed | grep zte` 报的就是 `pkgver`（与文件名里那一位一致）。三个包的
   `PKG_RELEASE` 各自计数、批末对改过的包加一（[PLAN](PLAN.md) 第 6.3 节；当前各包到了哪一位记在

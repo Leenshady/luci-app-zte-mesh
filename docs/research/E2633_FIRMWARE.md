@@ -1,7 +1,5 @@
 # ZXHN E2633 官方固件解包记录（2026-10-29）
 
-> **已冻结（2026-11-03）**：取证存档，记的是那天在哪台机器上跑什么、看到什么、用的什么方法。结论以 [FEATURE_STATUS](../FEATURE_STATUS.md) 与 [PLAN](../PLAN.md) 为准，本文不再随结论更新——新结论写进那两份，不要回头改这里。
-
 对象：`F:/中兴E2633转正/6B5改_109适配/6B5改_109适配.bin`，26 870 292 字节，
 MD5 `6f004d68c2bf0551a8ab383a658e38b2`（与同目录 `md5.txt` 一致，文件完整）。
 
@@ -131,8 +129,8 @@ br_ieee1905_check_is1905_msg
 `br_ieee1905_check_is1905_msg` 识别 1905 帧。也就是说原厂的 1905 数据面**穿过网桥时会被内核专门识别**，
 不是一束普通的以太网广播。
 
-这一条解释了测试环境与中兴原厂路由器的一个潜在差异：lab 里 1905 走 `veth` + `br-lan`，
-内核把它当普通帧泛洪；中兴原厂路由器上有这个钩子参与。它可能是为了做
+这一条解释了实验室与真机的一个潜在差异：lab 里 1905 走 `veth` + `br-lan`，
+内核把它当普通帧泛洪；真机上有这个钩子参与。它可能是为了做
 「1905 只往 MAP 口送、不往用户口送」或者「按 1905 目的 MAC 定向复制」。
 **没拿到内核源码，具体行为是推断。**
 
@@ -140,10 +138,10 @@ br_ieee1905_check_is1905_msg
 
 | 配置 | 值 | 对应我们已经实现的 |
 |---|---|---|
-| `CSP_WLAN_SUPPORT_80211KV` | y | 漫游只到 k/v，**没有 r**。与 [Z506 无 FT 的结论](CONTROLLER_CAPABILITIES.md) 一致 |
-| `CSP_WLAN_DUAL_BAND_SETTING_SYNC` | y | `wifi_dual_band_sync` 是中兴原厂路由器原生行为，不是我们发明的 |
+| `CSP_WLAN_SUPPORT_80211KV` | y | 漫游只到 k/v，**没有 r**。与 [Z506 无 FT 的结论](../CONTROLLER_CAPABILITIES.md) 一致 |
+| `CSP_WLAN_DUAL_BAND_SETTING_SYNC` | y | `wifi_dual_band_sync` 是真机原生行为，不是我们发明的 |
 | `CSP_WLAN_KEY_GLOBAL_SETTING` | y | 全局密钥，对应 M2 里一份凭据下发给多个 BSS |
-| `CSP_WLAN_VAP_CONFIG_INDEPENDENT` | y | 每个 BSS 独立配置，对应 `WLANCfg` 的多行序号 |
+| `CSP_WLAN_VAP_CONFIG_INDEPENDENT` | y | 每个 BSS 独立配置，对应 `WLANCfg` 的多行槽位 |
 | `CSP_WLAN_11AX` / `WPA3` / `160MHZ` | y | E2633 是 AX3000 级，比 Z506 新 |
 | `CSP_WLAN_VLAN` / `ELINK` | y | 我们有 VLAN 与 elink 无通道，符合原厂有而我们没有 |
 | `CONFIG_SMP` / `PREEMPT_NONE` / `HZ=100` | y/100 | `mem=128M console=ttyAMA0,115200n8` |
@@ -195,82 +193,13 @@ ECB 模式下「相同明文块 → 相同密文块」，于是密文里 `9b58f8
 | 路 | 怎么做 | 代价 / 对本项目的增量 |
 |---|---|---|
 | 读 bootloader 取密钥 | TTL 串口（115200）进 U-Boot，密码 `5cE080@fyBD`，逆向密钥推导 | 需要拆机 + 逆向 U-Boot 的 token 派生逻辑，工作量未评估 |
-| 中兴原厂路由器 root 直接拷 | telnet 开后 `cat /usr/sbin/multiapd` 等 | **无增量**：SR1010 那份我们已有，mesh 实现相同 |
+| 真机 root 直接拷 | telnet 开后 `cat /usr/sbin/multiapd` 等 | **无增量**：SR1010 那份我们已有，mesh 实现相同 |
 | 第三方解包工具 | 社区对 ZTE 家用机有若干（见 §7） | 版本相关，不保证命中 E2633/6B5 |
 
-**关键判断**：第三条路其实指向「从中兴原厂路由器读」，而不是「解这个 bin」——因为密钥在
+**关键判断**：第三条路其实指向「从真机读」，而不是「解这个 bin」——因为密钥在
 U-Boot 运行时才推导出来，任何纯软件解包工具都得先拿到密钥，而密钥又不在包内。
 换句话说，**对「复现 mesh」这个目标，解密这个 bin 的边际价值接近零**：SR1010 上
 已经拿到同一套 `multiapd`/`libcmapi`，解 E2633 的 rootfs 不会多出任何新代码。
-
-> 2026-11-01 补：E2633 的**配置备份**（`config.bin`）用的是
-> `SHA256("<机型>Key<8位十六进制>")` 派生密钥（AES-256-CBC），那套初始配置曾经是
-> 怀疑 rootfs 是否复用的最便宜猜测。已用 84 组派生组合实测排除，
-> 见 [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §8.2。
-
-### 5.4 SR1010 仓库的提取/解密链路与 E2633 密钥实测（2026-11-01 补）
-
-SR1010/Z506 同血统的社区仓库 [zte-sr1010-research](https://github.com/1234205a/zte-sr1010-research)
-真的把 AES-128-ECB rootfs 解开过（其逆向记录第五阶段拿到密钥）。把它的方法搬来，
-对 E2633 手上全部明文材料做了一轮全量实测。
-
-**先纠一个前提**：该仓库的 `tools/firmware-layout.py` 本身**不解密**——它只做双槽头识别与
-kernel/rootfs 切图（`rootfs_plain_jffs2` 仅是魔数检测）。解密是另外两件工具的事：
-`tools/decrypt-ecb-layer.py`（AES-128-ECB）+ 密钥来自 CSPBOOT 里逐字节滑动的 16 字节常量
-（SR1010 在 CSPBOOT `0x68BFA6` 找到 ASCII 密钥 `SR1010V102020030`）。
-完整链路三步：**切图（firmware-layout.py）→ 解 ECB 层（decrypt-ecb-layer.py，常量扫描验密钥）
-→ JFFS2 解包（jffs2-extract.py，含 rtime）**。仓库里另有配置密钥派生
-（`SHA256(ModelName+"Key"+"0510"+"0001")` → AES-256-CBC）等，与 rootfs 无关，
-其同族猜测已在 [E2633_TELNET_BOOT](E2633_TELNET_BOOT.md) §8.2 排除。
-
-**可移植的核心判据**（不需要任何文件系统魔数）：JFFS2 擦除区全 `0xFF` 填充，
-ECB 下「相同明文块 → 相同密文块」⇒ 密文区最高频 16 字节块 = `AES_ECB(key, FF×16)`，
-候选密钥一次块加密即可判对错。本仓据此写了 `tools/lab/ecb-key-scan.py`
-（纯 stdlib，内嵌 AES-128 加解密双向，FIPS-197 自检通过；`--key-hex`/`--decrypt`
-留给拿到密钥那天）。oracle 确认：`9b58f878bbb341366b2b543daffb0185`
-（全区对齐计数 ×5938；§2/§5.1 的 5906 是此前口径，块值一致）。
-
-**E2633 实测：全部未命中。**
-
-| 扫描面 | 候选数 | 结果 |
-|---|---|---|
-| SR1010 的 ASCII 密钥 `SR1010V102020030` 直试 | 1 | ✗ |
-| 「机型+版本+日期」模式候选（E2633/E2631/SR1010 等组合） | 358 | ✗ |
-| printable-ASCII 滑窗：`boot.bin` / `kernel-Image.bin` / `kernel-uimage.bin` | 20 822 / 194 556 / 883 | ✗ |
-| 全偏移滑窗（`--full`）：`boot.bin`（559 325）/ `kernel-Image.bin`（6 627 665）/ `kernel-uimage.bin`（3 342 727）/ `telnet_enable.js`（11 077）/ `change-model-boot.js`（26 399） | 同左（每偏移一候选） | ✗ |
-| 全偏移滑窗：固件头 564 B（549）/ `kernel.config`（92 235）/ `zte_config_telnet_enable.js`（9 515）/ `README.txt`（2 841） | 同左 | ✗ |
-| 32 位 hex-ASCII 串转 16 字节直试 | 4 | ✗ |
-
-**结论**：E2633 rootfs 密钥**不是任何盘上明文材料里的 16 字节常量**。SR1010 的
-「CSPBOOT 常量」打法在 E2633 上不成立——密钥要么运行时派生不落盘（§5.2），
-要么经过变形/散列后才进加密例程。§5.3 的三条路里，「读 bootloader 取密钥」中
-「密钥是 boot 里明文常量」这条路已排除（`boot.bin` 全偏移无命中），剩下的是
-「U-Boot 运行时派生」——要逆向推导逻辑，成本不变；RAM 搜索路线见
-[MESH_INTEROP](MESH_INTEROP.md) §4.2.4。
-
-> 2026-11-01 晚补：对编程器包里的**第二个 bootloader 构建**（`bootloader.bin`，与 e1630.raw
-> 同源不同构建）与解压内核又做一轮全扫——12 遍字节序/排列变换全窗（×1 048 561）、
-> movw/movt 与 `mov #imm` 指令立即数流、10 913 个派生候选（含 SR1010 hardcode 公式）——
-> **仍全负**；且 oracle 块跨 E2631/E2633 两设备逐字相同 ⇒ **密钥是平台全局常量**，
-> 「按设备 eFuse」形态排除。五类静态构造方式至此试尽，细节与剩余两支出路见
-> [MESH_INTEROP](MESH_INTEROP.md) §4.2.4。
-
-> **2026-11-01 夜补：中兴原厂路由器取证把整节的出发点改了——这件事不用再查了。**
-> 上了中兴原厂路由器才发现：`/proc/cmdline` = `root=/dev/mtdblock8 ro rootfstype=jffs2`，
-> `/proc/mounts` = `/dev/root / jffs2 ro 0 0`，`/proc/mtd` = `mtd8: 01100000 rootfs`，
-> 全表**没有任何 crypt/dm 层** ⇒ 运行中的 rootfs 是**明文 JFFS2**，尺寸与本地
-> `rootfs.jffs2`（17 825 792 B）逐字节相同。所以：
->
-> - **「rootfs 密钥」对读内容这件事不存在**——jffs2 若读的是密文根本挂不上，而它挂上了；
-> - 需要密钥的是**升级包**：`.bin` 里那两段（各 23 461 888 B、槽距 `0x1c00000`、
->   两段逐字节相同、`6B5改_109适配.bin` 的 `0x340214` 段与 `e1630.raw` 的 `0xa40000`
->   段完全相同）是**整包加密后分发**的形态，解密发生在刷机侧；
-> - 上面整节的六类扫描、oracle 判据、RAM 搜 key 推演，价值降级为「解 `.bin` 升级包」
->   的准备工作，不再是读 rootfs 的前置条件。
->
-> 仍未闭合的一处矛盾：dump 里 `0xd80000` 熵 8.00 是密文，本地明文 `rootfs.jffs2` 在那份
-> dump 里检索不到。三种解释（不同设备/读路径透明解密/升级暂存态）与一条
-> `hexdump -C -n 64 /dev/mtdblock8` 的分流办法见 [MESH_INTEROP](MESH_INTEROP.md) §4.2.4 末。
 
 ## 6. 对「复现中兴 mesh」到底有多少帮助
 
@@ -278,7 +207,7 @@ ECB 下「相同明文块 → 相同密文块」⇒ 密文区最高频 16 字节
 
 | 想做的事 | 这个固件能不能帮上 | 理由 |
 |---|---|---|
-| 提取 mesh 实现、移植代码 | **能（改判）** | 原判「rootfs 加密不能提取」已废：中兴原厂路由器 rootfs 是明文 JFFS2，`multiapd`/`cspd`/`libcmapi`/`domain_policy.so` 全部可取，且 `/kmodule`（squashfs）在机上就是明文。见 §5.4 晚补 |
+| 提取 mesh 实现、移植代码 | **不能** | rootfs 加密，`multiapd`/`libcmapi`/`cspd` 都在里面 |
 | 弄清原厂架构（用不用标准栈、谁建回程） | **能，而且是硬证据** | 完整 `.config` 拿到了 |
 | 验证我们已逆向的协议常量 | **不能** | `MAP24G`/`MAP5GL`/`0x1018` 这些在用户态库里，内核里没有 |
 | 判断 E2633 能不能刷我们的方案 | **能，而且是否定的** | 见下 |
@@ -291,13 +220,9 @@ ECB 下「相同明文块 → 相同密文块」⇒ 密文区最高频 16 字节
 
 所以这个固件的实际价值是**三张证据**，不是一堆代码：
 
-> 2026-11-01 夜限定：这句只对**E2633 的 `.bin` 包**成立（包里 rootfs 段是整包加密，
-> 解不开）。同血统的 E2631 中兴原厂路由器上 rootfs 是明文 JFFS2，「代码那一块」改从中兴原厂路由器取，
-> 见 §5.4 晚补与 [VENDOR_MESH_STACK](VENDOR_MESH_STACK.md)。
-
 1. **第二个机型独立确认了「原厂无线不在标准栈里」** —— 之前只有 e2631-openwrt 一个来源
 2. **`EXTENDER_LINK_BY_DRIVER=y` 明确了回程归驱动** —— 我们之前对 Z506 的推断得到验证
-3. **`br_ieee1905_filter_init` 说明 1905 在内核网桥有专门钩子** —— 这是之前完全不知道的，能解释 lab 与中兴原厂路由器可能的行为差异
+3. **`br_ieee1905_filter_init` 说明 1905 在内核网桥有专门钩子** —— 这是之前完全不知道的，能解释 lab 与真机可能的行为差异
 
 它在什么时候才真的有用：如果你想**给 E2633 做 OpenWrt 移植**，
 这份 `.config` 是现成的对照表（哪些原厂功能要在新栈上重新实现）。

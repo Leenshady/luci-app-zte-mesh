@@ -8,7 +8,7 @@
 
 ## 功能表
 
-状态只有三种：**✅ 已验证** / **⚠️ 待验证** / **❌ 未开发**。逐项状态与证据在
+状态只有三种：**✅ 已实现并验证** / **◐ 已实现，还没在真实路由器上验** / **⬜ 没做**。逐项状态与证据在
 [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md)，等上机的项在 [docs/PLAN.md](docs/PLAN.md) 第 5 节。
 
 ### 本机当主控（给中兴原厂路由器下发 Wi-Fi）
@@ -17,7 +17,7 @@
 |---|---|
 | 网页上配主 SSID：名称 / 密码 / 加密 / 是否隐藏 | ✅ |
 | 自动发现新子路由并接纳（约 5 分钟一轮，不用手工配对） | ✅ |
-| 多台子路由同时在线 | ⚠️ |
+| 多台子路由同时在线 | ◐ |
 | 改完配置热更新下发，不重启服务 | ✅ |
 | 多网络（访客 / 备用 / 隐藏回程，网络序号 1–3）的名称、密码、开关 | ✅ |
 | 信道与发射功率 | ✅ |
@@ -27,11 +27,11 @@
 | 远程重启子路由、开关指示灯 | ✅ |
 | 「MESH 兼容」开关（开 = 接受任何子路由，关 = 只收市场码相同的中兴路由） | ✅ |
 | 拓扑页：节点清单（型号、名称、地址、MAC、在线状态） | ✅ |
-| 拓扑页：直连还是经中继、BSS 数、上报新鲜度、每节点终端数（按 BSSID 分开统计，按 BSSID 一列）、固件版本 | ⚠️ |
-| 拓扑页：回程 RSSI、树状图、每 AP 的终端列表 | ❌ |
-| 引导漫游（BTM）/ 封禁终端 / 踢终端下线 | ⚠️ |
-| 漫游与频段引导阈值、MLO 开关、Wi-Fi 5 兼容标志下发 | ⚠️ |
-| 本机也发 Wi-Fi（原厂意义上的"主路由"） | ⚠️ |
+| 拓扑页：直连还是经中继、BSS 数、上报新鲜度、每节点终端数（按 BSSID 分开统计，按 BSSID 一列）、固件版本 | ◐ |
+| 拓扑页：回程 RSSI、树状图、每 AP 的终端列表 | ⬜ |
+| 引导漫游（BTM）/ 封禁终端 / 踢终端下线 | ◐ |
+| 漫游与频段引导阈值、MLO 开关、Wi-Fi 5 兼容标志下发 | ◐ |
+| 本机也发 Wi-Fi（原厂意义上的"主路由"） | ◐ |
 
 ### 本机当子节点（加入网络）
 
@@ -40,11 +40,11 @@
 | 网线插主控 LAN 口就入网，本机不用填任何 Wi-Fi 参数 | ✅ |
 | 收主控下发的名称 / 密码 / 加密并写进本机无线配置，只在确实有改动时才写文件 | ✅ |
 | 入网时先沿用本机正在广播的名字，重启服务**不再把本机广播的 SSID 改两次**（不掉线） | ✅ |
-| 应用结果回传页面（成功 / 失败 / 改了哪些频段） | ⚠️ |
-| 额外网络（访客等）按序号写到本机射频 | ⚠️ |
+| 应用结果回传页面（成功 / 失败 / 改了哪些频段） | ◐ |
+| 额外网络（访客等）按序号写到本机射频 | ◐ |
 | 接另一台 OpenWrt 路由器当主控（有线回程） | ✅ |
-| 接中兴原厂路由器当主控（本机当子节点） | ⚠️ |
-| 无线回程（4 地址回程 STA）：配置面已生成，端到端没有真实路由器上的数据 | ⚠️ |
+| 接中兴原厂路由器当主控（本机当子节点） | ◐ |
+| 无线回程（4 地址回程 STA）：配置面已生成，端到端没有真实路由器上的数据 | ◐ |
 
 ### 页面、安装与运行环境
 
@@ -53,14 +53,14 @@
 | LuCI 页面，中英双语（中文随 CI 出 `zh-cn.lmo`） | ✅ |
 | 两个开关组合出三种拓扑，页面按角色只显示有效项 | ✅ |
 | 三个 apk：`zte-mesh`（运行环境 + 启动器）/ `luci-app-zte-mesh` / `luci-i18n-zte-mesh-zh-cn` | ✅ |
-| 启动器不挑机器：一个 apk 带 aarch64 / armv7 / x86_64 各一份构建，装机时不再有架构判定，"这台不在包里"由启动器在运行时说清（三种架构分别怎么编、字节数、有没有在真实路由器上读过见下面的「支持的架构」） | ⚠️（x86_64 与 aarch64 两种架构已在两台测试环境读到，含对照组那次改名；armv7 那种架构没有机器，只有编译与打包级的证据，见 [PLAN](docs/PLAN.md) H-16） |
+| 启动器不挑机器：一个 apk 带 aarch64 / armv7 / x86_64 各一份构建，装机时不再有架构判定，"这台不在包里"由启动器在运行时说清（三种架构分别怎么编、字节数、有没有在真实路由器上读过见下面的「支持的架构」） | ◐（x86_64 与 aarch64 两种架构已在两台测试环境读到，含对照组那次改名；armv7 那种架构没有机器，只有编译与打包级的证据，见 [PLAN](docs/PLAN.md) H-16） |
 | 一条命令装机验收（装包 + 读回版本 + 四条冒烟 + 读回这批的标记） | ✅ |
 | 卸载与重装（`apk del` / `apk add` 循环走通） | ✅ |
 | 作为 ImmortalWrt 的 feed 登记，三个包在那棵树里编出来（CI 出的 apk 就是这么来的） | ✅ |
-| 预装进固件镜像、刷到设备 | ❌ |
+| 预装进固件镜像、刷到设备 | ⬜ |
 | arm64 设备直接跑 32 位原厂程序：内核能跑就原生跑（探测已修，ax3600 实测） | ✅ |
-| 内核跑不了 ARM32 时用 `qemu-arm-static`：**支持手工放，不随包分发**（有意的取舍）；放的位置可以是这台机器上的任意路径，`zte_mesh.main.emulator` 指过去即可（怎么判断这台需不需要、放哪、四个坑见下面的「qemu-arm-static 安装指南」） | ⚠️ |
-| 两个频段广播不同名字时各按各自的写（不派生） | ⚠️ |
+| 内核跑不了 ARM32 时用 `qemu-arm-static`：**支持手工放，不随包分发**（有意的取舍）；放的位置可以是这台机器上的任意路径，`zte_mesh.main.emulator` 指过去即可（怎么判断这台需不需要、放哪、四个坑见下面的「qemu-arm-static 安装指南」） | ◐ |
+| 两个频段广播不同名字时各按各自的写（不派生） | ◐ |
 
 ## 支持的架构
 
@@ -73,7 +73,7 @@
 |---|---|---|---|---|
 | `aarch64`（`arm64`） | `arch/aarch64/` | ImmortalWrt SDK 自己的 musl 工具链 | 61 703 / 66 039 | ✅ 小米 AX3600，当子节点 |
 | `x86_64` | `arch/x86_64/` | 构建机上的 `musl-gcc`。**编不出来才退回宿主 `cc`**，退回来那对是 735 932 / 854 716（把整份 glibc 静态搬进去），CI 判红 | 61 719 / 61 975 | ✅ ImmortalWrt 虚拟机，当主控 |
-| `armv7`（`armv7l`） | `arch/armv7/` | Ubuntu 的 `arm-linux-gnueabihf-gcc`。这种架构没有 musl 的交叉编译器，所以字节数只报数、不设上限 | 356 373 / 389 117 | ❌ 三台测试环境都不是这种架构；ZXHN Z506 吃原厂固件、不装 apk |
+| `armv7`（`armv7l`） | `arch/armv7/` | Ubuntu 的 `arm-linux-gnueabihf-gcc`。这种架构没有 musl 的交叉编译器，所以字节数只报数、不设上限 | 356 373 / 389 117 | ⬜ 三台测试环境都不是这种架构；ZXHN Z506 吃原厂固件、不装 apk |
 | 其他（mips、riscv…） | 不在包里 | — | — | 包照样装得上，启动器运行时说清"这台没带这种架构的构建"，不起服务 |
 
 前三行的字节数是 `ci/batch24`（包版本串 `0.1.0-r23`）那一轮 CI 日志里的六行读数，与两台机器上 `wc -c` 逐字对上，
@@ -88,7 +88,7 @@
 
 `qemu-arm-static` **不随包分发**（有意的取舍），放哪都行，`zte_mesh.main.emulator` 指过去即可。
 装它的完整步骤在下面的「qemu-arm-static 安装指南」，判定细节与三条出路的原始记录在
-[LAB](docs/LAB.md) 第 4.2 节。
+[DEVELOPMENT](docs/DEVELOPMENT.md) 第 11.2 节。
 
 ## 测试情况
 
@@ -107,13 +107,12 @@ python tests/test_i18n.py                      # 改了界面文案必须跑
 
 | 组 | 条数 | 它守什么 | 本机（Windows + Git Bash）跑得起来吗 |
 |---|---|---|---|
-| `tests/test_init.sh` | 171 | 真的**执行** init 里的 `write_config()`、`reload_service()` 与预检 `launcher_ready()`——启动前那四条检查、页面关掉服务停不停、哪些改动要重启 | ✅ |
-| `tests/test_verify_install.sh` | 294 | 装机验收脚本每条判定，含它"问得太早就不作判定"的那些分支（uci/iw/ip/date 全是桩） | ✅，但要导出 `METRICS_READS=1`、`METRICS_READ_GAP=0`、`SSID_WAIT=0`，否则每个"这台没有数"的用例真睡满 10 秒 |
-| `tests/test_wlan_sync.sh` | 282 | 主控下发的配置写进本机无线配置：实际改了哪些频段、额外网络按网络序号、回程 STA 段、计划删掉的行撤不撤、应用失败重不重试 | ✅ |
+| `tests/test_init.sh` | 158 | 真的**执行** init 里的 `write_config()` 与预检 `launcher_ready()`——启动前那四条检查各说各的话 | ✅ |
+| `tests/test_verify_install.sh` | 278 | 装机验收脚本每条判定，含它"问得太早就不作判定"的那些分支（uci/iw/ip/date 全是桩） | ✅，但要导出 `METRICS_READS=1`、`METRICS_READ_GAP=0`、`SSID_WAIT=0`，否则每个"这台没有数"的用例真睡满 10 秒 |
+| `tests/test_wlan_sync.sh` | 182 | 主控下发的配置写进本机无线配置：实际改了哪些频段、额外网络按网络序号、回程 STA 段 | ✅ |
 | `tests/test_sta_collect.sh` | 32 | 子节点的终端数采集、`/run/zte-mesh/ap-sta` 那张表和那个暂停开关 | ✅ |
-| `tests/test_launcher_arches.sh` | 41 | `launcher-arches.sh` 的编译器选址、编完读回 ELF 头认架构与 `ZTE_MESH_REQUIRE_ARCHES`（编译器是桩，判的不是真编译） | ✅ |
-| `tests/test_launcher_dispatch.sh` | 24（本机另 skip 2） | 那份按 `$0` 认程序、按 `uname -m` 选目录的入口脚本 | ⚠️ skip 2 条：NTFS 上 `chmod 644` 清不掉执行位，"文件在但不可执行"这一支在本机表达不出来 |
-| `tests/test_service_role.sh` | 11 | 主循环里角色那段决定的形状（读回在应用之后、分支之前，一次性动作跟着角色重开）——那段循环只编进 ARM32 产物，主机跑不了它，行为读数在 PLAN H-18 | ✅ |
+| `tests/test_launcher_arches.sh` | 26 | `launcher-arches.sh` 的编译器选址与 `ZTE_MESH_REQUIRE_ARCHES`（编译器是桩，判的不是真编译） | ✅ |
+| `tests/test_launcher_dispatch.sh` | 20（另 skip 2） | 那份按 `$0` 认程序、按 `uname -m` 选目录的入口脚本 | ⚠️ skip 2 条：NTFS 上 `chmod 644` 清不掉执行位，"文件在但不可执行"这一支在本机表达不出来 |
 | `tests/test_runtime.py` | 30 | 随包那个 tarball 的成员与仓库文件逐字节一致——防"包里那份是旧的" | ✅ |
 | `tests/test_i18n.py` | 12 | 页面文案与 `.po` 对得上 | ✅ |
 | `tests/test_luci.js` | 38 个主选项 + 10 个网络序号 + 4 条 ACL + 2 个客户端项 + 子表单 7 项 | 页面表单结构（自己模拟 LuCI 的 `form`/`uci`/`rpc`，不要 LuCI 运行时） | ⚠️ 能跑，但 PATH 里没有 `node`，得给那个独立 `node.exe` 的绝对路径 |
@@ -136,8 +135,8 @@ python tests/test_i18n.py                      # 改了界面文案必须跑
 ### 装机验收（在设备上）
 
 ```sh
-sh tools/lab/verify-install.sh /tmp/zte-apk    # 真装包、真重启服务
-sh tools/lab/verify-install.sh                 # 只读不装
+sh tools/dev/verify-install.sh /tmp/zte-apk    # 真装包、真重启服务
+sh tools/dev/verify-install.sh                 # 只读不装
 ```
 
 它打印一串 `KEY=VALUE` 证据行和最后一行 `RESULT=PASS|FAIL`：版本串、三条启动器断言、这批的包内脚本标记、
@@ -173,8 +172,8 @@ sh tools/lab/verify-install.sh                 # 只读不装
 
 ```sh
 # 装：把三个 apk 放到机器上，一条命令装完 + 读回 + 冒烟
-sh tools/lab/verify-install.sh /tmp/zte-apk        # 会真装包、真重启服务
-sh tools/lab/verify-install.sh                     # 只读检查，不装不重启
+sh tools/dev/verify-install.sh /tmp/zte-apk        # 会真装包、真重启服务
+sh tools/dev/verify-install.sh                     # 只读检查，不装不重启
 ```
 
 LuCI → 网络 → **ZTE Mesh**。「常规」里选设备角色，「Wi-Fi 配置」填 2.4G 名称与密码（只有本机也发 Wi-Fi 时才用到）。
@@ -185,7 +184,7 @@ LuCI → 网络 → **ZTE Mesh**。「常规」里选设备角色，「Wi-Fi 配
 
 原厂控制器是 **32 位 ARM** 的程序。这台机器的内核不能直接执行它时，服务用它跑的是一份 `qemu-arm-static`
 （用户态模拟器，不是虚拟机）。**包里不带它，也不会自动下载**——这是有意的取舍，理由见
-[LAB](docs/LAB.md) 第 4.2 节。
+[DEVELOPMENT](docs/DEVELOPMENT.md) 第 11.2 节。
 
 **先判断这台到底要不要装**：
 
@@ -267,8 +266,8 @@ sh tools/build/runtime.sh install                    # 重新生成随仓库提�
 python3 tests/test_i18n.py                           # 改了界面文案必须跑
 ```
 
-分支、`prebuilt/`、CI（**手动触发**）与测试基线条数见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；
-编码工具的项目指令在 [AGENTS.md](AGENTS.md)。
+分支、`prebuilt/`（`build-lab-tools.yml` 的 artifact，不入仓库）、CI（**手动触发**）与测试基线条数见
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 目录
 
@@ -278,36 +277,37 @@ python3 tests/test_i18n.py                           # 改了界面文案必须�
 | `build.sh`、`Makefile`、`Dockerfile*` | 构建入口：提取并审计运行环境、交叉编译、跑主机测试 |
 | `tests/` | 主机测试（C 编解码、Python、shell、LuCI 的 JS） |
 | `openwrt/` | OpenWrt 包：`zte-mesh`（含按 CPU 各一份的启动器）、`luci-app-zte-mesh` |
-| `prebuilt/` | 测试主机用的预编译件，**不进任何 apk** |
+| `prebuilt/` | 测试主机用的预编译件（`build-lab-tools.yml` 的 artifact），**不进仓库、不进任何 apk** |
 | `tools/` | `tools/dev/` 是构建与测试用的 17 个 Python 脚本，另有构建容器与打包、抓包重放、子路由 telnet、测试环境里的脚本 |
 | `docs/` | 文档（下） |
 | `out/`、`evidence/` | 构建产物与验证证据，含原厂二进制，**不入库** |
 
 C 侧在 2026-11-04 挪进了 `src/`：`Makefile` 逐文件列源、`tests/*.c` 的 `../` 包含前缀、`.def`/`.inc` 的同目录包含
 都要跟着改，一共动了 74 个跟踪文件（51 个挪、23 个改）；随包分发的 `ns-run.c`/`controller-net.c` 用的是 tar 成员名，成员名一个没动。
-Python 同日挪进 `tools/dev/`：`tests/`、`openwrt/make-runtime.py`、`tools/lab/` 按模块名 import 它们，改的是同一批
+Python 同日挪进 `tools/dev/`：`tests/`、`openwrt/make-runtime.py`、`tools/lab/`（当时还在）按模块名 import 它们，改的是同一批
 `sys.path.insert` 加上 `build.sh`／`Makefile` 的调用路径；根目录只剩构建入口。
 
 ## 文档
 
-`docs/` 顶层只有八份：四份跟着改动更新，四份改代码前读。其余全在两个目录里——`docs/research/`（取证存档与字段参考）
-和 `docs/journal/`（开发日志），都不必通读。
+**要跟着改动更新的四份**：
 
-| 层 | 文档 | 内容 |
-|---|---|---|
-| 随改动更新 | [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：逐项状态与判据 |
-| 随改动更新 | [PLAN](docs/PLAN.md) | **唯一排期**：分批做什么、主机可测与需上机分开、上机清单 H-01…H-17 |
-| 随改动更新 | [INSTALL](docs/INSTALL.md) | 用户手册：装包、页面、三种拓扑、验收、卸载 |
-| 随改动更新 | [DEVELOPMENT](docs/DEVELOPMENT.md) | 构建、打包、测试基线、上机守则、分支与 `prebuilt/` |
-| 改代码前读 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 结构与源文件职责、固件哈希 |
-| 改代码前读 | [SERVICE](docs/SERVICE.md) | UCI/LuCI/CM 映射与热更新 |
-| 改代码前读 | [LAB](docs/LAB.md) | 测试机清单、ARM32 模拟器判定 |
-| 改代码前读 | [REAL_CHILD](docs/REAL_CHILD.md) | 中兴原厂路由器的配置语法、基线与红线 |
-| 存档，不必通读 | [research/](docs/research/) | 原厂逆向与上机取证：`FINDINGS`、`CONTROLLER_CAPABILITIES`、`SCHEMA`/`POLICIES`、E2631/E2633、1905 抓包、厂商栈、重放结果、机型对照；索引在 [research/README](docs/research/README.md) |
-| 存档，不必通读 | [journal/](docs/journal/) | 开发日志，过程叙事只在这里；按天索引在 [journal/README](docs/journal/README.md) |
+| 文档 | 内容 |
+|---|---|
+| [FEATURE_STATUS](docs/FEATURE_STATUS.md) | **功能总账**：逐项状态与判据 |
+| [PLAN](docs/PLAN.md) | **唯一排期**：分批做什么、主机可测与需上机分开、上机清单 H-01…H-17 |
+| [INSTALL](docs/INSTALL.md) | 用户手册：装包、页面、三种拓扑、验收、卸载 |
+| [DEVELOPMENT](docs/DEVELOPMENT.md) | 三台测试机清单、构建、打包、测试基线、上机守则、ARM32 模拟器判定与 `prebuilt/` 的取法 |
 
-原厂固件镜像不在仓库里：`tools/dev/prepare.py` 默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，可用
-`SR1010_VENDOR_ROOTFS` 指定。存档只在要查原厂字段、查"当时那台机器上看到什么"时按名字打开；当前结论一律看前两类。
+**原理与接口，改代码前读**：[ARCHITECTURE](docs/ARCHITECTURE.md)（结构与源文件职责、固件哈希）、
+[SERVICE](docs/SERVICE.md)（UCI/LuCI/CM 映射与热更新）、
+[REAL_CHILD](docs/REAL_CHILD.md)（中兴原厂路由器的配置语法、基线与红线）。
+
+**只读资料，不再随结论更新**：[docs/research/](docs/research/)（原厂逆向与上机取证：功能映射与差距、重放计划与结果、
+E2633 固件、agent 探测面、1905 冷加入时序），[docs/milestones/](docs/milestones/)
+（早期里程碑的验收记录，字段级的 `SCHEMA` 与 `POLICIES` 在这里）、[FINDINGS](docs/FINDINGS.md) 与
+[CONTROLLER_CAPABILITIES](docs/CONTROLLER_CAPABILITIES.md)（角色选举触发位、网页锁定公式、`sendcmd` 报文格式、
+Z506 的能力矩阵）、[机型对照](<docs/ZTE router model.md>)。原厂固件镜像不在仓库里：`tools/dev/prepare.py` 默认读 `../zx279133/vendor-reference/2b5/rootfs.jffs2`，可用
+`SR1010_VENDOR_ROOTFS` 指定。
 
 ## 约定
 
