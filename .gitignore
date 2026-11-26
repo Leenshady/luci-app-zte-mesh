@@ -15,6 +15,9 @@ __pycache__/
 # local lab credentials and machine-local notes: never commit (docs/DEVELOPMENT.md section 1 has the ledger, .local/lab-env.md the passwords)
 /.local/
 
+# editor/agent scratch: specs and task lists written by the IDE, not part of the product
+/.trae/
+
 # ARM32 host tools built by build-lab-tools.yml: published as the lab-tools artifact and unpacked
 # here for openwrt/repack-runtime.py --replace; the artifact is the record, not the tree
 /prebuilt/
