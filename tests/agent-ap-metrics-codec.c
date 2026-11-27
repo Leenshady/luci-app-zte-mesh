@@ -452,8 +452,84 @@ static void reports_clients(void)
     CHECK(strchr(text, '\n') && strchr(text, '\n')[1] == 0);
 }
 
-static void bounded_mutations(void)
+/* The report the child sends without being asked. The controller of this lab never queries it, so the same numbers
+ * have to travel on the child's own initiative: the answer's frame - one builder - addressed to everyone because a
+ * child does not know the master's AL, leaving with the child's own AL MAC, and filed by the master exactly as an
+ * answer is. What a factory child does (nothing) is the same silence as an empty table. */
+static void proactive_report(void)
 {
+    uint8_t report[1400 + 8], dest[6] = {0};
+    struct ap_bss_metric bsses[CONTROLLER_AP_BSS_MAX];
+    struct ap_client_group groups[CONTROLLER_AP_BSS_MAX];
+    uint8_t macs[CONTROLLER_CLIENTS_MAX][6];
+    char text[1024], path[400], child_text[18];
+    size_t used;
+    unsigned int mid;
+    time_t now;
+
+    mac_text(child_text, sizeof(child_text), child);
+    snprintf(path, sizeof(path), "%s/%s.assoc", peers, child_text);
+    (void)unlink(path);
+
+    /* Nothing measured is nothing to report: no table at all, a table whose epoch line is damage, and a table the
+     * collector stopped refreshing. */
+    (void)unlink(table);
+    CHECK(agent_ap_metrics_report(report, sizeof(report), child, dest) == 0);
+    write_table("epoch=\nb 02:00:00:00:19:b1 7\n");
+    CHECK(agent_ap_metrics_report(report, sizeof(report), child, dest) == 0);
+    snprintf(text, sizeof(text), "epoch=%ld\nb 02:00:00:00:19:b1 7 FRESHR10\n", (long)time(NULL) - 31);
+    write_table(text);
+    CHECK(agent_ap_metrics_report(report, sizeof(report), child, dest) == 0);
+
+    /* The collector's own table, SSIDs and clients included: two APs, one of them with two stations. */
+    snprintf(text, sizeof(text),
+             "epoch=%ld\n"
+             "b 02:00:00:00:19:b1 2 FRESHR10\n"
+             "s 02:00:00:00:19:b1 aa:95:b7:16:e2:39\n"
+             "s 02:00:00:00:19:b1 aa:95:b7:16:e2:40\n"
+             "b 02:00:00:00:19:b2 0 FRESHR10-5G\n", (long)time(NULL));
+    write_table(text);
+    used = agent_ap_metrics_report(report, sizeof(report), child, dest);
+    CHECK(used == 92);                        /* the answer's frame: two 0x94s, the client TLV, End of Message */
+    CHECK(!memcmp(dest, broadcast, 6));       /* everyone: a child does not know the master's AL MAC */
+    CHECK(!memcmp(report + 6, child, 6));     /* but the source is still this node's own AL, the key the files use */
+    CHECK(report[16] == 0x80 && report[17] == (uint8_t)CONTROLLER_MSG_AP_METRICS_RESPONSE);
+    mid = ((unsigned int)report[18] << 8) | report[19];
+    now = time(NULL);
+    CHECK(mid == (unsigned int)((unsigned long)now & 0xffffu) ||
+          mid == (unsigned int)((unsigned long)(now - 1) & 0xffffu));
+    CHECK(ap_metrics_by_bss(report, used, bsses, CONTROLLER_AP_BSS_MAX) == 2);
+    CHECK(bsses[0].stations == 2 && !memcmp(bsses[0].bssid, bss_2g, 6));
+    CHECK(bsses[1].stations == 0 && !memcmp(bsses[1].bssid, bss_5g, 6));
+    CHECK(ap_clients_decode(report, used, groups, CONTROLLER_AP_BSS_MAX, macs, CONTROLLER_CLIENTS_MAX) == 1);
+    CHECK(!memcmp(groups[0].bssid, bss_2g, 6) && !strcmp(groups[0].ssid, "FRESHR10"));
+    CHECK(groups[0].first == 0 && groups[0].count == 2);
+
+    /* What the master makes of a frame nobody asked for: the same files it writes for an answer. */
+    CHECK(controller_peer_note(report, used) == 4);
+    text_of(path, text, sizeof(text));
+    CHECK(strstr(text, "\naa:95:b7:16:e2:39\t02:00:00:00:19:b1\tFRESHR10\n") != NULL);
+    CHECK(strstr(text, "\naa:95:b7:16:e2:40\t02:00:00:00:19:b1\tFRESHR10\n") != NULL);
+    snprintf(path, sizeof(path), "%s/%s.metrics", peers, child_text);
+    text_of(path, text, sizeof(text));
+    CHECK(!strcmp(text, "stations=2\nhops=1\n"));
+
+    /* An AP with nobody on it is still a report: the empty list is what clears a device that left. */
+    snprintf(text, sizeof(text), "epoch=%ld\nb 02:00:00:00:19:b1 0 FRESHR10\n", (long)time(NULL));
+    write_table(text);
+    used = agent_ap_metrics_report(report, sizeof(report), child, dest);
+    CHECK(used == 60);
+    CHECK(controller_peer_note(report, used) == 3);
+    snprintf(path, sizeof(path), "%s/%s.assoc", peers, child_text);
+    text_of(path, text, sizeof(text));
+    CHECK(!strncmp(text, "epoch=", 6) && strchr(text, '\n') && strchr(text, '\n')[1] == 0);
+
+    /* A buffer that cannot hold the whole frame is a refusal, not a short report - and no AL MAC is no report. */
+    CHECK(agent_ap_metrics_report(report, 59, child, dest) == 0);
+    CHECK(agent_ap_metrics_report(report, sizeof(report), NULL, dest) == 0);
+}
+
+static void bounded_mutations(void){
     uint8_t frame[CONTROLLER_1905_MAX_BYTES + 8], reply[512 + 8], dest[6], asked[6];
     unsigned int counts[1];
     char text[256];
@@ -502,6 +578,7 @@ int main(void)
     response_build();
     answers_the_table();
     reports_clients();
+    proactive_report();
     bounded_mutations();
 
     dir = opendir(peers);

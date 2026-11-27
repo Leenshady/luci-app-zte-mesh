@@ -205,26 +205,18 @@ static int answer_add(struct ap_bss_metric *answers, unsigned int *count, const 
     return 1;
 }
 
-size_t agent_ap_metrics_answer(const uint8_t *frame, size_t bytes, uint8_t *reply, size_t capacity,
-                               const uint8_t al[6], uint8_t dest[6])
+/* The 0x800c this node has to send: every AP of the table when `asked` is NULL, otherwise only the BSSIDs it names.
+ * Both the answer to a query and the periodic report are this one builder, so the two cannot drift into carrying
+ * different counts, a different client list or a different source MAC. */
+static size_t answer_build(uint8_t *reply, size_t capacity, const uint8_t dest[6], const uint8_t al[6],
+                           unsigned int message_id, const uint8_t (*asked)[6], unsigned int listed)
 {
-    static const uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
     struct ap_table_row rows[CONTROLLER_AP_BSS_MAX];
     struct ap_bss_metric answers[CONTROLLER_AP_BSS_MAX];
     struct ap_client_group groups[CONTROLLER_AP_BSS_MAX];
     uint8_t macs[CONTROLLER_CLIENTS_MAX][6];
-    uint8_t asked[CONTROLLER_AP_BSS_MAX][6];
-    struct cmdu_header header;
     time_t epoch, now;
-    unsigned int listed, row_count, mac_count, k, j, answer_count = 0, group_count = 0;
-    if (!al || !ap_metrics_query_decode(frame, bytes, &header, asked, &listed))
-        return 0;
-    /* Only a query addressed to this node's own AL MAC - or to everyone - is this node's question. A query to any
-     * other address, another router's AL or a group address, is answered by nobody here: the reply would either
-     * speak for a node that did not ask, or carry an address that is not this node's as its source, which is the key
-     * the master files the counts under. */
-    if (memcmp(frame, al, 6) && memcmp(frame, broadcast, 6))
-        return 0;
+    unsigned int row_count, mac_count, k, j, answer_count = 0, group_count = 0;
     row_count = table_load(rows, CONTROLLER_AP_BSS_MAX, macs, CONTROLLER_CLIENTS_MAX, &mac_count, &epoch);
     if (!row_count)
         return 0;
@@ -278,9 +270,42 @@ size_t agent_ap_metrics_answer(const uint8_t *frame, size_t bytes, uint8_t *repl
             if (kept)
                 group_count++;
         }
-        memcpy(dest, frame + 6, 6);
-        return ap_metrics_response_build_clients(reply, capacity, dest, al, header.message_id, answers,
+        return ap_metrics_response_build_clients(reply, capacity, dest, al, message_id, answers,
                                                  answer_count, groups, group_count,
                                                  (const uint8_t (*)[6])answer_macs, answer_macs_count);
     }
+}
+
+size_t agent_ap_metrics_answer(const uint8_t *frame, size_t bytes, uint8_t *reply, size_t capacity,
+                               const uint8_t al[6], uint8_t dest[6])
+{
+    static const uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    uint8_t asked[CONTROLLER_AP_BSS_MAX][6];
+    struct cmdu_header header;
+    unsigned int listed;
+    if (!al || !ap_metrics_query_decode(frame, bytes, &header, asked, &listed))
+        return 0;
+    /* Only a query addressed to this node's own AL MAC - or to everyone - is this node's question. A query to any
+     * other address, another router's AL or a group address, is answered by nobody here: the reply would either
+     * speak for a node that did not ask, or carry an address that is not this node's as its source, which is the key
+     * the master files the counts under. */
+    if (memcmp(frame, al, 6) && memcmp(frame, broadcast, 6))
+        return 0;
+    memcpy(dest, frame + 6, 6);
+    return answer_build(reply, capacity, dest, al, header.message_id, asked, listed);
+}
+
+size_t agent_ap_metrics_report(uint8_t *frame, size_t capacity, const uint8_t al[6], uint8_t dest[6])
+{
+    static const uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    size_t used;
+    if (!al)
+        return 0;
+    /* The message id is this node's own clock because nobody asked: the master does not match a report against a
+     * query, and a value that changes with each report is what a capture needs to tell two of them apart. */
+    used = answer_build(frame, capacity, broadcast, al, (unsigned int)((unsigned long)time(NULL) & 0xffffu),
+                        NULL, 0);
+    if (used)
+        memcpy(dest, broadcast, 6);
+    return used;
 }
