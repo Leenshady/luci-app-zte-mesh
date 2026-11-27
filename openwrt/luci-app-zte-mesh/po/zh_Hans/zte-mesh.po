@@ -710,6 +710,24 @@ msgstr "无线关联"
 msgid "Wired"
 msgstr "有线"
 
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Router name"
+msgstr "路由器名称"
+
+msgid "Set the name shown for this router on this page"
+msgstr "设置这个路由器在本页显示的名称"
+
+msgid "Shown in the lists above instead of the name this router reports. Kept on this router only; the child router keeps its own name."
+msgstr "显示在上面的列表里，替代子路由上报的名字。只保存在主控，子路由自身不改名。"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Could not save the name."
+msgstr "保存名称失败。"
+
 msgid "Expired"
 msgstr "已过期"
 

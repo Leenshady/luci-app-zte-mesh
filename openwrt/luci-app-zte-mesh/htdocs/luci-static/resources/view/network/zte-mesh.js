@@ -43,6 +43,33 @@ var callLightNode = rpc.declare({
 	expect: { '': {} }
 });
 
+/* The controller keeps its own names for the child routers (uci zte_mesh.zte_mesh_node, what the factory page calls an
+ * alias) and never sends them to the child. The client-side uci cache cannot commit on its own, so the write goes
+ * through the ubus uci object, which the package ACL already grants for this config. */
+var callUciAdd = rpc.declare({
+	object: 'uci',
+	method: 'add',
+	params: [ 'config', 'type' ]
+});
+
+var callUciSet = rpc.declare({
+	object: 'uci',
+	method: 'set',
+	params: [ 'config', 'section', 'option', 'value' ]
+});
+
+var callUciDelete = rpc.declare({
+	object: 'uci',
+	method: 'delete',
+	params: [ 'config', 'section' ]
+});
+
+var callUciCommit = rpc.declare({
+	object: 'uci',
+	method: 'commit',
+	params: [ 'config' ]
+});
+
 /* The controller answers a node action with a status code (see the plugin): null = the message for "sent", otherwise the reason. */
 function actionProblem(res) {
 	var r = res ? res.result : undefined;
@@ -62,6 +89,39 @@ function normMac(mac) {
 	return (mac || '').toLowerCase();
 }
 
+/* One zte_mesh_node section per router, keyed by its AL MAC. An empty name removes the section, which is how the row
+ * goes back to the name the router reports; nothing else in the config is touched. */
+function saveAlias(mac, name) {
+	var existing = uci.sections('zte_mesh', 'zte_mesh_node').filter(function(sec) {
+		return sec.mac && normMac(sec.mac) === normMac(mac);
+	});
+
+	if (!name) {
+		if (!existing.length)
+			return Promise.resolve();
+		return Promise.all(existing.map(function(sec) {
+			return callUciDelete('zte_mesh', sec['.name']);
+		})).then(function() {
+			return callUciCommit('zte_mesh');
+		});
+	}
+
+	if (existing.length)
+		return callUciSet('zte_mesh', existing[0]['.name'], 'name', name).then(function() {
+			return callUciCommit('zte_mesh');
+		});
+
+	return callUciAdd('zte_mesh', 'zte_mesh_node').then(function(res) {
+		var sid = res && res.section;
+		return Promise.all([
+			callUciSet('zte_mesh', sid, 'mac', mac),
+			callUciSet('zte_mesh', sid, 'name', name)
+		]).then(function() {
+			return callUciCommit('zte_mesh');
+		});
+	});
+}
+
 /* Node 1905 AL MAC -> IPv4 address, using whatever the router has learned (luci-rpc keys its hosts by upper-case MAC). */
 function lookupAddress(hints, mac) {
 	var host = hints && hints.hosts ? hints.hosts[(mac || '').toUpperCase()] : null;
@@ -72,6 +132,14 @@ function lookupAddress(hints, mac) {
 
 function badge(text, cls) {
 	return E('span', { 'class': 'ifacebadge', 'style': cls ? 'background:' + cls : null }, text);
+}
+
+/* 0 = a table here places the device (its own association, a child's report, or a live neighbour entry on the
+ * bridge), 1 = only a DHCP lease is left. The device list is sorted by this so rows nothing can place sink to the
+ * bottom instead of sitting among the rows that are placed. */
+function placement(dev) {
+	var hit = ' ' + (dev.sources || '') + ' ';
+	return (dev.ssid || dev.iface || dev.via || hit.indexOf(' neigh ') >= 0) ? 0 : 1;
 }
 
 /*
@@ -272,7 +340,15 @@ return view.extend({
 			var detail = node.bss_detail || [];
 			var shown = node.bss >= 0 ? _('%d BSS reported by the router').format(node.bss) : '';
 			table.appendChild(E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td' }, title),
+				/* The MAC comes from the row, so naming a router never means typing an address. */
+				E('td', { 'class': 'td' }, E('a', {
+					'href': '#',
+					'title': _('Set the name shown for this router on this page'),
+					'click': function(ev) {
+						ev.preventDefault();
+						self.renameNode(node, aliases[normMac(node.mac)] || '');
+					}
+				}, title)),
 				E('td', { 'class': 'td' }, node.model || '-'),
 				E('td', { 'class': 'td' }, ip
 					? E('a', { 'href': 'http://' + ip + '/', 'target': '_blank', 'rel': 'noreferrer' }, ip)
@@ -305,6 +381,39 @@ return view.extend({
 			]));
 
 		return table;
+	},
+
+	/* Naming happens in a dialog rather than in the cell itself: this table is redrawn from the controller every five
+	 * seconds, so an input living in it would be wiped mid-typing. Leaving the field empty removes the name and the row
+	 * falls back to what the router reports. */
+	renameNode: function(node, current) {
+		var input = E('input', {
+			'type': 'text',
+			'class': 'cbi-input-text',
+			'value': current,
+			'maxlength': 63,
+			'placeholder': node.name || node.model || node.mac
+		});
+		var save = E('button', { 'class': 'btn cbi-button cbi-button-apply' }, _('Save'));
+
+		save.addEventListener('click', function() {
+			save.disabled = true;
+			saveAlias(node.mac, input.value.trim()).then(function() {
+				ui.hideModal();
+				window.location.reload();
+			}, function() {
+				save.disabled = false;
+				ui.addNotification(null, E('p', {}, _('Could not save the name.')), 'error');
+			});
+		});
+
+		ui.showModal(_('Router name'), [
+			E('p', {}, _('Shown in the lists above instead of the name this router reports. Kept on this router only; the child router keeps its own name.')),
+			E('div', { 'class': 'cbi-value' }, E('div', { 'class': 'cbi-value-field' }, input)),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Cancel')), ' ', save
+			])
+		]);
 	},
 
 	/* What this router can see itself. Three local tables, merged host-side by MAC and marked with which tables saw the
@@ -342,7 +451,10 @@ return view.extend({
 		]);
 		var now = Math.round(Date.now() / 1000);
 
-		(list || []).forEach(function(d) {
+		/* Rows no table here can place go last, keeping the collector's order within each group. */
+		(list || []).slice().sort(function(a, b) {
+			return placement(a) - placement(b);
+		}).forEach(function(d) {
 			var ip = d.ip && d.ip !== '-' ? d.ip : '';
 			var sources = [];
 			(d.sources || '').split(' ').forEach(function(s) {
@@ -364,7 +476,12 @@ return view.extend({
 			 * in the tooltip, so neither replaces the other. A row a child reported without an SSID is still a wireless
 			 * association - it must not fall through to 'Wired', which is what this page used to say about a phone on a
 			 * child's radio because no local table could place it. */
-			var where = d.ssid ? badge(d.ssid) : (d.iface ? badge(d.iface) : (d.via ? _('Wireless') : _('Wired')));
+			/* Only a table that places the device may say how it is attached: this router's own association, a child's
+			 * report, or a live neighbour entry on the bridge. A row that only a DHCP lease keeps alive says nothing
+			 * about the medium -- a phone that just left the Wi-Fi still holds its lease, and this page used to call
+			 * that "Wired". */
+			var hit = ' ' + (d.sources || '') + ' ';
+			var where = d.ssid ? badge(d.ssid) : (d.iface ? badge(d.iface) : (d.via ? _('Wireless') : (hit.indexOf(' neigh ') >= 0 ? _('Wired') : _('Unknown'))));
 			var via = d.via ? (titles[normMac(d.via)] || d.via) : '-';
 
 			table.appendChild(E('tr', { 'class': 'tr' }, [

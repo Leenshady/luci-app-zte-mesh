@@ -123,12 +123,15 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		const info = { state: { nodes: [ { mac: '02:00:00:00:19:e3', name: '', model: 'ZXHN E2631' } ] } };
 		const table = viewDef.renderDevices(info, [
 			{ mac: '00:01:f3:96:43:cf', ip: '192.168.1.162', name: 'DESKTOP-JSJGOJL', ssid: '', iface: '', lease_end: 0, sources: 'lease neigh', node: false, via: '' },
+			/* A phone that just left this router's Wi-Fi: no station, no neighbour entry, only the lease is left.
+			 * It is handed in second and must come out last. */
+			{ mac: 'c4:0b:cb:11:22:33', ip: '192.168.1.188', name: 'Redmi-13', ssid: '', iface: '', lease_end: Math.round(Date.now() / 1000) + 600, sources: 'lease', node: false, via: '' },
 			{ mac: '0a:95:b7:16:e2:39', ip: '192.168.1.222', name: 'Xiaomi-15', ssid: 'FIX2G', iface: 'phy1-ap0', lease_end: Math.round(Date.now() / 1000) + 600, sources: 'lease neigh wlan', node: false, via: '' },
 			{ mac: 'd4:b7:09:0d:77:30', ip: '192.168.1.171', name: '', ssid: '', iface: '', lease_end: 0, sources: 'neigh', node: true, via: '' },
 			{ mac: 'aa:95:b7:16:e2:40', ip: '192.168.1.223', name: '', ssid: '', iface: '', lease_end: 0, sources: 'neigh assoc', node: false, via: '02:00:00:00:19:e3' }
 		]);
 		const t = JSON.stringify(table);
-		if (table.kids.length !== 4) { console.log('device table has', table.kids.length, 'rows, want 4'); bad0++; }
+		if (table.kids.length !== 5) { console.log('device table has', table.kids.length, 'rows, want 5'); bad0++; }
 		for (const want of ['DESKTOP-JSJGOJL', 'DHCP lease', 'Neighbour table', 'Wired', 'FIX2G', 'phy1-ap0',
 		                    'Wireless association', '10 min left', 'Child router', 'Node', 'Child router report']) {
 			if (!t.includes(want)) { console.log('device table lacks ' + JSON.stringify(want)); bad0++; }
@@ -138,6 +141,13 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		const reported = JSON.stringify(table.kids[3]) || '';
 		if (!reported.includes('Wireless') || !reported.includes('ZXHN E2631') || reported.includes('Wired')) {
 			console.log('reported device row is not attributed to its node:', reported);
+			bad0++;
+		}
+		/* A lease outlives the association: a phone that left the Wi-Fi is not a wired device, and the page must say
+		 * it does not know rather than pick one. */
+		const offline = JSON.stringify(table.kids[4]) || '';
+		if (offline.includes('Wired') || !offline.includes('Unknown')) {
+			console.log('a lease-only device got a medium:', offline);
 			bad0++;
 		}
 		/* A device with no lease is not a device with an expired one: the lease cell is a dash, and nobody is told
