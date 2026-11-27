@@ -159,9 +159,6 @@ EXPORT int socket(int family, int type, int protocol)
             family, type, protocol, result >= 0, saved);
     errno = saved; return result;
 }
-/* Defined below, beside the answer it shares its frame with; named here because the send hook is the clock it
- * rides (see the note there). */
-static void report_ap_metrics(int fd, const struct sockaddr_storage *address);
 EXPORT ssize_t sendto(int fd, const void *data, size_t length, int flags,
                       const struct sockaddr *destination, socklen_t destination_size)
 {
@@ -173,13 +170,9 @@ EXPORT ssize_t sendto(int fd, const void *data, size_t length, int flags,
     if (data && length >= 22 && !getsockname(fd, (struct sockaddr *)&address, &size) && address.ss_family == AF_PACKET) {
         const unsigned char *bytes = data;
         unsigned int ether = ((unsigned int)bytes[12] << 8) | bytes[13];
-        if (ether == 0x893a) {
+        if (ether == 0x893a)
             message("ZTE_CONTROLLER_TRACE tx1905 cmdu=%u bytes=%u sent=%d errno=%d\n",
                     ((unsigned int)bytes[16] << 8) | bytes[17], (unsigned int)length, (int)result, result < 0 ? saved : 0);
-            /* The daemon's own traffic is the clock this report rides, so no timer thread is needed in a library
-             * that is loaded into somebody else's process. */
-            report_ap_metrics(fd, &address);
-        }
     }
     errno = saved; return result;
 }
@@ -247,58 +240,6 @@ static void answer_ap_metrics(int fd, const uint8_t *frame, size_t bytes, const 
      * runs: only a failed send is news at info. */
     if (sent < 0 || zte_log_debug())
         message("ZTE_CONTROLLER_TRACE ap_metrics_answer bytes=%u ifindex=%d sent=%d errno=%d\n",
-                (unsigned int)used, target.sll_ifindex, (int)sent, sent < 0 ? saved : 0);
-    errno = saved;
-}
-
-/* The child's own report, sent without being asked. The controller of this lab never sends an AP Metric Query, so a
- * node that only answers is a node whose page row never shows a station: what the host-side collector measured has
- * to be carried to the master some other way. This is the same 0x800c the answer would be - every AP of the table
- * and its client list - leaving with this node's own AL MAC as its source, which is the key the master files the
- * counts under, and going to the broadcast address because a child does not know the master's AL. A master has no
- * ap-sta table, so there it reports nothing and this code is simply never productive.
- *
- * REPORT_SECONDS is the collector's own interval: one report per measurement instead of a stream of the same
- * numbers. A table that is not fresh is not sent at all (agent_ap_metrics_report returns 0), which is how a paused
- * or stopped collector goes quiet by itself. */
-#define REPORT_SECONDS 5
-static void report_ap_metrics(int fd, const struct sockaddr_storage *address)
-{
-    static ssize_t (*send_real)(int, const void *, size_t, int, const struct sockaddr *, socklen_t);
-    static time_t reported_at;
-    uint8_t report[1400], dest[6];
-    const uint8_t *al;
-    struct sockaddr_ll target;
-    time_t now = time(NULL);
-    ssize_t sent;
-    size_t used;
-    int saved;
-    if (reported_at && now >= reported_at && now - reported_at < REPORT_SECONDS)
-        return;
-    reported_at = now;
-    if (!send_real) {
-        send_real = (ssize_t (*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))
-                    dlsym(RTLD_NEXT, "sendto");
-        if (!send_real)
-            return;
-    }
-    al = local_al();
-    if (!al)
-        return;
-    used = agent_ap_metrics_report(report, sizeof(report), al, dest);
-    if (!used)
-        return;
-    memset(&target, 0, sizeof(target));
-    target.sll_family = AF_PACKET;
-    target.sll_protocol = htons(CONTROLLER_1905_ETHER);
-    target.sll_ifindex = ((const struct sockaddr_ll *)address)->sll_ifindex;
-    target.sll_halen = 6;
-    memcpy(target.sll_addr, dest, 6);
-    sent = send_real(fd, report, used, 0, (struct sockaddr *)&target, sizeof(target));
-    saved = errno;
-    /* One report per interval is the normal case; only a failed send is news at info. */
-    if (sent < 0 || zte_log_debug())
-        message("ZTE_CONTROLLER_TRACE ap_metrics_report bytes=%u ifindex=%d sent=%d errno=%d\n",
                 (unsigned int)used, target.sll_ifindex, (int)sent, sent < 0 ? saved : 0);
     errno = saved;
 }

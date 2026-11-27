@@ -294,18 +294,3 @@ size_t agent_ap_metrics_answer(const uint8_t *frame, size_t bytes, uint8_t *repl
     memcpy(dest, frame + 6, 6);
     return answer_build(reply, capacity, dest, al, header.message_id, asked, listed);
 }
-
-size_t agent_ap_metrics_report(uint8_t *frame, size_t capacity, const uint8_t al[6], uint8_t dest[6])
-{
-    static const uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-    size_t used;
-    if (!al)
-        return 0;
-    /* The message id is this node's own clock because nobody asked: the master does not match a report against a
-     * query, and a value that changes with each report is what a capture needs to tell two of them apart. */
-    used = answer_build(frame, capacity, broadcast, al, (unsigned int)((unsigned long)time(NULL) & 0xffffu),
-                        NULL, 0);
-    if (used)
-        memcpy(dest, broadcast, 6);
-    return used;
-}

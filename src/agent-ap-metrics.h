@@ -37,15 +37,4 @@
 size_t agent_ap_metrics_answer(const uint8_t *frame, size_t bytes, uint8_t *reply, size_t capacity,
                                const uint8_t al[6], uint8_t dest[6]);
 
-/* The same 0x800c, sent without being asked. The controller in this lab never sends an AP Metric Query, so a node
- * that only answers is a node whose page row never shows a station: the child has to report what it measured. The
- * frame carries every AP of the table and its client list, leaves with `al` as its source - the key the master files
- * the counts under - and goes to `dest`, which is the broadcast address, because a child does not know the master's
- * AL MAC and one frame reaches it anyway.
- *
- * 0 = nothing to report: no table, a table older than the answer's freshness window (a collector that stopped is
- * not a measurement), or no AP row in it. The caller sends on its own interval; this function is the frame only, so
- * a host test can check it without a socket. */
-size_t agent_ap_metrics_report(uint8_t *frame, size_t capacity, const uint8_t al[6], uint8_t dest[6]);
-
 #endif

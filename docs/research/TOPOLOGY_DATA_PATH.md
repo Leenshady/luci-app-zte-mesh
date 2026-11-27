@@ -121,27 +121,26 @@ Response）也能收到但只取 relayed 一位，两者都不携带「谁挂在
 
 **结论**：框架够用，语义缺一层；真要画图，先解决分片与「边的方向/可信来源」，再谈渲染。
 
-## 8. 终端清单怎么到主控（2026-11-27 补：主动上报）
+## 8. 终端清单怎么到主控（2026-11-27 复核）
 
 设备页的 SSID / 位置（via）/ 终端归属来自 `peers/<child>.assoc` 与 `.metrics`，这两份文件由
-`controller_peer_note()` 在收到子节点的 0x800c 时写出。原来的路径是「主控问、子节点答」：
+`controller_peer_note()` 在收到子节点的 0x800c 时写出。路径是「主控问、子节点答」，它一直成立：
 
 | 环节 | 代码 | 现场事实 |
 |---|---|---|
-| 主控发 AP Metric Query（0x800b，TLV 0x93） | `ap_metrics_query_build()`，只在 `controller-packet.c` 的 fixture 里被调用 | 运行时一次也不发（211 上抓不到） |
-| 子节点应答（0x800c，每 BSS 一条 0x94 + 0x70 客户端清单） | `agent_ap_metrics_answer()`，由 `libzte_controller_trace.so` 的 `recvfrom` 钩子触发 | 表在刷新（`/run/zte-mesh/ap-sta`，`sta-collect` 每 5 秒重写），但没人问就没有答 |
-| 主控归档 | `controller_peer_note()` 按以太源写 `.metrics`/`.sta`/`.assoc` | `peers/02:00:00:00:19:e3.metrics` 只有 `stations=0` |
+| 主控发 AP Metric Query（0x800b，TLV 0x93） | `ap_metrics_query_build()` / `controller_ap_metrics_query()`，由 `ap_metrics_reconcile()` 每 10 秒问一个节点 | 拓扑就绪（`topology_ready()` = `P1905DevNum >= 2`）且节点 `active` 才发，否则不问 |
+| 子节点应答（0x800c，每 BSS 一条 0x94 + 0x70 客户端清单） | `agent_ap_metrics_answer()`，由 `libzte_controller_trace.so` 的 `recvfrom` 钩子触发 | 收到查询即答，客户端清单随 `0x70` 子 TLV 一起走 |
+| 主控归档 | `controller_peer_note()` 按以太源写 `.metrics`/`.sta`/`.assoc` | 抓包见一查一答（mid 相同），`state.json` 的 `bss_detail` 由此填出 |
 
-**做法**：子节点自己发，主控被动收。
+**一个被纠正的误判**：2026-11-27 曾记「主控运行时从不发 0x800b，`ap_metrics_query_build()` 只在
+fixture 里用」，据此给子节点加了「每 5 秒广播 0x800c」的主动上报。事后证明这是一次**瞬时状态误读**：
+当时子节点还没入拓扑，主控的 `P1905DevNum` 在 22:02:58→22:03:04 从 0→1→2，`topology_ready()` 为假，
+主控按设计不发查询。子节点入拓扑后抓包（`tcpdump -i any ether proto 0x893a`）明确见
+`0x800b`（主控 `02:00:00:00:19:03`）→ `0x800c`（子节点 `02:00:00:00:19:e3`，消息 id 与查询一致 `b051`），
+应答里已带 2 条 `0x94` + `0x70` 客户端清单。所以主动上报是冗余的，且**原厂 agent 从不主动广播**——
+一个 unsolicited 0x800c 会让混网里的真中兴主控收到自己没问过的帧，与「完全兼容」目标冲突。已回退，
+回到纯查询应答。
 
-- 接口：`agent_ap_metrics_report(frame, cap, al, dest)`（`src/agent-ap-metrics.h`）。
-- 帧：与应答同一个构造（`agent-ap-metrics.c` 的 `answer_build()`），内容=整个表的每个 AP 行；
-  `dest` = 广播 `ff:ff:ff:ff:ff:ff`，源 = 本机 AL（主控按以太源归档，写成别的就是在页面上造节点）。
-- 节拍：`sendto` 钩子里最多每 5 秒一次（`REPORT_SECONDS`），借守护进程自己的 1905 流量当时钟，
-  不在别人的进程里开线程。
-- 停报：表不存在 / epoch 超过 30 秒 / 0 行 ⇒ 返回 0，不发。采集暂停（`collect-pause`）后自然静默。
-- 主控侧：无改动。`controller_peer_note()` 对任何完整 0x800c 都成立。
+**判据**：`tests/agent-ap-metrics-codec.c` 的 `answers_the_table()` / `reports_clients()` 断言
+应答帧含每 BSS 的 `0x94` + `0x70` 客户端清单，并把帧交给主控写侧断言 `.metrics`/`.sta`/`.assoc`。
 
-**判据**：`tests/agent-ap-metrics-codec.c::proactive_report()` 把上报帧交给主控自己的写侧，断言
-`.metrics` 的 `stations=`、每 BSS 的 `.sta`、`.assoc` 的 `<mac>\t<bssid>\t<ssid>` 行；空 AP 表仍上报，
-且 `.assoc` 只剩 epoch（把已离开的终端清掉）。
