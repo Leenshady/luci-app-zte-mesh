@@ -12,6 +12,7 @@ from schema import (CONSTRUCTORS, POLICY_TABLES, constructor_data, policy_regist
 
 ARTIFACTS = Path(sys.argv[1]) if len(sys.argv) == 2 else SOURCE / "out"
 CSPD = ARTIFACTS / "analysis/cspd"
+CSPD_NOTE = f"cspd evidence absent: {CSPD} (extract with: python3 tools/dev/prepare.py --analysis-cspd)"
 MASTER = (SOURCE / "src" / "multiap_master.def").read_text()
 DOMAIN = (SOURCE / "src" / "multiap_domain.def").read_text()
 
@@ -92,6 +93,7 @@ class PolicyLayoutTests(unittest.TestCase):
             self.changed(MASTER, "MultiAPMaster", '"ViewName", 2, 1, 1', '"ViewName", 2, 1, 2')
 
 
+@unittest.skipUnless(CSPD.is_file(), CSPD_NOTE)
 class PolicyEvidenceTests(unittest.TestCase):
     def test_all_161_descriptors_match_original(self):
         for table in POLICY_TABLES:

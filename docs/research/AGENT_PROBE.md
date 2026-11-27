@@ -182,6 +182,11 @@ acdcParseM2Msg cfgChg[0]=1
 （`CmWLANMapSsidCfgSync2Repeater` 的 interposer 没有命中，是因为 libcmapi 内部是直接调用而不是走 PLT，
 只能靠这行日志判断。）
 
+> **2026-11-26 更新（B15）**：`CmWLANMapSsidCfgSync2Repeater` 不是 no-op，也不向 repeater 侧发消息——它只把 M2 解出的字段**写进 `STAProfile` 表**（`WlanSTAProfileInstIdDbRead` → 逐字段 diff → `WlanSTAProfileInstIdDbWrite`，无 ASEND/SSEND）。
+> 失败链是：表未注册时 `dbAPIGetView` 返回 `-2` → `WlanSTAProfileInstIdDbRead` 返回 `-1` → 同步函数返回 **`-7` 且不写库**。
+> interposer 命不中仍是因为 `libcmapi` 内部直接调用、不走 PLT。现在的观测方式是只读回读探针：`ZTE_AGENT_SYNC staprofile row1=… row2=…`。
+> 因此上面那行 `success, mesh sync` 只说明外层调用返回，**不能当作 `STAProfile` 已写**——以回读探针为准。
+
 ### 9.3 第 6 节第 5 步的判据：**两张表都与 M2 一致**
 
 `WLANPSK` 必须用视图 API 按实例 id 读（`dbAPIGetView("WLANPSK", "DEV.WIFI.AP1.PSK1", …)`，密钥在行内偏移 260）；
@@ -410,7 +415,7 @@ ZTE_MESH_SERVICE startup_renew=skipped role=slave
 
 - **驱动层**：`wlan-sync` 落的是 UCI + `wifi reload`。回程 BSS 的 Multi-AP 标记已经接上（§11.6），
   但 4 地址是否真的在驱动里生效只能在真机上看（`ip -d link` 的 `4addr on`）。
-- **`CmWLANMapSsidCfgSync2Repeater`** 仍然执行不到（no-op），它在真机上把 SSID 推到 repeater 侧。
+- **`CmWLANMapSsidCfgSync2Repeater`** 的 interposer 仍命不中（libcmapi 内部直调、不走 PLT）；它只写 `STAProfile`，当前用回读探针观测（见 §9.2 后的 2026-11-26 更新）。
 - **`CurHop`**：slave_init 自己会写；lab 里用 `-2` 顶替，真机上要确认它被真正更新。
 - 子路由的 `wlan-sync` 只处理主 BSS 和回程 BSS；额外槽位（1、2）需要一套和原厂驱动接口对齐的方案。
 

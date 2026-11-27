@@ -82,10 +82,9 @@ make ROUTERCC=cc out/ns-run out/ns-run-svctest                                 #
 ## 4. 测试
 
 - 主机测试：`sh tools/build/container-make.sh test-host`（C 编解码含 10 万次变异、证据处理、表结构、策略、profile、
-  启动视图、init 158 条、终端数采集 32 条、启动器入口 20 条、启动器架构构建 26 条、rpcd 24 条、装机验收 278 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
-  **本机（Windows + Git Bash）跑启动器入口那组会 skip 2 条**：`chmod 644` 清不掉执行位，"文件在但不可 exec"这一个分支在这套文件系统上表达不出，
-  计数里那两条不是回归（owrt 的 busybox ash 上能跑全）。架构构建那组的编译器是 stub——它判的是 `tools/build/launcher-arches.sh` 的选址顺序、
-  `-dumpmachine` 映射与 `ZTE_MESH_REQUIRE_ARCHES`，不是真编译；真编译在 CI 那一步，产物成员清单是它的判据（第 8 节）。
+  启动视图、init 185 条、终端数采集 32 条、rpcd 24 条、装机验收 277 条、preload、沙箱）。看到 `make: *** ... Error` 就是失败，退出码非 0。
+  **本机（Windows + Git Bash）init 那组会 skip 1 条**：`chmod 644` 清不掉执行位，"文件在但不可执行"这一个分支在这套文件系统上表达不出，
+  计数里那 1 条不是回归（owrt 的 busybox ash 上会跑满 185）。三份 `arch/<cpu>/` 构建的真编译在 CI 那一步，产物成员清单是它的判据（第 8 节）。
   `tests/test_verify_install.sh` 判的是 busybox ash 的语义，本机 `sh` 过了以后最好还在 owrt 上跑一遍。
   脚本读子节点上报时会**连读几份快照**（`METRICS_READS` 默认 3 次、每次隔 `METRICS_READ_GAP` 默认 5 秒，只在一次都没读到数时才继续等）；
   测试必须把这两值导出成 `1` 和 `0`，否则每个"这台没有数"的用例都真睡满 10 秒——同一套测试实测没导出要 4 分 57 秒、导出后 3 分 7 秒，
@@ -97,16 +96,18 @@ make ROUTERCC=cc out/ns-run out/ns-run-svctest                                 #
   在跳数那一列也犯过一次（见 [INSTALL](INSTALL.md) 第 3 节的 `cur_hop_age`），所以脚本读时钟的 `date` 也是桩——
   年龄窗口是秒级的，跟着主机墙钟跑就变成"什么时候跑这套就算什么时候"。
 - 没有原厂镜像的机器（构建机 `ubuntu`、测试环境的 ImmortalWrt 虚拟机）也能跑绝大多数：`make test-host` 直接在 `$PWD/out`
-  上跑。要 `out/analysis/cspd` 的只有 `cspd` 证据那几组——`test_schema.py` 4 条、`test_policies.py` 5 条、
-  `test_profiles.py` 6 条、`test_startup.py` 整组卡在 `setUpClass`（`cspd` 只从哈希固定的原厂镜像提取，`evidence/`
-  不入库），所以 `make test-host` 会停在 `test_schema` 就退出；要看这四组之后的结果就单独跑，别拿"make 停在第几行"当回归。
-  这几组仍只在容器里跑。虚拟机的 `/tmp` 是可执行的，`container-make.sh` 的 noexec 注意项在这里不适用。
+  上跑。要 `out/analysis/cspd` 的只有 `cspd` 证据那几组——`test_schema.py` 4 条、`test_policies.py` 6 条、
+  `test_profiles.py` 6 条、`test_startup.py` 整组（`cspd` 只从哈希固定的原厂镜像提取，`evidence/`
+  不入库）：没镜像时这些用例按 `skipped` 跳过（消息里给出 `python3 tools/dev/prepare.py --analysis-cspd`），
+  `make test-host` 会跑完并返回 0；`test_schema.py` 的 `test_lengths_match_original_db_table` 与
+  `test_profiles.py` 的 `test_native_lengths` 只要 `runtime/lib/libdb.so`，这个文件在时照跑。
+  要真验这几组，仍只在有镜像的容器里跑。虚拟机的 `/tmp` 是可执行的，`container-make.sh` 的 noexec 注意项在这里不适用。
 - LuCI 页面的 JS 测试：`node tests/test_luci.js`（模拟 LuCI 的 `form`/`uci`/`rpc`；PATH 里没有 `node`，测试环境那两台机器也没装）。
   实测可用的解释器是这台机器上另一套工具带的独立二进制，直接给绝对路径就能跑：
   `"<本机那个 node.exe 的绝对路径>" tests/test_luci.js`（v24.21.0）。
   这个测试只读仓库里的 `zte-mesh.js` 与 `tests/test_init.sh`，不需要 LuCI 运行时，所以不必上开发机。
 - 单个 Python 测试按脚本方式跑，第一个参数是产物目录：`python3 tests/test_schema.py out`（`unittest discover` 不适用）。
-- 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`（它真的**执行** init 里的函数：`write_config()` 与预检 `launcher_ready()`。后者是 2026-11-06 从 `start_service()` 里拆出来的——`start_service` 先要 `/sys/class/net/<桥>/bridge` 再要 procd，主机上跑不动，于是那三段判断以前只能被 grep 字符串，"入口不在"那一行搬到 `--launcher-check` 后面也不会红。拆出来的这段只用 `ZTE_MESH_ROOT`/`ZTE_MESH_NSRUN` 那两个已有的环境变量就能传入各种输入，**判据读的是日志里出现哪一句**，对照组跑"删掉 `[ -x "$NSRUN" ]`"那份 init 能读到装机时那句假诊断）、`python tests/test_runtime.py`（31 条，守的是"tarball 成员与仓库文件逐字节一致"，另加两条"包里的库认不认得这条新帧路"）、`python tests/test_i18n.py`。
+- 不依赖 `out/` 的三组可以直接在本机跑：`sh tests/test_init.sh`（它真的**执行** init 里的函数：`write_config()` 与预检 `runtime_ready()`。后者从 `start_service()` 里拆出来——`start_service` 先要 `/sys/class/net/<桥>/bridge` 再要 procd，主机上跑不动，于是那几段判断以前只能被 grep 字符串，"本机 CPU 那份构建不在"与"文件在但不可执行"也分不出两句。拆出来的这段用 `ZTE_MESH_ROOT` / `ZTE_MESH_NSRUN` / `ZTE_MESH_MESH_SEARCH` 传入各种输入，并把假 `uname` 放进 `$PATH`；**判据读的是日志里出现哪一句**）、`python tests/test_runtime.py`（守的是"tarball 成员与仓库文件逐字节一致"，另加"包里的库认不认得这条新帧路"）、`python tests/test_i18n.py`。
   `sh tests/test_rpcd.sh` 也能本机跑，但它的 `jsonfilter` 桩写死调 `python3`——这台机器上只有 `python`，没有那个名字时**七条用例全回 `{"result":-2}`**
   （看着像校验把合法参数也拒了，其实是桩没跑起来）。本机这样给它一个名字：`mkdir -p /tmp/pyshim && printf '#!/bin/sh\nexec "<本机 python.exe 的绝对路径>" "$@"\n' > /tmp/pyshim/python3 && chmod +x /tmp/pyshim/python3 && PATH=/tmp/pyshim:$PATH sh tests/test_rpcd.sh`——24 条全绿；要么上测试主机跑这一组。
 - 容器把 `/tmp` 挂成 noexec：测试不能执行自己写到 `/tmp` 的脚本（`tests/test_rpcd.sh` 用 shell 函数和 `sh -c`），
@@ -186,11 +187,11 @@ make package/feeds/zte_mesh/zte-mesh/compile \
 ```
 
 - 包直接解包同目录下提交的 `zte-mesh-runtime.tar.gz`，不需要往 `dl/` 放东西；`ZTE_MESH_RUNTIME=` 可指向别的运行包。
-- **一个包目录**（2026-11-05 合并 `zte-mesh-launcher`）：`zte-mesh` 既装脚本、LuCI、rpcd、配置和运行时 tarball，也编启动器，
+- **一个包目录**：`zte-mesh` 既装脚本、LuCI、rpcd、配置和运行时 tarball，也编启动器，
   `PKGARCH:=all`。拆成两个包为的是 `package-pack.mk` 的 `Architecture` 读 Makefile 级全局 `PKGARCH`——数据包要 `all`，编译机器码的包
   就得在自己的 Makefile 里给别的值。两边都成了 `all` 之后这句话不再逼着什么：启动器**不是"给不了两个架构"，而是把三个架构都装进一个包**——
-  `arch/<cpu>/{ns-run,mesh-search}` 各一份 `-static` 构建，外层那两个名字是同一份 shell 入口（按 `$0` 选程序、按 `uname -m` 选目录）。
-  拆开唯一多出来的是两次事务：升级时先换 `zte-mesh` 还是先换 launcher，中间那几秒服务已按新脚本重启过一次。打包细节与那张映射表在
+  `arch/<cpu>/{ns-run,mesh-search}` 各一份 `-static` 构建，**没有外层入口脚本**：`zte-mesh.init` 自己按 `uname -m` 选目录（第 11.3 节）。
+  一个 apk 也就一次事务：控制器与它的构建同一刻换版本，不存在"新脚本配旧二进制"的那几秒。打包细节与那张映射表在
   本文第 11.3 节，脚本是 `tools/build/launcher-arches.sh`（`zte-mesh` 的 `Build/Compile` 调用它，`ZTE_MESH_LAUNCHER_BUILD=` 可指路）。
   `Build/Compile` 这一行不能省：数据包不写它，OpenWrt 会在只有 tarball 的构建目录里跑 `$(MAKE)`，报 `No targets specified and no makefile found`。
 - **`src-link` 与 `src-git` 对启动器构建脚本的可见性不一样**：`src-link zte_mesh <克隆>/openwrt` 时包目录是指向克隆的符号链接，
@@ -427,7 +428,7 @@ cp /tmp/zte-mesh.zh-cn.lmo /usr/lib/lua/luci/i18n/     # 不需要重启服务�
 | `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0` | Ubuntu 的 gcc 默认定义它，把 `controller-profile.c:64` 忽略 `write()` 返回值变成 `-Werror` 错误（Debian 不会）；也避免 `memcpy` 走 `__memcpy_chk` | `tools/build/launcher-arches.sh` 的 `FLAGS` 里写死了，`build-lab-tools.yml` 容器里那次编译也带上；`ubuntu` 那台直接 `make` 要自己加（第 2 节） |
 | `ROUTERCC=cc` | `ns-run`、`exec-check`、`config-bridge-probe` 是 AArch64 静态程序，x86 上跑不了。**打包前必须用 aarch64 重编** | 命令行参数 |
 | `ZTE_MESH_EMULATED_LAB=1` | 见下两条 | `ns-run.c`、`shim.c` |
-| `shim.c` 的 `shmat` 重试 | qemu 的 `shmat()` 对**固定地址**一律返 `EINVAL`（`NULL` 可以、`fixed|SHM_REMAP` 可以、`fixed` 不行）。原厂数据库把段挂在 `0x60000000` 并直接解引用返回值 → 段错误。预载库在 `EINVAL` 时补一次 `SHM_REMAP` | `shim.c` |
+| `shim.c` 的 `shmat` 重试 | qemu 的 `shmat()` 对**固定地址**一律返 `EINVAL`（`NULL` 可以、`fixed\|SHM_REMAP` 可以、`fixed` 不行）。原厂数据库把段挂在 `0x60000000` 并直接解引用返回值 → 段错误。预载库在 `EINVAL` 时补一次 `SHM_REMAP` | `shim.c` |
 
 两条代码改动都只在 `ZTE_MESH_EMULATED_LAB` 存在时生效，真实路由器上的路径不受影响：`ns-run.c` 放开 `RLIMIT_AS`（qemu 要预留整个
 32 位客户机地址空间 + 翻译缓冲，128 MB 上限必然失败）并把它传给 guest；`shim.c` 在 `shmat` 失败且 `errno == EINVAL` 时带
@@ -440,7 +441,7 @@ cp /tmp/zte-mesh.zh-cn.lmo /usr/lib/lua/luci/i18n/     # 不需要重启服务�
 相对/绝对路径，或这台机器上的绝对路径**（后者由 init 比 sha256 后拷进私有根的 `usr/bin/`，见第 11.2 节），
 `=none` 强制走原生（刷过 `CONFIG_COMPAT=y` 固件之后就是这个状态）。
 
-同一处还问一句启动器：`$NSRUN --launcher-check`，答 127 就不把实例交给 procd。理由与那句拒绝见第 11.3 节。
+同一处还问一句本机那份构建：`runtime_ready()` 按 `uname -m` 找到 `arch/<cpu>/ns-run`，文件不在或不可执行就记一行并不把实例交给 procd。理由与那句话见第 11.3 节。
 
 同一处还有 `zte_mesh.main.al_last`：AL MAC 的末字节（页面"控制器地址末字节"，两位十六进制），默认取 LAN 网桥 MAC 的末字节
 （`02:00:00:00:19:XX`）；写错格式会记一行日志并改用派生值。两台设备**必须**不同，否则 1905 栈会把对端当自己
@@ -448,13 +449,12 @@ cp /tmp/zte-mesh.zh-cn.lmo /usr/lib/lua/luci/i18n/     # 不需要重启服务�
 
 ### 11.2 ARM32 模拟器（`qemu-arm-static`）**不入包**
 
-`zte-mesh` 不装它、也不自动下载安装（启动器并进这个包之前，单独的 `zte-mesh-launcher` 同样不装）。包里只有原厂 ARM32
-运行环境和按 CPU 编出来的启动器；服务能不能起来，取决于设备内核能不能直接跑 ARM32。**这是有意的取舍，不是漏装。**
+`zte-mesh` 不装它、也不自动下载安装。包里只有原厂 ARM32 运行环境和按 CPU 编出来的启动器；服务能不能起来，取决于设备内核能不能直接跑 ARM32。**这是有意的取舍，不是漏装。**
 
 | 不进包的理由 | 说明 |
 |---|---|
 | OpenWrt 不编它 | feed 里没有 `qemu-user`。打进包就得塞一个预编译第三方静态二进制——二进制再分发，许可与安全维护要另处理 |
-| 必须与**宿主**架构匹配 | aarch64 设备要 arm64 版，x86_64 设备要 amd64 版，而 `zte-mesh` 是 `arch: all`。这一条启动器用"一个 apk 带三份构建 + 入口脚本按 `uname -m` 选"解决过（第 11.3 节）；qemu 不跟着学，是因为下面两条 |
+| 必须与**宿主**架构匹配 | aarch64 设备要 arm64 版，x86_64 设备要 amd64 版，而 `zte-mesh` 是 `arch: all`。这一条启动器用"一个 apk 带三份构建 + init 按 `uname -m` 选"解决（第 11.3 节）；qemu 不跟着学，是因为下面两条 |
 | 体积不划算 | 静态 qemu-arm 约 11 MB，比整个运行环境包还大；目标设备根本用不到 |
 | 只有一处真的需要 | 只有 chroot 里的 `db-engine-probe` 是原厂 ARM32。`ns-run` / `mesh-search` 是按这台机器的 CPU 编的那一份，本来就与模拟器无关 |
 
@@ -487,29 +487,28 @@ init 依次找 `/usr/lib/zte-mesh/root/{,usr/bin/,bin/}qemu-arm-static` 三处�
 这台机器上装的 `qemu-user-static` + `binfmt-support` 只方便**在沙箱外**直接跑 ARM 程序；服务是 chroot 后 exec，即便 binfmt
 带 `F` 标志能跨 chroot 生效，解释器文件仍须在根内可见。
 
-### 11.3 启动器与 CPU：一个 apk 带三份构建，入口脚本按 `uname -m` 选
+### 11.3 启动器与 CPU：一个 apk 带三份构建，init 按 `uname -m` 选
 
-启动器和运行环境在同一个包里：`zte-mesh` 是 `PKGARCH:=all`（2026-11-05 之前它是单独的 `zte-mesh-launcher`，两部分各一个 apk）。
+启动器和运行环境在同一个包里：`zte-mesh` 是 `PKGARCH:=all`。
 `package-pack.mk` 一个 Makefile 只读一个 `PKGARCH` 写进 `Architecture:`，而 ELF 只认一种机器，所以包里的做法是**按 CPU 各放一份**：
 
 ```
-/usr/libexec/zte-mesh/ns-run          # 入口脚本（同一份文件装成两个名字）
-/usr/libexec/zte-mesh/mesh-search     #   —— $0 的最后一截决定跑哪个程序
 /usr/libexec/zte-mesh/arch/aarch64/{ns-run,mesh-search}
 /usr/libexec/zte-mesh/arch/armv7/{ns-run,mesh-search}
 /usr/libexec/zte-mesh/arch/x86_64/{ns-run,mesh-search}
 ```
 
-`uname -m` 决定进哪个目录（`arm64`→`aarch64`、`armv7l`→`armv7`），选中就 `exec`——换程序不换 pid，procd 盯的就是那个 pid，
-`attach` 的 `sandbox_pid()` 也还在 `/proc/*/cmdline` 里 grep 它。
+**没有外层入口脚本**：`zte-mesh.init` 的 `resolve_runtime()` 用 `uname -m` 决定进哪个目录（`aarch64|arm64`→`aarch64`、
+`armv7*`→`armv7`、`x86_64`→`x86_64`，其余保持 `uname -m` 原样），然后 `exec` 那一份——换程序不换 pid，procd 盯的就是那个 pid，
+`attach` 的 `sandbox_pid()` 也还在 `/proc/*/cmdline` 里 grep 它。路径在函数里算、在预检与 `start_service()` 里各算一次，
+不在脚本顶层固化；`ZTE_MESH_NSRUN` / `ZTE_MESH_MESH_SEARCH` 可以覆盖。
 
-**代价是装机时不再挑机器**：以前的 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 会在 `apk add` 上失败（apk 求解全有或全无，
-一台不匹配的机器会让同一条命令里的其他包一起装不上），现在什么机器都收，那句拒绝改由入口脚本在运行时说清——报本机
-`uname -m` 与包里带的几种架构，`exit 127`。`zte-mesh.init` 在把实例交给 procd 之前先问一次 `--launcher-check`，否则
-`respawn 3600 5 0` 会每 5 秒重开一个 127，而日志里从头到尾不出现"架构"两个字。**问的就是装机要跑的同一份代码**：
-CPU→目录那张映射表不在 init 里抄第二份，读回与人手工跑看到的是同一句第一行。**只有 127 才是"这种架构不在包里"**：
-其余非零（例如 `/usr/libexec/zte-mesh/ns-run` 站着的是合并前手工放的旧 ELF，它不认识这个参数、只打 usage 并回 64）
-由 init 另记一行 `--launcher-check exited <码>`，不冒充架构判定。
+**代价是装机时不再挑机器**：`DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 会在 `apk add` 上失败（apk 求解全有或全无，
+一台不匹配的机器会让同一条命令里的其他包一起装不上），现在什么机器都收，那句拒绝改由 `runtime_ready()` 在起实例前说清——
+`arch/<cpu>/ns-run` 不在就记 `zte-mesh has no build for <uname -m>: … is missing from package zte-mesh (this package carries: …)`，
+在但不可执行就记 `… is not executable on this machine …`。两句都列出包里实际带的 `arch/` 目录名，因为"这台没有构建"
+若不带那张清单，读的人只能去猜哪几种架构该有。**不是等 `exec` 失败后再说**：`respawn 3600 5 0` 会每 5 秒重开一个 127，
+而日志里从头到尾不出现"架构"两个字。
 
 构建侧：`tools/build/launcher-arches.sh SRC OUT` 每种架构一次 `-static`（第 8 节；`zte-mesh` 的 `Build/Compile` 从运行包里
 解出三个 `.c` 再调它）。`$(TARGET_CC)` 只保本目标那种架构，脚本用 `-dumpmachine` 认它属于哪个目录名——不认 `ARCH_PACKAGES`
@@ -526,9 +525,9 @@ CPU→目录那张映射表不在 init 里抄第二份，读回与人手工跑�
 
 | 要做的 | 命令 | 看什么 |
 |---|---|---|
-| 这台机器的 CPU 在不在包里 | `/usr/libexec/zte-mesh/ns-run --launcher-check` | 退出码 0 且打印 `…/arch/<这种架构>/ns-run`；非 0 时那一句会带上 `carries:` 后面包里的目录名 |
+| 这台机器的 CPU 在不在包里 | `uname -m` → 看 `/usr/libexec/zte-mesh/arch/<cpu>/`；或 `logread \| grep 'has no build'` | 有这一份就是 `arch/<cpu>/{ns-run,mesh-search}`；没有时 init 那一行带 `carries:` 和包里实际带的目录名 |
 | 包里的哪几种架构 | `ls /usr/libexec/zte-mesh/arch/` | feed 构建树里只带目标机那种架构，属正常；CI 出的 apk 三个目录都在 |
-| 这种架构不在包里，非要这台跑 | 在这台机器上现编一份：`sh tools/build/launcher-arches.sh src /tmp/la`（`ZTE_MESH_ARCHES` 只留本机那档，x86_64 会退到本机 `cc`） | 拿到 `/tmp/la/<cpu>/{ns-run,mesh-search}` 后放进 `/usr/libexec/zte-mesh/arch/<cpu>/`——**放到外层那两个名字没用**：那两个名字属于包，`apk add` 会重写，而入口只往 `arch/` 下面找（`apk info -L zte-mesh` 判"入口归谁"） |
+| 这种架构不在包里，非要这台跑 | 在这台机器上现编一份：`sh tools/build/launcher-arches.sh src /tmp/la`（`ZTE_MESH_ARCHES` 只留本机那档，x86_64 会退到本机 `cc`） | 拿到 `/tmp/la/<cpu>/{ns-run,mesh-search}` 后放进 `/usr/libexec/zte-mesh/arch/<cpu>/`——**外面那一层没有入口名字可放**，init 只往 `arch/` 下面找（`apk info -L zte-mesh` 看这个目录归谁） |
 
 **armv7 那种架构目前没有测试机**（三台测试环境的 CPU 是 aarch64 / x86_64 / x86_64，中兴原厂路由器不吃 apk），所以那种架构
 只有编译与打包级的证据，运行时读回来的是 [PLAN](PLAN.md) 的 H-16。`ax3600` 跑沙箱要靠私有根里那份 `qemu-arm-static`——

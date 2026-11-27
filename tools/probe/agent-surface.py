@@ -41,6 +41,8 @@ M2_PATH = [
     "acdcConfigM2EncryptedSettings",
     "acdcWlanSetPWKey",
     "MeshWlanSetAPCfgByBandAndIfIndex",
+    # libcmapi calls its own _CmWLANMapSsidCfgSync2Repeater directly, so a preload never sees this hop;
+    # observability is the read-only STAProfile probe in agent-sync (H-19 P1).
     "MeshWlanMapSsidCfgSync2Repeater",
     "slave_set_radio_cfg",
     "slave_init",

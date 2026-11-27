@@ -34,6 +34,8 @@ shim 的**字段层面是完整的**，缺口在**表之外的机制**：
 | 2 | **（已完成 2026-10-17，见 REPLAY_RESULTS 第 11 节；第 27 轮线上与原厂第 8 节一致）WLAN 变化 → 按频段 Renew 的触发判断**（原厂 cspd 的 `multiapd_mgr`）。**触发手段 shim 已经有**：`SERVICE.md` 记录 helper 直接发事件 `0xa93e`（8 字节 `{band,0…}`），等价于 `multiapd_mgr` 的最后一步（`zte-meshctl renew-acd <band>`）；缺的是"什么变化触发哪个频段"的判断 | 第 5、8、11、13、14 节：只改一个频段只 Renew 那一个；`WlanRenewToCtr` 约 2 秒，ACD 再 `RENEW_MSG_FIRST delay 3s`；`webd` 总是写 AP1/PSK1/RD1/RD2，触发频段由比较得出 | shim 侧维护每个频段的配置摘要（SSID、认证、使能、隐藏、PSK 哈希…），变化的频段各触发一次 Renew；`controller-service.c` 的热更新已对 SSID/密钥/开关/BeaconInterval/信道/ACL 这样做，需核对是否覆盖隐藏、安全模式、槽位等字段 |
 | 3 | **（已完成 2026-10-17，见 REPLAY_RESULTS 第 11.5 节；只在停用槽位上试，用子节点读回而不是守护进程日志验证）`BeaconType` → 认证类型位掩码** 在 shim 的 CM 读函数里要对 5 个值正确 | 第 12 节：0→`0x01`、3→`0x20`、6→`0x22`、10→`0x40`、12→`0x60` | 对 5 个值各跑一次 shim，核对 M2 取交集后的认证类型与原厂日志一致（`Change Auth Type` 行） |
 
+> **2026-11-26 注**：第 2 项的判据已钉死在 `cspd` 侧（`CmMultiAPWlanRenewNotify` 的单频段腿 `SSEND(0xa93e)`）；`zte-meshctl renew-acd <band>` 的等价范围仅这一条单频段腿，不等于全部配置变更（详见 `VENDOR_BINARY_EVIDENCE.md` 6.4）。
+
 P0 的实际做法（2026-10-17）：第 1 项**没有**调用 `CmMultiAPSet*Cfg`（它们会带出发往 `cspd.cspd.multiapd_mgr` 的 `ASEND` 和主/从目的地的选择，shim 没有 cspd），
 而是反汇编后发它们写库之后发的那条同步消息：`SSEND(0x2401, {消息号, name[32], 0}, "multiapd.map.master")`，消息号 `0x10206`（域/漫游）、`0x10205`（主控）；
 写库由监督进程在共享池锁下完成并读回核对。线上帧与原厂 FEATURE_MAP 第 1、2、3 节逐字节相同。第 3 项不是看守护进程日志（级别 8 才输出），而是看子节点自己读回的 `BeaconType`。

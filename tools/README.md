@@ -8,7 +8,7 @@ passed as files that stay outside the repository. Unless noted, run them on the 
 | Script | What it does |
 |---|---|
 | `container-make.sh TARGET...` | Runs make targets in the offline builder container (`sr1010-mesh-shim-builder`): artifacts relative to `out/` (deleted inside the container first, see docs/DEVELOPMENT.md section 2) or `all`, `database`, `controller`, `test-host`. Keeps make's exit status. |
-| `runtime.sh install\|svctest` | Builds the matching launcher and packs `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` (OpenWrt package, committed; root `/usr/lib/zte-mesh/root`) or `out/zte-mesh-svctest.tar.gz` (tmpfs lab runs, root `/tmp/zte-mesh-svc/root`). |
+| `runtime.sh install\|svctest` | Builds the matching `ns-run`/`mesh-search` and packs `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` (OpenWrt package, committed; root `/usr/lib/zte-mesh/root`) or `out/zte-mesh-svctest.tar.gz` (tmpfs lab runs, root `/tmp/zte-mesh-svc/root`). |
 | `bootstrap-out.py` | Rebuilds `out/runtime` + `out/manifest.json` from `openwrt/zte-mesh/zte-mesh-runtime.tar.gz` (hash-checked against its `SHA256SUMS` and `prepare.MULTIAPD_SHA256`), for a machine that has no factory JFFS2 (also used by `build-lab-tools.yml`). The manifest is marked `source=runtime-bundle`, so `prepare.py` still refuses it and packaging cannot silently use it. |
 | `po2lmo.py` | Compiles the LuCI `.po` into a `.lmo` without a build tree (same format as LuCI's `po2lmo.c`), for hand-installing the translation; `tests/test_i18n.py` uses it to check every msgid resolves. |
 
@@ -36,7 +36,7 @@ Imported by module name from `openwrt/make-runtime.py` and `tests/`, so they sta
 | `device-bridge-smoke.py` | Native ARM64 → private ARM32 DB bridge tests with public fixture inputs. |
 | `device-controller-smoke.py` | Bounded real `multiapd` startup in private fixture DB/net/mount namespaces (includes CMDU 10); also re-runs the two `--verify` evidence scripts. |
 | `device_workspace.py` | Bounded `/tmp` staging with guaranteed cleanup attempts; never sweeps old paths. Shared by the four `device-*.py`. |
-| `verify-install.sh` | Runs **on the router** (busybox ash): install a batch of apks, restart rpcd and the service, then read the machine back as `KEY=VALUE` evidence lines plus a final `RESULT=PASS\|FAIL` — the service role, the instance set that role implies, what the Wi-Fi applier did, the hop count, the emulator and launcher answers. Without a directory argument it only reads. `tests/test_verify_install.sh` grades the judgement against stubs; docs/INSTALL.md section 3 is the on-device use. |
+| `verify-install.sh` | Runs **on the router** (busybox ash): install a batch of apks, restart rpcd and the service, then read the machine back as `KEY=VALUE` evidence lines plus a final `RESULT=PASS\|FAIL` — the service role, the instance set that role implies, what the Wi-Fi applier did, the hop count, the emulator and per-CPU build answers. Without a directory argument it only reads. `tests/test_verify_install.sh` grades the judgement against stubs; docs/INSTALL.md section 3 is the on-device use. |
 
 ## capture/ (vendor study and real-child replay)
 

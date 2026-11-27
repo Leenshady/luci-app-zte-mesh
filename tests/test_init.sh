@@ -1601,115 +1601,157 @@ for needle in 'STA_COLLECT=${ZTE_MESH_STA_COLLECT:-/usr/libexec/zte-mesh/sta-col
 	fi
 done
 
-# The launcher is arch:all and lives in the same apk as the runtime now -- one build per CPU under
-# arch/<cpu>/, and a shell entry that picks the directory matching `uname -m`. Nothing at install time
-# refuses a machine it cannot run any more, so start_service() has to ask before procd gets an instance: a
-# command that exits 127 is respawned every five seconds with nothing in the log about the architecture.
-# The exit code is the whole judgement, so the needles are the question, the two answers and the fact that
-# they are keyed off the number -- an ELF left under this name by hand answers 64, and calling that "no
-# build for this machine" is a diagnosis that sends the reader to the wrong file (read back in a real
-# upgrade on 2026-11-05; docs/journal/2026-11-05.md).
-for needle in '"$NSRUN" --launcher-check 2>&1' 'launcher_status=$?' '"$launcher_status" = 127' \
-	'has no launcher build for' '--launcher-check exited $launcher_status' \
-	'$NSRUN is missing from package zte-mesh'; do
+# The runtime binaries are arch:all and live in the same apk as the runtime now -- one build per CPU under
+# arch/<cpu>/ and no entry script. Nothing at install time refuses a machine it cannot run any more, so
+# start_service() has to ask before procd gets an instance: a command that exits 127 is respawned every
+# five seconds with nothing in the log about the architecture. The paths are computed inside
+# resolve_runtime() from `uname -m`, so the stubbed `uname` further down is what decides them.
+for needle in 'aarch64|arm64) echo aarch64' 'armv7*) echo armv7' 'x86_64) echo x86_64' \
+	'arch=$(cpu_arch)' \
+	'NSRUN=${ZTE_MESH_NSRUN:-/usr/libexec/zte-mesh/arch/$arch/ns-run}' \
+	'MESH_SEARCH=${ZTE_MESH_MESH_SEARCH:-/usr/libexec/zte-mesh/arch/$arch/mesh-search}'; do
 	if grep -q -F -- "$needle" "$INIT"; then
 		pass=$((pass + 1))
 	else
-		fail=$((fail + 1)); echo "FAIL launcher pre-flight: $needle"
+		fail=$((fail + 1)); echo "FAIL runtime pre-flight: $needle"
 	fi
 done
 
-# ... and the arch sentence must be the one gated by 127, not a bare `|| {`: any non-zero used to reach it.
-if grep -F -- '--launcher-check 2>&1' "$INIT" | grep -q '|| {$'; then
-	fail=$((fail + 1)); echo "FAIL launcher pre-flight: every non-zero still reads as an architecture refusal"
+# The separate entry script this file used to ask is gone; only arch/<cpu>/ is installed now.
+if grep -qF -- '--launch' "$INIT" || grep -qF -- 'dispatch' "$INIT"; then
+	fail=$((fail + 1)); echo "FAIL runtime pre-flight: $INIT still mentions the entry script"
 else
 	pass=$((pass + 1))
 fi
 
-# The package this file used to tell people to install does not exist any more. A leftover mention is not
-# cosmetic: it sends the reader to an `apk add` that the solver cannot satisfy.
-if grep -q 'zte-mesh-launcher' "$INIT"; then
-	fail=$((fail + 1)); echo "FAIL launcher pre-flight: $INIT still names the package zte-mesh-launcher"
-else
-	pass=$((pass + 1))
-fi
-
-# The two halves of that question are on both sides of one exec, so they can drift apart without either file
-# looking wrong: the flag zte-mesh.init calls with is the one the entry script answers with.
-DISPATCH_SRC=$(dirname "$INIT")/launcher-dispatch
-if [ -f "$DISPATCH_SRC" ] && grep -q -F -- '--launcher-check' "$INIT" && grep -q -F -- '--launcher-check' "$DISPATCH_SRC"; then
-	pass=$((pass + 1))
-else
-	fail=$((fail + 1)); echo "FAIL launcher pre-flight: --launcher-check is not the same word on both sides"
-fi
-
-# One package, one install rule: the entry script and the per-CPU builds it looks for have to be installed by
-# the same Makefile that this init script ships in, or a box ends up with an $NSRUN and no arch/ under it.
+# One package, one install rule: the per-CPU builds have to be installed by the same Makefile that this
+# init script ships in, or a box ends up with an init that looks under arch/ and no arch/ to find.
 MK=$(dirname "$INIT")/../Makefile
-if grep -qF -- 'files/launcher-dispatch' "$MK" && grep -qF -- '$(PKG_BUILD_DIR)/arch' "$MK"; then
+if grep -qF -- '$(PKG_BUILD_DIR)/arch' "$MK"; then
 	pass=$((pass + 1))
 else
-	fail=$((fail + 1)); echo "FAIL launcher pre-flight: $MK installs neither the entry script nor arch/"
+	fail=$((fail + 1)); echo "FAIL runtime pre-flight: $MK does not install arch/"
 fi
 
-# The three refusals above are three different sentences, and the greps cannot see the order they happen in:
-# move the `[ -x "$NSRUN" ]` line below the check and every needle still matches, while the machine that lost
-# its entry file goes back to being told its CPU is not in the package (read back on owrt, where uninstalling
-# the old launcher package took both names away and the log said `no launcher build for x86_64`). So run the
-# pre-flight and read the log line it actually wrote -- launcher_ready() is split out of start_service() for
-# exactly this, because the rest of that function wants /sys/class/net and procd.
-preflight() { # NAME WANT FORBID STUB-EXIT STUB-MSG
-	local name="$1" want="$2" forbid="$3" code="$4" msg="$5" rc got
-	rm -rf "$T/pf" >/dev/null 2>&1
-	mkdir -p "$T/pf/root" || { fail=$((fail + 1)); echo "FAIL $name: no scratch tree"; return; }
-	if [ -n "$code" ]; then
-		printf '#!/bin/sh\nprintf %s >&2\nexit %s\n' "'$msg'" "$code" >"$T/pf/ns-run"
-		chmod 755 "$T/pf/ns-run"
-	fi
-	rm -f "$LOGF"
-	: >"$LOGF"
-	ROOT=$T/pf/root NSRUN=$T/pf/ns-run
-	launcher_ready; rc=$?
-	got=$(cat "$LOGF")
-	if [ "$rc" != 1 ]; then
-		fail=$((fail + 1)); echo "FAIL $name: launcher_ready rc=$rc want 1"
-	elif [ "$got" != "$want" ]; then
-		fail=$((fail + 1)); echo "FAIL $name: log is '$got', want '$want'"
-	else
-		pass=$((pass + 1))
-	fi
-	[ "$rc" = 1 ] && [ "$got" = "$want" ] || return 0
-	case $got in
-	*"$forbid"*) fail=$((fail + 1)); echo "FAIL $name: this line also says '$forbid' -- two refusals in one" ;;
-	*) pass=$((pass + 1)) ;;
-	esac
-}
-# 1. the entry script is not on the box at all: that is a package that lost a file, and the only repair is
-#    to reinstall -- saying "your CPU is not carried" would send the reader to a different architecture.
-#    This is also the case that fails if the guard moves below the check: ash answers a missing file with 127.
-preflight 'entry missing -> names the file' \
-	"$T/pf/ns-run is missing from package zte-mesh" 'no launcher build for' '' ''
-# 2. the entry script is there and answers 127: now it *is* the architecture answer, and the line carries the
-#    machine it is standing on -- with the entry script's own words after it, not a summary of them.
-preflight 'arch refused -> names the CPU' \
-	"zte-mesh has no launcher build for $(uname -m): zte-mesh ns-run: no build for this machine" \
-	'is missing from package' 127 'zte-mesh ns-run: no build for this machine'
-# 3. a non-zero that is not 127 is some other problem wearing the same exit -- an ELF somebody left under
-#    this name by hand takes --launcher-check as unknown arguments and exits 64.
-preflight 'usage exit -> names the code' \
-	"$T/pf/ns-run --launcher-check exited 64: usage: ns-run" \
-	'no launcher build for' 64 'usage: ns-run'
-ROOT=/usr/lib/zte-mesh/root NSRUN=/usr/libexec/zte-mesh/ns-run
+# The refusals above are different sentences, and the greps cannot see the order they happen in. So run the
+# pre-flight with a stubbed `uname` and a temporary arch/ tree and read the log line it actually wrote --
+# runtime_ready() is split out of start_service() for exactly this, because the rest of that function wants
+# /sys/class/net and procd. A machine the package does not carry must name the CPU and the architectures the
+# package really holds; a file that is there but cannot be exec'd is a different repair, so it must not read
+# as "no build for this CPU".
+UB=$T/ub
+mkdir -p "$UB"
+cat > "$UB/uname" <<'STUB'
+#!/bin/sh
+[ "$1" = -m ] && { printf '%s\n' "${ZTE_MESH_TEST_MACHINE:-x86_64}"; exit 0; }
+printf '%s\n' "${ZTE_MESH_TEST_MACHINE:-x86_64}"
+STUB
+chmod 755 "$UB/uname"
+OLD_PATH=$PATH
+PATH=$UB:$PATH; export PATH
+skipped=0
 
-# ... and the pre-flight has to actually be on the path start_service() takes: a function nobody calls would
-# keep every judgement above green while procd respawned a 127 every five seconds again.
-for needle in 'launcher_ready || return 1' 'launcher_ready() {'; do
+runtime_tree() { # runtime_tree ARCH... -- an arch/ tree and an installed $ROOT
+	rm -rf "$T/rt" || return 1
+	mkdir -p "$T/rt/root" || return 1
+	for a in "$@"; do mkdir -p "$T/rt/arch/$a" || return 1; done
+}
+
+runtime_case() { # NAME WANT-RC NEEDLE [FORBID]
+	local name="$1" want_rc="$2" needle="$3" forbid="${4:-}" rc got
+	: > "$LOGF"
+	ROOT=$T/rt/root ZTE_MESH_NSRUN=$T/rt/arch/x86_64/ns-run
+	runtime_ready; rc=$?
+	got=$(cat "$LOGF")
+	if [ "$rc" != "$want_rc" ]; then
+		fail=$((fail + 1)); echo "FAIL $name: runtime_ready rc=$rc want $want_rc"
+	elif [ -n "$needle" ] && ! printf '%s' "$got" | grep -q -F -- "$needle"; then
+		fail=$((fail + 1)); echo "FAIL $name: '$needle' is not in '$got'"
+	elif [ -n "$forbid" ] && printf '%s' "$got" | grep -q -F -- "$forbid"; then
+		fail=$((fail + 1)); echo "FAIL $name: this line also says '$forbid' -- two refusals in one"
+	elif [ -n "$needle" ] || [ -z "$got" ]; then
+		pass=$((pass + 1))
+	else
+		fail=$((fail + 1)); echo "FAIL $name: log is '$got', want nothing"
+	fi
+}
+
+# 1. this CPU's build is not in the package: name the machine, the missing file, and what is carried.
+ZTE_MESH_TEST_MACHINE=x86_64; export ZTE_MESH_TEST_MACHINE
+runtime_tree aarch64 armv7
+runtime_case 'missing build -> names CPU and the carried architectures' 1 \
+	"zte-mesh has no build for x86_64: $T/rt/arch/x86_64/ns-run is missing from package zte-mesh (this package carries: aarch64 armv7)" \
+	'not executable'
+
+# 2. the file is there and cannot be exec'd: same exit, different repair, so a different sentence.
+runtime_tree x86_64
+printf '#!/bin/sh\nexit 0\n' > "$T/rt/arch/x86_64/ns-run"
+chmod 644 "$T/rt/arch/x86_64/ns-run"
+if [ -x "$T/rt/arch/x86_64/ns-run" ]; then
+	# Windows keeps a chmod-644 file executable, so this branch cannot be expressed on NTFS; the cases
+	# below are what busybox ash on a router checks.
+	skipped=$((skipped + 1))
+	printf 'skip 1 not-executable case: this filesystem keeps a 644 file executable\n'
+else
+	runtime_case 'not executable -> says the file cannot be run' 1 \
+		"is not executable on this machine (uname -m says x86_64): check its mode (the package installs 755). This package carries: x86_64" \
+		'missing from package'
+fi
+
+# 3. the normal machine: found and runnable, no line at all.
+runtime_tree x86_64
+printf '#!/bin/sh\nexit 0\n' > "$T/rt/arch/x86_64/ns-run"
+chmod 755 "$T/rt/arch/x86_64/ns-run"
+runtime_case 'carried machine -> starts without a line' 0 '' ''
+
+# 4. the runtime itself is gone: that is the first refusal, before any CPU question.
+runtime_tree x86_64
+rm -rf "$T/rt/root"
+runtime_case 'runtime not installed -> says so' 1 'runtime is not installed (package zte-mesh)' 'no build for'
+
+# 5. the answer is read when the question is asked, not once when this file is sourced: the same tree, a
+#    different `uname -m`, and the default path follows it.
+ZTE_MESH_TEST_MACHINE=aarch64; export ZTE_MESH_TEST_MACHINE
+runtime_tree aarch64
+printf '#!/bin/sh\nexit 0\n' > "$T/rt/arch/aarch64/ns-run"
+chmod 755 "$T/rt/arch/aarch64/ns-run"
+: > "$LOGF"
+ROOT=$T/rt/root ZTE_MESH_NSRUN=$T/rt/arch/aarch64/ns-run
+runtime_ready && pass=$((pass + 1)) || { fail=$((fail + 1)); echo "FAIL uname at call time: aarch64 tree was refused"; }
+ZTE_MESH_TEST_MACHINE=armv7l; export ZTE_MESH_TEST_MACHINE
+: > "$LOGF"
+ROOT=$T/rt/root
+unset ZTE_MESH_NSRUN
+runtime_ready; rc=$?
+got=$(cat "$LOGF")
+case $got in
+*"/arch/armv7/ns-run is missing"*) got=ok ;;
+*) got=fail:${got:-empty} ;;
+esac
+if [ "$rc" = 1 ] && [ "$got" = ok ]; then
+	pass=$((pass + 1))
+else
+	fail=$((fail + 1)); echo "FAIL uname is read at call time: rc=$rc ${got#fail:}"
+fi
+unset ZTE_MESH_TEST_MACHINE
+PATH=$OLD_PATH; export PATH
+ROOT=/usr/lib/zte-mesh/root
+
+# ... and the pre-flight has to actually be on the path start_service() takes, resolving the paths there too:
+# a function nobody calls would keep every judgement above green while procd respawned a 127 every five
+# seconds again.
+for needle in 'runtime_ready || return 1' 'runtime_ready() {'; do
 	if grep -qF -- "$needle" "$INIT"; then
 		pass=$((pass + 1))
 	else
-		fail=$((fail + 1)); echo "FAIL launcher pre-flight: $INIT has no '$needle'"
+		fail=$((fail + 1)); echo "FAIL runtime pre-flight: $INIT has no '$needle'"
 	fi
 done
+if [ "$(grep -c -- 'resolve_runtime' "$INIT")" -ge 3 ]; then
+	pass=$((pass + 1))
+else
+	fail=$((fail + 1)); echo "FAIL runtime pre-flight: start_service() does not resolve the runtime paths"
+fi
 
 # zte_mesh.main.emulator accepts a path on the host as well as one inside the private root. ns-run execs the
 # emulator after the chroot, so a path the sandbox cannot see is not a path it can run: the copy is the
@@ -1747,5 +1789,9 @@ else
 	fail=$((fail + 1)); echo 'FAIL arm32_native: start_service does not call the helper'
 fi
 
-echo "init test: $pass passed, $fail failed"
+if [ "$skipped" -gt 0 ]; then
+	echo "init test: $pass passed, $fail failed, $skipped skipped"
+else
+	echo "init test: $pass passed, $fail failed"
+fi
 [ "$fail" = 0 ]

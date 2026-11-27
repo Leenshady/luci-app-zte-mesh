@@ -9,10 +9,12 @@ START=96
 STOP=09
 
 ROOT=${ZTE_MESH_ROOT:-/usr/lib/zte-mesh/root}
-NSRUN=${ZTE_MESH_NSRUN:-/usr/libexec/zte-mesh/ns-run}
+# NSRUN / MESH_SEARCH are filled in by resolve_runtime(): the package carries one build per CPU under
+# arch/<cpu>/ and no entry script, so the paths depend on `uname -m` of the machine the service starts on.
+NSRUN=""
+MESH_SEARCH=""
 ATTACH=${ZTE_MESH_ATTACH:-/usr/libexec/zte-mesh/attach}
 WLAN_SYNC=${ZTE_MESH_WLAN_SYNC:-/usr/libexec/zte-mesh/wlan-sync}
-MESH_SEARCH=${ZTE_MESH_MESH_SEARCH:-/usr/libexec/zte-mesh/mesh-search}
 STA_COLLECT=${ZTE_MESH_STA_COLLECT:-/usr/libexec/zte-mesh/sta-collect}
 RUNDIR=${ZTE_MESH_RUNDIR:-/run/zte-mesh}
 
@@ -839,39 +841,66 @@ write_log_level() {
 	: > "$tmp" && mv -fT "$tmp" "$RUNDIR/log-debug" || { rm -f "$tmp"; return 1; }
 }
 
+# The arch/ directory name this machine's build sits in. The same mapping the package's build script uses:
+# aarch64|arm64 -> aarch64, armv7* -> armv7, x86_64 -> x86_64. Any other CPU falls through as `uname -m`
+# said it, so the log can name the machine the kernel reported.
+cpu_arch() {
+	case "$(uname -m)" in
+	aarch64|arm64) echo aarch64 ;;
+	armv7*) echo armv7 ;;
+	x86_64) echo x86_64 ;;
+	*) uname -m ;;
+	esac
+}
+
+# Point NSRUN / MESH_SEARCH at this CPU's builds. Called from runtime_ready() and start_service() rather
+# than once at the top of the file: the host test stubs `uname` in $PATH and asks the question again, so
+# the answer has to be read when the question is asked. ZTE_MESH_NSRUN / ZTE_MESH_MESH_SEARCH still win.
+resolve_runtime() {
+	local arch
+	arch=$(cpu_arch)
+	NSRUN=${ZTE_MESH_NSRUN:-/usr/libexec/zte-mesh/arch/$arch/ns-run}
+	MESH_SEARCH=${ZTE_MESH_MESH_SEARCH:-/usr/libexec/zte-mesh/arch/$arch/mesh-search}
+}
+
+# The arch/ names shipped beside $NSRUN, for the line that explains a missing build: "which machines does
+# this package really carry" is answered by the directories on the box, not by a list in this script.
+carried_arches() {
+	local root=${NSRUN%/*} list="" found
+	root=${root%/*}
+	for found in "$root"/*/; do
+		[ -d "$found" ] || continue
+		found=${found%/}
+		list="$list ${found##*/}"
+	done
+	[ -n "$list" ] || list=" none"
+	printf '%s' "$list"
+}
+
 # The three refusals that belong before procd ever gets an instance, split out of start_service() so the host
 # test can run them without /sys or procd. Each one is its own line because each is repaired differently --
 # see the comments on the three branches below (tests/test_init.sh reads the log line each branch writes).
-launcher_ready() {
-	local launcher launcher_status
-	# One package carries both halves now -- the runtime tarball and, under arch/<cpu>/, one launcher build
-	# per CPU -- so either of these missing is a box somebody edited by hand, not a half-installed one. The
-	# two lines stay apart because the two repairs are not the same: the first says the data is gone, the
-	# second names the file.
+runtime_ready() {
+	local machine
+	resolve_runtime
+	# One package carries the runtime tarball and, under arch/<cpu>/, one build per CPU -- so a missing
+	# $ROOT or a missing build is a box somebody edited by hand, not a half-installed one. The two lines
+	# stay apart because the two repairs are not the same: the first says the data is gone, the second names
+	# the file the package should have put there.
 	[ -d "$ROOT" ] || { log "runtime is not installed (package zte-mesh)"; return 1; }
-	# Asked before "$NSRUN" is ever executed, because ash answers a missing file with 127 -- the same number
-	# the entry script uses for "this CPU is not in the package". Read back on owrt after uninstalling the
-	# launcher package that used to ship separately took both entry names away: the log said the machine had
-	# no build for x86_64, while the truth was a package missing half its files. Nothing about the CPU is
-	# wrong there; reinstall is.
-	[ -x "$NSRUN" ] || { log "$NSRUN is missing from package zte-mesh"; return 1; }
-	# ... and an arch:all package installs everywhere, so nothing at install time refuses a machine whose
-	# CPU the package does not carry. That refusal used to be `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)`;
-	# it is asked here instead, of the entry script the package installs, before any instance exists. The
-	# alternative is procd respawning a 127 every five seconds and a log that never says "architecture".
-	# Only 127 is that answer, so only 127 gets that sentence: the entry script exits 127 when this CPU has
-	# no build in arch/, while any other non-zero is a different problem wearing the same exit. An ELF left
-	# under this name by hand takes --launcher-check as two unknown arguments, prints usage and exits 64 --
-	# and calling that "no build for this machine" sends the reader off to look for an architecture when the
-	# file they should be looking at is the one standing there.
-	launcher_status=0
-	launcher=$("$NSRUN" --launcher-check 2>&1) || launcher_status=$?
-	if [ "$launcher_status" = 127 ]; then
-		log "zte-mesh has no launcher build for $(uname -m): $launcher"
+	# There is no entry script to ask any more, so this is the moment that decides whether this machine has
+	# a build at all. procd respawns a command that exits 127 for ever (respawn 3600 5 0), so the two
+	# reasons a missing build has are named here rather than becoming a five-second loop: the file is not in
+	# the package at all, or it is there and cannot be exec'd. Both lines end with the arch/ names the
+	# package really carries, because "no build for this machine" without that list sends the reader looking
+	# for an architecture they cannot check.
+	machine=$(uname -m)
+	if [ ! -e "$NSRUN" ]; then
+		log "zte-mesh has no build for $machine: $NSRUN is missing from package zte-mesh (this package carries:$(carried_arches))"
 		return 1
 	fi
-	[ "$launcher_status" = 0 ] || {
-		log "$NSRUN --launcher-check exited $launcher_status: $launcher"
+	[ -x "$NSRUN" ] || {
+		log "$NSRUN is not executable on this machine (uname -m says $machine): check its mode (the package installs 755). This package carries:$(carried_arches)"
 		return 1
 	}
 	return 0
@@ -955,9 +984,10 @@ start_service() {
 	config_load zte_mesh
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
+	resolve_runtime
 	config_get bridge main bridge br-lan
 	[ -d "/sys/class/net/$bridge/bridge" ] || { log "bridge $bridge does not exist"; return 1; }
-	launcher_ready || return 1
+	runtime_ready || return 1
 	write_config || return 1
 	config_get role main mesh_role ""
 	config_get apply_local main apply_local ""

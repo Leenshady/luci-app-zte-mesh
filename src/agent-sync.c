@@ -107,6 +107,36 @@ static int row_read(const char *view, const char *instance, uint8_t *buffer, uin
     return 0;
 }
 
+/* The M2 apply also writes a STA-side profile through CmWLANMapSsidCfgSync2Repeater(). That call sits inside
+ * libcmapi, so no preload sees it; reading the row back is the only way to tell whether it landed. Read-only:
+ * 0 means the row exists, -2 means the table is not registered (H-19 P2). 940 is the view size libcfapi passes. */
+#define DB_STA_BYTES 940U
+static int sta_row_read(const char *instance, uint8_t *buffer)
+{
+    uint32_t size = DB_STA_BYTES, magic = DB_MAGIC;
+    memset(buffer, 0, DB_STA_BYTES);
+    memcpy(buffer, &size, sizeof(size));
+    memcpy(buffer + sizeof(size), &magic, sizeof(magic));
+    if (!instance || !*instance)
+        return -1;
+    return dbAPIGetView("STAProfile", instance, buffer);
+}
+
+static void log_sta_profile(void)
+{
+    static int last1 = 1, last2 = 1;
+    uint8_t row[DB_STA_BYTES];
+    int s1 = sta_row_read("DEV.WIFI.STAPROFILE1", row);
+    int s2 = sta_row_read("DEV.WIFI.STAPROFILE2", row);
+    if (s1 != last1 || s2 != last2) {
+        last1 = s1;
+        last2 = s2;
+        printf("ZTE_AGENT_SYNC staprofile row1=%d row2=%d\n", s1, s2);
+        fflush(NULL);
+    }
+    wipe(row, sizeof(row));
+}
+
 /* Text that survives a line-oriented consumer: the vendor rejects control characters in these fields too, but a
  * plan that a shell cannot parse is worse than one with a replacement character. */
 static void copy_text(char *out, size_t capacity, const char *text, size_t bytes, size_t *written)
@@ -188,6 +218,7 @@ int agent_sync_read(struct agent_sync_row *rows, char keys[AGENT_SYNC_ROWS][AGEN
         }
     }
     *count = used;
+    log_sta_profile();
     return 0;
 }
 

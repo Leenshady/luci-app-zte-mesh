@@ -22,7 +22,7 @@ UCI /etc/config/zte_mesh ── LuCI 页面（luci-app-zte-mesh）
   procd 实例 controller：ns-run                    procd 实例 attach：把 zmesh0 挂进 br-lan
         │                                                       ▲
         ▼                                                       │ veth
-ns-run（本机 CPU 的那一份静态构建；外层是入口脚本，见第 5 节）：新建 network/IPC/mount 命名空间，私有根 /usr/lib/zte-mesh/root，只把 /run/zte-mesh 暴露给宿主
+ns-run（本机 CPU 的那一份静态构建；init 按 `uname -m` 从 `arch/<cpu>/` 选，见第 5 节）：新建 network/IPC/mount 命名空间，私有根 /usr/lib/zte-mesh/root，只把 /run/zte-mesh 暴露给宿主
         │
         ▼
 db-engine-probe --controller-service（ARM32，原厂 glibc 2.26）
@@ -57,6 +57,27 @@ zmesh0 ─ br-lan ─ 子路由的 multiapd ─ 子路由 cspd ─ 无线驱动
   而沙箱进程还活着，就给它发 `SIGTERM`，procd 重新拉起（`respawn 3600 5 0`，retry 0 = 不限），新线由同一个循环改名入桥。
   这等于把"重启主控就好了"变成自动的。同样因为 retry：`search` 每 300 秒按设计退出一次，写成裸 `respawn` 会被
   procd 默认的 5 次预算在半小时内烧光然后永久不再启动（实测 22:40 启动、23:10 死掉），之后开机的子路由再也找不到主控。
+
+### 2.1 为什么没有 cspd
+
+原厂把路由器的大部分职责放在 `cspd` 里。我们逐项换成平台自己的东西：
+
+| `cspd` 的职责 | 替代 |
+| --- | --- |
+| 配置数据库 | `shim` 的数据库服务端（`libdb`） |
+| WLAN 下发 | `wlan-sync`（UCI + `hostapd`） |
+| Renew 的频段判据与触发 | 控制器侧按频段摘要比较，直发 `0xa93e` |
+| STA / 上游 profile | **没有替代**：`STAProfile` 的消费缺口见 [PLAN](PLAN.md) H-19 P3 |
+| 非 WLAN 的系统面 | `netifd` / UCI |
+
+不引入的理由：
+
+- `cspd` 的消费端是中兴私有 wlan 栈（`cspd.cspconfig.wlan_config` + 驱动 ioctl）；我们的平台是 `hostapd`/`mac80211`，没有接收方。
+- `cspd` 与 `shim` 都要求做数据库 owner，两者互斥。
+- `cspd` 有 3.1 MB，启动依赖整套私有库与配置分区；`ns-run` 只放行 `--controller-service`/`--agent-startup` 的 service root，装不进沙箱。
+- 五个职责里四条已有等价实现，只剩 STA/上游 profile 是缺口（H-19 P3）。
+
+重评估只在三种情况下发生：目标平台回到原厂固件/驱动；H-01 真机上出现 `mac80211` 无法表达的回程/4 地址行为；需要原厂的页面、诊断或统计能力。
 
 ## 3. 源文件
 
@@ -128,13 +149,13 @@ zx279133/vendor-reference/2b5/rootfs.jffs2
   musl 或 hard-float 的库；preload 库和 ARM32 程序用 `arm-linux-gnueabi-gcc -mfloat-abi=soft` 编，直接链接原厂 glibc，
   `make-runtime.py` 再审计强符号与 GNU 符号版本。
 - 启动器（`ns-run` / `mesh-search`）是本机 CPU 的机器码，与上面那套 ARM32 无关。它和运行环境在同一个包里（`zte-mesh`，`arch: all`）：
-  一个 apk 带 aarch64 / armv7 / x86_64 各一份 `-static` 构建，放在 `/usr/libexec/zte-mesh/arch/<cpu>/`，外层那两个名字是同一份
-  shell 入口——按 `$0` 的最后一截选程序、按 `uname -m` 选目录，选中就 `exec`（换程序不换 pid，procd 与 `attach` 的
-  `sandbox_pid()` 盯的都是它）。以前它是第二个包（`zte-mesh-launcher`），为的是"一个 Makefile 只给一个 `PKGARCH`"；两边都成了
-  `arch: all` 之后那句话说不到什么了，剩下的只是两次事务——升级时先换 `zte-mesh` 还是先换 launcher，中间那几秒服务已经按新脚本重启过一次。
-  **换掉的还有装机时的架构判定**：以前那句 `DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 在一台不匹配的
-  机器上会让整串 `apk add` 一起失败（apk 求解全有或全无），现在什么机器都收，"这台不在包里"由入口脚本自己说，
-  `zte-mesh.init` 在把实例交给 procd 之前问一次 `--launcher-check`——**只有 127 算这一问的答案**，其余非零另说一行。
+  一个 apk 带 aarch64 / armv7 / x86_64 各一份 `-static` 构建，放在 `/usr/libexec/zte-mesh/arch/<cpu>/`，**没有外层入口脚本**——
+  `zte-mesh.init` 自己按 `uname -m` 选目录（`aarch64|arm64` → aarch64，`armv7*` → armv7，`x86_64` → x86_64，其余保持原样），
+  选中就 `exec`（换程序不换 pid，procd 与 `attach` 的 `sandbox_pid()` 盯的都是它）。两边都是 `arch: all`，所以一个 apk、一次事务：
+  升级时控制器与它的构建在同一刻换版本，不存在"新脚本配旧二进制"的那几秒。
+  **装机时的架构判定也取消了**：`DEPENDS:=@(TARGET_zte||TARGET_qualcommax)` 在一台不匹配的机器上会让整串 `apk add` 一起失败
+  （apk 求解全有或全无），现在什么机器都收，"这台不在包里"由 `zte-mesh.init` 在把实例交给 procd 之前说清楚——日志带上
+  `uname -m` 与包里实际带的 `arch/` 目录名，然后不启动，不让 procd 每 5 秒重开一个 127。
   布局、映射表与构建脚本见 [DEVELOPMENT](DEVELOPMENT.md) 第 11.3 节。
 - 内核要 `CONFIG_COMPAT`（AArch32 用户态）、SysV IPC（原厂数据库是 SysV 共享内存）与 raw socket（`CONFIG_PACKET`，
   1905 帧由 `multiapd` 在用户态自己收）。这三条原来是根目录那份 `kernel.fragment`，零引用、没被任何构建吃过，删掉并把话写在这里。

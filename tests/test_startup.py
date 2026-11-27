@@ -13,10 +13,16 @@ startup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(startup)
 
 
+CSPD = ARTIFACTS / "analysis/cspd"
+LIBDB = ARTIFACTS / "runtime/lib/libdb.so"
+
+
+@unittest.skipUnless(CSPD.is_file() and LIBDB.is_file(),
+                     f"cspd evidence absent: {CSPD} / {LIBDB} (extract with: python3 tools/dev/prepare.py --analysis-cspd)")
 class StartupMetadata(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tables = startup.recover(ARTIFACTS / "analysis/cspd", ARTIFACTS / "runtime/lib/libdb.so")
+        cls.tables = startup.recover(CSPD, LIBDB)
 
     def test_exact_layouts(self):
         self.assertEqual({n: (v["size"], len(v["fields"]), v["max_rows"]) for n, v in self.tables.items()}, {

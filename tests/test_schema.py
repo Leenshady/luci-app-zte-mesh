@@ -10,6 +10,8 @@ from schema import Image, CSPD_SHA256, registry, recover_constructor, verify_con
 
 ARTIFACTS = Path(sys.argv[1]) if len(sys.argv) == 2 else SOURCE / "out"
 DEFINITION = (SOURCE / "src" / "multiap_cfg.def").read_text()
+CSPD = ARTIFACTS / "analysis/cspd"
+LIBDB = ARTIFACTS / "runtime/lib/libdb.so"
 
 
 class RegistryTests(unittest.TestCase):
@@ -72,27 +74,35 @@ class RegistryTests(unittest.TestCase):
             self.parse_changed('"IFLink", 3, 1, "br0"', '"IFLink", 3, 1, "' + 'x' * 64 + '"')
 
 
+CSPD_NOTE = f"cspd evidence absent: {CSPD} (extract with: python3 tools/dev/prepare.py --analysis-cspd)"
+
+
 class BaselineEvidenceTests(unittest.TestCase):
+    @unittest.skipUnless(CSPD.is_file(), CSPD_NOTE)
     def test_all_descriptors_match_original_machine_initializer(self):
-        verify_constructor(ARTIFACTS / "analysis/cspd", registry())
-        self.assertEqual(len(recover_constructor(ARTIFACTS / "analysis/cspd")), 50)
+        verify_constructor(CSPD, registry())
+        self.assertEqual(len(recover_constructor(CSPD)), 50)
 
+    @unittest.skipUnless(LIBDB.is_file(), f"runtime libdb absent: {LIBDB}")
     def test_lengths_match_original_db_table(self):
-        verify_lengths(ARTIFACTS / "runtime/lib/libdb.so")
+        verify_lengths(LIBDB)
 
+    @unittest.skipUnless(CSPD.is_file(), CSPD_NOTE)
     def test_registry_mismatch_not_accepted(self):
         changed = copy.deepcopy(registry())
         changed["fields"][0]["default"] = "2"
         with self.assertRaisesRegex(ValueError, "registry differs"):
-            verify_constructor(ARTIFACTS / "analysis/cspd", changed)
+            verify_constructor(CSPD, changed)
 
+    @unittest.skipUnless(CSPD.is_file(), CSPD_NOTE)
     def test_reject_wrong_baseline_hash(self):
         with self.assertRaisesRegex(ValueError, "baseline mismatch"):
-            Image(ARTIFACTS / "analysis/cspd", "0" * 64)
+            Image(CSPD, "0" * 64)
 
+    @unittest.skipUnless(CSPD.is_file(), CSPD_NOTE)
     def test_reject_bad_elf_address(self):
         with self.assertRaisesRegex(ValueError, "outside file-backed"):
-            Image(ARTIFACTS / "analysis/cspd", CSPD_SHA256).read(0xdeadbeef, 4)
+            Image(CSPD, CSPD_SHA256).read(0xdeadbeef, 4)
 
 
 if __name__ == "__main__":

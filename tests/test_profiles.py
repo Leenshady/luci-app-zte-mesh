@@ -49,13 +49,16 @@ class Profiles(unittest.TestCase):
                 if f["type"] < 12:
                     self.assertEqual(f["default"], "")
 
+    @unittest.skipUnless(CSPD.is_file(), f"cspd evidence absent: {CSPD} (extract with: python3 tools/dev/prepare.py --analysis-cspd)")
     def test_source_metadata(self):
         for name in profiles.SPECS:
             profiles.verify(CSPD, name)
 
+    @unittest.skipUnless(LIBDB.is_file(), f"runtime libdb absent: {LIBDB}")
     def test_native_lengths(self):
         profiles.verify_lengths(LIBDB)
 
+    @unittest.skipUnless(CSPD.is_file(), f"cspd evidence absent: {CSPD} (extract with: python3 tools/dev/prepare.py --analysis-cspd)")
     def test_source_defaults_never_dereferenced(self):
         original = profiles._decode_constructor
         def poison_defaults(*args, **kwargs):
@@ -116,6 +119,7 @@ class Profiles(unittest.TestCase):
     def test_malformed_line(self):
         self.changed("WLANPSK", 'PROFILE_FIELD("ViewName", 2, 1, 1, "")', 'PROFILE_FIELD(broken)')
 
+    @unittest.skipUnless(CSPD.is_file(), f"cspd evidence absent: {CSPD} (extract with: python3 tools/dev/prepare.py --analysis-cspd)")
     def test_wrong_hash(self):
         with tempfile.TemporaryDirectory() as directory:
             f = Path(directory) / "wrong-cspd"
@@ -125,6 +129,7 @@ class Profiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "baseline mismatch"):
                 profiles.recover_fields(f, "WLANPSK")
 
+    @unittest.skipUnless(CSPD.is_file(), f"cspd evidence absent: {CSPD} (extract with: python3 tools/dev/prepare.py --analysis-cspd)")
     def test_dimension_model_is_bounded(self):
         spec = dict(profiles.SPECS["WLANCfg"])
         spec["dimension"] = (0x1ed48c, (1, 1))
@@ -132,6 +137,7 @@ class Profiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "dimension call arguments"):
                 profiles.recover_fields(CSPD, "WLANCfg")
 
+    @unittest.skipUnless(CSPD.is_file(), f"cspd evidence absent: {CSPD} (extract with: python3 tools/dev/prepare.py --analysis-cspd)")
     def test_unknown_constructor_call_rejected(self):
         spec = dict(profiles.SPECS["WLANPSK"])
         spec.pop("hardware")
@@ -148,6 +154,7 @@ class Profiles(unittest.TestCase):
             self.assertEqual(list(d.iterdir()), [d / 'wlan_psk.def'])
             self.assertEqual((d / 'wlan_psk.def').read_text(), 'KEEP')
 
+    @unittest.skipUnless(CSPD.is_file(), f"cspd evidence absent: {CSPD} (extract with: python3 tools/dev/prepare.py --analysis-cspd)")
     def test_emission_has_no_source_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             d = Path(directory)

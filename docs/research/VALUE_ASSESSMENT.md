@@ -31,12 +31,12 @@ REA 解决“二进制语义层”（函数契约、事件号、延迟/分支）
 ## 3. 已兑现的具体收益（可核对）
 
 1. **DB 读失败机制**：`dbcLstView → dbFindTbl` 失败返回 `-2`，不是空表；shim 少注册表会让原厂调用方整次读失败。
-2. **renew 判据在 cspd 侧**：`_handleWlanRenew` 只转发 band，不做“该不该 renew”的判断；shim 用 `zte-meshctl renew-acd <band>` 直发 `0xa93e` 与原厂最后一步等价。
+2. **renew 判据在 cspd 侧**：`_handleWlanRenew` 只转发 band，不做“该不该 renew”的判断；shim 用 `zte-meshctl renew-acd <band>` 直发 `0xa93e` 与原厂最后一步等价（仅单频段腿，见 `VENDOR_BINARY_EVIDENCE.md` 6.4；不等于全部配置变更）。
 3. **延迟语义**：`Mode <= 1`（自适应/Slave）→ 6 s；`Mode > 1` → `VersionMode & 2` 决定 0/2 s，再挂 10 s 共用定时器。
 4. **`0xa221` 不跨进程**：multiapd 内零命中；cspd 内是 `wlan_manage` 的卡级复位，不进入 multiapd。
 5. **运行时验证（H-18）**：
    - `db-engine-probe` 自测断言过期（2026-11-26 已修）：`multiap-cfg.c` 把 `CurHop` fixture 写成 `2`，`db-engine-probe.c` 曾断言 `-2`（`rc=81`，`fail=public-master-fixture-values`）；现断言已对齐为 `2`，重编后在 owrt 上复跑 `rc=0`（2026-11-26）；
-   - 未注册可选视图共 7 个：`EthPortConfProduct / InterfaceStatus / MultiAPDualBand / P1905AcdVenderCfg / P1905StaBind / P1905ZTEMANUF / WLANAD`（均 `-2`）；
+   - 未注册可选视图共 7 个：`EthPortConfProduct / InterfaceStatus / MultiAPDualBand / P1905AcdVenderCfg / P1905StaBind / P1905ZTEMANUF / WLANAD`（均 `-2`）；**2026-11-26 已取证字段表与默认值**（字段数 24/17/4/3/4/2/53，见 `VENDOR_BINARY_EVIDENCE.md` 6.1），决策仍是暂不注册；**2026-11-27 复核已收口（VENDOR 6.9.2）**：`InterfaceStatus/EthLink/Bridge/Brport/DNSClientServer` 现由 `startup_identity(..., lab)` 的 `lab` 参数门控，只有观察路径（`controller_startup`/`controller_agent_startup`）注册，生产路径（`controller_service`）不注册，故本行“暂不注册”在生产上仍成立；
    - 空拓扑下原厂 ACD 收到 `0xa93e` 但不发 Renew；带仿真 peer 时 `tx1905 cmdu=10 sent=42`、`renew_status=0 peer_received=1`。
 
 ## 4. 剩余价值与不再投入
@@ -45,6 +45,7 @@ REA 解决“二进制语义层”（函数契约、事件号、延迟/分支）
 - **参考仓库不再投入**：Web 管理细节、启动链/升级签名、Plugin/WireGuard/DDNS——除非要发自定义固件。
 - **REA 剩余价值**：只在“日志/抓包判不了、且答案会改 shim 行为或文档契约”时做点查询。
 - **REA 不再投入**：全量反编译 cspd、复刻其状态机；凡是 shim 自己代码能读出的判断（哪个配置字段触发哪个频段），无需再开 Ghidra。
+- **B15 已定型（H-19）**：M2 路径把字段写进 `STAProfile`，表未注册时 `dbAPIGetView` 回 `-2` → `WlanSTAProfileInstIdDbRead` 回 `-1` → 同步函数返 `-7` 且不写库；P0/P1/P2 已完成（`src/wlan_sta_profile.def` 注册 17 字段/940 B/2 行 + M2 回放自测），P3 随 H-01。`cspd` 不引入，理由与替代见 [ARCHITECTURE](../ARCHITECTURE.md)「为什么没有 cspd」。
 
 ## 5. 风险与边界
 

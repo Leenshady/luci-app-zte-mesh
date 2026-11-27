@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launcher negative tests. Run inside the capability-free build container."""
+"""ns-run sandbox negative tests. Run inside the capability-free build container."""
 import subprocess
 import sys
 import tempfile

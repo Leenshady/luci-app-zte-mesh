@@ -109,14 +109,14 @@ def main():
     cfg_passed = "cfg_get_set=1 cmapi_get=1 negative_queries=1 buffer_guards=1 payload_logged=0" in result.stdout
     policies_passed = ("master_get_set=1 domain_get_set=1 domain_rows=2 cmapi_policy_get=1 "
                        "cmapi_domain_list=1 domain_filter=1 row_isolation=1 payload_logged=0" in result.stdout)
-    profiles_passed = ("profile_tables=5 profile_fields=180 identity_get=1 cf_profile_get=1 "
+    profiles_passed = ("profile_tables=6 profile_fields=197 identity_get=1 cf_profile_get=1 "
                        "profile_get_set=1 profile_row_isolation=1 profile_guards=1 "
                        "source_defaults_read=0 hardware_calls=0 payload_logged=0" in result.stdout)
     canaries = ("zte-shim-lab-not-a-live-key", "zte-shim-lab-rotated-key", "PUBLIC-NOT-DEVICE-SERIAL")
     redacted = not any(value in result.stdout + result.stderr for value in canaries)
     passed = (result.returncode == 0 and isolated and traced and cfg_passed and policies_passed and
               profiles_passed and redacted and unchanged and
-              "PASS shared_counter=45 native_engine=1 multiap_cfg_ready=1 policies_ready=1 "
+              "PASS shared_counter=53 native_engine=1 multiap_cfg_ready=1 policies_ready=1 "
               "profile_fixture_ready=1 controller_ready=0" in result.stdout)
     report = {"host": args.host, "directory": directory, "directory_removed": workspace.removed,
               "tmp_free_kib_before": workspace.free_kib, "execution": "native-arm32", "probe_exit": result.returncode,

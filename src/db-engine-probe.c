@@ -284,10 +284,10 @@ int main(int argc, char **argv)
                 map_cfg_scalar(query, MAP_MAX_HOP) == 3, "cross-process-cfg-write-readback");
     }
     require(wlan_profiles_parent_verify() == 0, "cross-process-profile-write-readback");
-    require(read_count() == 45, "cross-process-counter");
+    require(read_count() == 53, "cross-process-counter");
     id = shmget(DB_KEY, 0, 0);
     require(id >= 0 && shmctl(id, IPC_RMID, NULL) == 0, "remove-private-shm");
     require(shmdt(DB_BASE) == 0, "detach");
-    printf("ZTE_DB_ENGINE PASS shared_counter=45 native_engine=1 multiap_cfg_ready=1 policies_ready=1 profile_fixture_ready=1 controller_ready=0\n");
+    printf("ZTE_DB_ENGINE PASS shared_counter=53 native_engine=1 multiap_cfg_ready=1 policies_ready=1 profile_fixture_ready=1 controller_ready=0\n");
     return 0;
 }

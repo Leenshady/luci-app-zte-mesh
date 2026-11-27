@@ -330,7 +330,8 @@ EXPORT int dbAPIGetView(const char *view, const char *instance, void *data)
         char key[48];
         snprintf(key, sizeof(key), "%.36s:%d", view, result);
         if (first_in_window(key)) {
-            if (!strcmp(view, "IPInterface") || !strcmp(view, "MultiAPDomain"))
+            if (!strcmp(view, "IPInterface") || !strcmp(view, "MultiAPDomain") ||
+                !strcmp(view, "InterfaceStatus"))
                 message("ZTE_CONTROLLER_TRACE db_get view=%s instance=%.36s status=%d\n", view, instance ? instance : "", result);
             else
                 message("ZTE_CONTROLLER_TRACE db_get view=%.36s status=%d\n", view, result);

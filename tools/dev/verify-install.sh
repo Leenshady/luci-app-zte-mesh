@@ -26,8 +26,8 @@
 #
 # After the smokes the script reads the machine back: the two strings that say this batch's writer is the one that is
 # installed (`packed_copy`), the four that say the batch's shell files are (`package_scripts` -- a batch that changes
-# only the init script and the applier leaves nothing in the rootfs), the three that say this machine has a launcher it
-# can exec (`launcher_evidence` -- the package is architecture-independent now and the install-time board gate is gone,
+# only the init script and the applier leaves nothing in the rootfs), the three that say this machine has a build
+# for its CPU (`runtime_evidence` -- the package is architecture-independent now and the install-time board gate is gone,
 # so the answer moved here), one more there that only reports whether the separate zte-mesh-launcher package is still
 # on the box, the collector's own table (`ap_sta_evidence`), the
 # peer files it has produced (`peer_files`) and whether the state document carries the per-BSS key (`state_nodes`).
@@ -106,7 +106,7 @@ check() {
 
 # --- install -------------------------------------------------------------------------------------------------------
 # One `apk add` naming a package this machine cannot take does not half-succeed, it refuses the whole transaction
-# (measured on the x86_64 VM, which never accepts the aarch64 launcher). So each file is its own call and a file that
+# (measured on the x86_64 VM, which never accepts an aarch64 apk). So each file is its own call and a file that
 # is simply absent is a skip, not a failure.
 install_apks() {
 	[ -n "$APK_DIR" ] || { say install skipped; return 0; }
@@ -627,7 +627,7 @@ marker_present() {
 	# be compared byte-for-byte with the archive (the precedent is ZTE_TRACE_POLL and log_budget= from the r16 round).
 	# What it does prove is that this batch's writer is on the machine: a service that sums per-BSS files against a
 	# library that never writes them falls back to the digest every second and the page keeps the old behaviour.
-	# `-e` because a needle can start with a dash: the launcher's contract word is --launcher-check.
+	# `-e` because a needle can start with a dash.
 	if [ ! -r "$1" ]; then printf unreadable; elif grep -aqF -e "$2" "$1"; then printf yes; else printf no; fi
 }
 
@@ -671,40 +671,57 @@ package_scripts() {
 	check collect_pause_in_collector yes "$collect"
 }
 
-launcher_evidence() {
+runtime_evidence() {
 	# The package is one now: the runtime tarball and, under $LIBEXEC/arch/<cpu>/, one build per CPU, both from
 	# zte-mesh. A machine that still lists zte-mesh-launcher as installed therefore holds two packages claiming the
 	# same files, and which one owns them after an upgrade is the apk solver's answer, not something this script can
-	# settle -- the line exists to make the question visible in the same read-back that checks the entry script.
+	# settle -- the line exists to make the question visible in the same read-back that checks the per-CPU build.
 	legacy=$($APK list --installed 2>/dev/null | sed -n 's|^zte-mesh-launcher-\([0-9][^ ]*\) .*|\1|p' | head -1)
 	say legacy_launcher_package "${legacy:-absent}"
-	# The launcher is arch:all now: one apk, one build per CPU under $LIBEXEC/arch/<cpu>/, and this entry
-	# script installed twice -- as ns-run and as mesh-search -- to pick the one matching `uname -m`. The
+	# One apk, one build per CPU under $LIBEXEC/arch/<cpu>/, and no entry script: zte-mesh.init reads
+	# `uname -m` itself (aarch64|arm64 -> aarch64, armv7* -> armv7, x86_64 -> x86_64, anything else as
+	# reported). This read-back repeats that mapping to find the file the service would exec. The
 	# install-time gate that used to refuse a wrong board (`DEPENDS:=@(TARGET_zte||TARGET_qualcommax)`) is
-	# gone, so this is the line that says the machine has a launcher it can actually exec. Asking the entry
-	# script rather than recomputing its mapping here is deliberate: the read-back then proves the code that
-	# the service runs, not a copy of its logic.
-	entry=$(marker_present "$LIBEXEC/ns-run" '--launcher-check')
-	if [ "$entry" != yes ]; then
-		# Either no launcher on this machine, or the one from before the entry script -- a hand-built
-		# binary in $LIBEXEC is an environment fact, not a stale batch.
-		say launcher_dispatch "$entry"
-		say launcher_arch not-installed
+	# gone, so this is the line that says the machine has a build it can actually exec.
+	machine=$(uname -m 2>/dev/null)
+	arch=$machine
+	case $machine in
+	aarch64|arm64) arch=aarch64 ;;
+	armv7*) arch=armv7 ;;
+	esac
+	build=$LIBEXEC/arch/$arch/ns-run
+	search=$LIBEXEC/arch/$arch/mesh-search
+	if [ ! -d "$LIBEXEC/arch" ]; then
+		# No per-CPU tree at all: the package is not installed here. An environment fact, not a stale batch.
+		say runtime_build not-installed
+		say runtime_arch not-installed
 		return 0
 	fi
-	check launcher_dispatch yes "$entry"
-	# The package lays the same script down under the second name the service runs. A tree that carries only
-	# ns-run starts the controller and leaves the search instance dead, so the half install is worth its own line.
-	search=$(marker_present "$LIBEXEC/mesh-search" '--launcher-check')
-	check launcher_second_name yes "$search"
-	resolved=$("$LIBEXEC/ns-run" --launcher-check 2>&1)
-	rc=$?
-	say launcher_arch "$(printf '%s\n' "$resolved" | head -n 1)"
-	if [ "$rc" = 0 ]; then
-		check launcher_arch_present yes yes
-	else
-		check launcher_arch_present yes no
+	carried=""
+	for found in "$LIBEXEC"/arch/*/; do
+		[ -d "$found" ] || continue
+		found=${found%/}
+		carried="$carried ${found##*/}"
+	done
+	[ -n "$carried" ] || carried=" none"
+	if [ ! -x "$build" ]; then
+		# The arch/ tree is on the machine and this CPU is not in it (or its file is not runnable): the
+		# answer the deleted install-time gate used to give, in words -- including what is carried.
+		say runtime_build no
+		say runtime_arch "no build for $machine on this machine (this package carries:$carried)"
+		check runtime_present yes no
+		return 0
 	fi
+	check runtime_build yes yes
+	# The search half is its own file now; a tree that carries only ns-run starts the controller and leaves
+	# the search instance dead, so the half install is worth its own line.
+	if [ -x "$search" ]; then
+		check runtime_second_name yes yes
+	else
+		check runtime_second_name yes no
+	fi
+	say runtime_arch "$build"
+	check runtime_present yes yes
 }
 
 # split per BSS, so `peers_sta=0` beside `peer_reports_stations=no` means the peer never reported a number at all
@@ -798,7 +815,7 @@ smoke_mesh_compat
 smoke_backhaul
 packed_copy
 package_scripts
-launcher_evidence
+runtime_evidence
 ap_sta_evidence
 peer_files
 peer_evidence

@@ -69,7 +69,15 @@ call)
 	case "$2" in
 	status)
 		installed=false
-		[ -x /usr/libexec/zte-mesh/ns-run ] && installed=true
+		# One apk carries one build per CPU under arch/<cpu>/; this is the same directory zte-mesh.init reads
+		# from `uname -m` (there is no outer entry script to check any more).
+		case "$(uname -m)" in
+		aarch64|arm64) zarch=aarch64 ;;
+		armv7*) zarch=armv7 ;;
+		x86_64) zarch=x86_64 ;;
+		*) zarch=$(uname -m) ;;
+		esac
+		[ -x "/usr/libexec/zte-mesh/arch/$zarch/ns-run" ] && installed=true
 		running=false
 		ubus call service list '{"name":"zte-mesh"}' 2>/dev/null | grep -q '"running": true' && running=true
 		age=-1

@@ -288,7 +288,7 @@
 | 页面/动作 | Web 请求（`POST /?_type=vuejsonData&_tag=…`） | 往下的路径 | 子节点 Z506 |
 |---|---|---|---|
 | 拓扑页：重启子节点 | `router_manage_lua`：`IF_ACTION=Apply&ACTION_TYPE=RebootDev&DestMac=<AL MAC>&RebootSwitch=1` | `OBJ_ROUTER_MANAGE` → libieee1905cmapi `CmMultiApSendMsg2TopoDev`（"RebootDev" → 事件 0x90a0）→ `ASEND(0x90a0, 16 字节, "multiapd.topo.dev")` → `_topoDevRebootSetMsgHandle` → `_topoDevSendVendorSetByTunnel(0x20)` → `tunnelFloodSend`（`ASEND(0x90d2, "multiapd.base.tunnel")`）→ 单播 VendorSpecific | 支持，真机验证 |
-| 拓扑页：开/关指示灯 | 同上，`ACTION_TYPE=LightSet&DestMac=…&LightSwitch=0|1` | "LightSet" → 事件 0x909f → `_topoDevLightSetMsgHandle` → 内层 TLV 0x21 | 支持，真机验证；子节点的灯状态由它的 HigherLayerResponse 里厂商子 TLV 0x21 `{AL MAC, 状态}` 报给主控 |
+| 拓扑页：开/关指示灯 | 同上，`ACTION_TYPE=LightSet&DestMac=…&LightSwitch=0\|1` | "LightSet" → 事件 0x909f → `_topoDevLightSetMsgHandle` → 内层 TLV 0x21 | 支持，真机验证；子节点的灯状态由它的 HigherLayerResponse 里厂商子 TLV 0x21 `{AL MAC, 状态}` 报给主控 |
 | 拓扑页：改名 | `getEditTableLua`：`InstIdentity=<MAC>&Alias=<名称>` | `CmMultiApTopoSetDevInfo` → `CmSendMsg2MM("multiapd.topo.topo", 0x2401, 0x47000b)` → `topoDevSet` → `i5DmAddOrModifyAliasName`：只改主控自己保存的别名 | 不下发 |
 | 拓扑页：每个 AP 一张卡 | `vue_topo_data`（`OBJ_LISTAPTOPO_ID`/`OBJ_GETTOPOAD_ID`） | 字段 `DeviceName`、`IpAddr`、`MacAddr`、`BhStaRssi`、`LightStatus`、`AccessType`、`accdevCount`、角色 AC/AP | — |
 | AC→AP 的 IPTV 同步（`acap_iptv`） | （cspd 内部，无 Web 请求） | cspd `AcApIptv*`：AP 上线时 `IdmSsendApi` → `idm_service`（libidmapi），**不是 1905** | Z506 没有 `idm_service`/libidm，数据库没有 `ApIptv` 表，`multiapd` 里没有 IPTV 代码 |

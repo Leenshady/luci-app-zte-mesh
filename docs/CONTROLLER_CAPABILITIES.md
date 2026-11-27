@@ -35,7 +35,7 @@
 | ZTE vendor：SSID 配置 | 按网络序号：SSID 使能、ACL 策略。其余子类型（访客标志、VAP 隔离、隐藏 SSID 等）报 `unknown sub type` 并忽略 | 部分 | **[原厂路由器]** 只应用"使能 + ACL 策略" |
 | ZTE vendor：ACL 列表 | 每频段完整 MAC 名单（名称/MAC/策略），子路由删除多余、新增缺的 | 有 | **[原厂路由器]** 已下发（`acl.N.*`），`AclCfg` 表与驱动读回，一加被拒；`allow`（数值 2）来自子路由代码，未在中兴原厂路由器试 |
 | ZTE vendor：STA 绑定 | 把某终端绑定到某频段/AP（`CmMultiApSetStaBind`） | **无** | [代码]（仅 SR 侧） |
-| 哪些 vendor 消息启用 | `P1905AcdVenderCfg`（`CmMultiAPSetAcdVendorCfg`）决定启用清单 | — | [名称] |
+| 哪些 vendor 消息启用 | `P1905AcdVenderCfg`（`CmMultiAPSetAcdVendorCfg`）决定启用清单：行集合 `{Subtlvtype, Enable}`，一行一个子 TLV 类型，默认两列为空 | — | [名称] |
 | M2 里的 ACD vendor TLV、默认 802.1Q、流量分离、Profile-2 能力 | VLAN / 多 profile 相关 | **无** | [代码]（仅 SR 侧） |
 
 ## B. 策略配置（CMDU `0x8003`）

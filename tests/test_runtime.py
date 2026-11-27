@@ -118,34 +118,34 @@ def main():
           "the packed library predates agent-ap-metrics.c; the child stays silent and the master reads "
           "stations=-1 for a node that has the counts")
 
-    # The launcher is machine code, and an ELF names one architecture -- but it no longer rides in a second
-    # package for that reason. zte-mesh is arch:all and ships one build per CPU under arch/<cpu>/ next to a
-    # shell entry that picks the directory matching `uname -m`, so the architecture question is answered at
-    # run time by that script instead of at install time by the solver. package-pack.mk reads one global
-    # PKGARCH per Makefile, which is exactly why the apk cannot name a CPU *and* carry three builds; the
-    # guard below is that the payload it needs is really installed by the same Makefile as the scripts.
+    # The entry binaries are machine code, and an ELF names one architecture -- but they no longer ride in
+    # a second package for that reason. zte-mesh is arch:all and ships one build per CPU under arch/<cpu>/;
+    # there is no shell entry to pick it, so zte-mesh.init asks `uname -m` itself before it starts an
+    # instance. package-pack.mk reads one global PKGARCH per Makefile, which is exactly why the apk cannot
+    # name a CPU *and* carry three builds; the guard below is that the payload it needs is really installed
+    # by the same Makefile as the scripts.
     makefile = text("openwrt/zte-mesh/Makefile")
+    init = (REPO / "openwrt/zte-mesh/files/zte-mesh.init").read_text(encoding="utf-8")
     check("zte-mesh is architecture independent", "PKGARCH:=all" in makefile,
           "the package names a board arch; the x86_64 lab box cannot install it")
-    check("zte-mesh builds the launcher out of the unpacked tarball",
+    check("zte-mesh builds the per-CPU binaries out of the unpacked tarball",
           "launcher-arches.sh" in makefile
           and "sh $(ZTE_MESH_LAUNCHER_BUILD) $(PKG_BUILD_DIR)" in makefile,
           "the code that gets compiled has to be the code that ships: one unpack of the runtime tarball feeds both")
     check("zte-mesh overrides Build/Compile", "define Build/Compile" in makefile,
           "undefined, it falls back to Build/Compile/Default, which runs $(MAKE) in the build "
           "directory -- there is no makefile there, only the unpacked tarball")
-    check("zte-mesh installs the entry script under both names",
-          "./files/launcher-dispatch $(1)/usr/libexec/zte-mesh/ns-run" in makefile
-          and "/usr/libexec/zte-mesh/mesh-search" in makefile)
     check("zte-mesh installs the per-CPU builds",
           "$(PKG_BUILD_DIR)/arch $(1)/usr/libexec/zte-mesh/" in makefile,
-          "an entry script without arch/ answers 'no build for this machine' on every CPU")
+          "an init that looks under arch/ without arch/ installed answers 'no build for this machine' on every CPU")
+    check("the init script resolves the build for this CPU",
+          "arch/$arch/ns-run" in init and "arch/$arch/mesh-search" in init,
+          "init has to pick arch/<cpu>/ from uname -m itself; there is no entry script to ask")
     check("zte-mesh still ships the runtime tarball", "zte-mesh-runtime.tar.gz" in makefile)
     check("no package directory is named zte-mesh-launcher",
           not (REPO / "openwrt/zte-mesh-launcher").exists(),
           "the split was merged away; a leftover Makefile would build an apk whose files belong to zte-mesh too")
 
-    init = (REPO / "openwrt/zte-mesh/files/zte-mesh.init").read_text(encoding="utf-8")
     check("the init script starts the search helper", "MESH_SEARCH" in init and "procd_open_instance search" in init)
 
     print(f"\n{len(failures)} failure(s)")

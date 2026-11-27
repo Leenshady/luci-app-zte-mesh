@@ -1,9 +1,8 @@
 #!/bin/sh
 # Host test for tools/dev/verify-install.sh without a router: the seven commands it reads through (ubus / apk / uci /
 # iw / ip / logread / date) are the same names the script takes from its own environment, so the stubs answer from
-# fixtures and the assertions are about what the script decided.
-# The one program it runs by installed path is the launcher entry script, and that one is the real
-# files/launcher-dispatch -- only `uname -m` is stubbed, so the cases judge a fixed CPU instead of the test host's.
+# fixtures and the assertions are about what the script decided. The per-CPU build tree is a fixture too: it is what
+# zte-mesh.init looks under for `uname -m`, and the read-back grades its presence and bit.
 # Run with the shell OpenWrt uses: busybox ash tests/test_verify_install.sh
 #
 # What this test guards is the judgement, not the router: which instance set a role implies, which keys of the status
@@ -11,10 +10,6 @@
 # are the parts that silently rot when the init or the status call changes.
 SCRIPT=${1:-$(dirname "$0")/../tools/dev/verify-install.sh}
 [ -f "$SCRIPT" ] || { echo "verify-install.sh not found: $SCRIPT" >&2; exit 1; }
-# the real entry script, not a stub of it: the read-back asks the launcher a question (--launcher-check), so the
-# suite that pins the answer pins the contract between the two files rather than two independent guesses.
-DISPATCH=$(dirname "$0")/../openwrt/zte-mesh/files/launcher-dispatch
-[ -f "$DISPATCH" ] || { echo "launcher-dispatch not found: $DISPATCH" >&2; exit 1; }
 T=$(mktemp -d) || exit 1
 T=$(cd "$T" && pwd)
 trap 'rm -rf "$T"' EXIT
@@ -123,8 +118,8 @@ cat > "$BIN/ip" <<EOF
 #!/bin/sh
 [ -f '$FIX/ip' ] && cat '$FIX/ip'
 EOF
-# The copied dispatcher asks its own machine through `uname -m`, and the script never asks it itself -- so this stub
-# only answers for the launcher cases. Without it the suite would judge whatever CPU the test host happens to have.
+# The read-back asks the machine through `uname -m` to find arch/<cpu>/; this stub fixes the answer so a case
+# judges a known CPU instead of whatever the test host happens to have.
 cat > "$BIN/uname" <<EOF
 #!/bin/sh
 echo \${ZTE_MESH_TEST_MACHINE:-x86_64}
@@ -249,10 +244,10 @@ check_line log_error_lines 0
 # the child's own hop count: the startup fixture writes -2 and nothing else in our code overwrites it on this role,
 # so a 2 here can only be the vendor daemon's own update (B16).
 check_line cur_hop 2
-# no launcher in this fixture yet: an entry script that is simply not there is an environment fact -- the read-back
-# reports which CPU it would have taken and judges nothing, so a healthy child still ends in PASS.
-check_line launcher_dispatch unreadable
-check_line launcher_arch not-installed
+# no build tree in this fixture yet: an arch/ directory that is simply not there is an environment fact -- the
+# read-back reports which CPU it would have looked for and judges nothing, so a healthy child still ends in PASS.
+check_line runtime_build not-installed
+check_line runtime_arch not-installed
 
 # profile_sections is a whole line, so compare it as text rather than through the value-splitting helper
 if grep -q '^profile_sections=zte_backhaul_sta_5g$' "$out"; then pass=$((pass + 1)); else
@@ -481,22 +476,17 @@ healthy_child() {
 	plan_rows FRESHR10
 	printf 'epoch=1\nresult=ok\nchanged=1\nbands=2g\nmessage=\n' > "$RUN/wlan-sync.status"
 }
-# launcher_tree ARCH... -- what the architecture-independent package lays down: the entry script twice (the two names
-# the service runs) and one build per CPU under $LIBEXEC/arch/<cpu>/. The stub builds announce themselves, so an entry
-# that execs its binary instead of answering the read-back's question is visible in the evidence instead of silent.
-launcher_tree() {
+# runtime_tree ARCH... -- what the architecture-independent package lays down: one build per CPU under
+# $LIBEXEC/arch/<cpu>/. The stubs are only checked with `-x`; there is no entry script to execute them.
+runtime_tree() {
 	rm -rf "$LIBEXEC/arch"
 	mkdir -p "$LIBEXEC/arch"
 	for want in "$@"; do
 		mkdir -p "$LIBEXEC/arch/$want"
 		for name in ns-run mesh-search; do
-			printf '#!/bin/sh\necho ran %s %s\n' "$name" "$want" > "$LIBEXEC/arch/$want/$name"
+			printf '#!/bin/sh\nexit 0\n' > "$LIBEXEC/arch/$want/$name"
 			chmod +x "$LIBEXEC/arch/$want/$name"
 		done
-	done
-	for name in ns-run mesh-search; do
-		cp "$DISPATCH" "$LIBEXEC/$name"
-		chmod +x "$LIBEXEC/$name"
 	done
 }
 
@@ -702,52 +692,51 @@ check_line init_seed_from_air yes
 check_line sync_flag_by_meaning yes
 printf '#!/bin/sh\nPAUSE=$DIR/collect-pause\n' > "$LIBEXEC/sta-collect"
 
-# --- the launcher no longer picks a board at install time -------------------------------------------------------------
+# --- the per-CPU builds: no entry script picks a board at install time --------------------------------------------------
 # The apk is architecture-independent now, so `apk add` accepts it on any machine and the gate that used to refuse the
-# wrong board is gone. The read-back is where that answer lives: the entry script has to be installed, under both of
-# the names the service runs, and it has to resolve to a build for the CPU it is standing on.
-CASE=launcher-carried
+# wrong board is gone. The read-back is where that answer lives: zte-mesh.init looks under arch/<cpu>/ for `uname -m`,
+# so what is checked here is that this CPU's directory holds an executable ns-run (and mesh-search beside it).
+CASE=runtime-carried
 healthy_child
 packed_libs
 rm -rf "$RUN/peers" "$RUN/ap-sta"
-launcher_tree aarch64 armv7 x86_64
+runtime_tree aarch64 armv7 x86_64
 PATH="$BIN:$PATH" ZTE_MESH_TEST_MACHINE=x86_64 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line RESULT PASS
-check_line launcher_dispatch yes
-check_line launcher_second_name yes
-check_line launcher_arch_present yes
-# the path is the answer the service would get too, which is why the read-back asks the entry instead of mapping the
-# CPU here: this line proves the installed dispatch, not a copy of its table
-check_line launcher_arch "$LIBEXEC/arch/x86_64/ns-run"
+check_line runtime_build yes
+check_line runtime_second_name yes
+check_line runtime_present yes
+check_line runtime_arch "$LIBEXEC/arch/x86_64/ns-run"
 
-# a machine still holding the binary that the previous workflow built by hand is not a stale batch: no marker, so the
+# a binary somebody dropped in the outer directory is not what the service runs any more: with no arch/ tree the
 # read-back reports and judges nothing -- someone's own /usr/libexec must not fail the run
-CASE=launcher-entry-without-marker
-printf '#!/bin/sh\necho ran the binary the previous workflow built by hand\n' > "$LIBEXEC/ns-run"
-chmod +x "$LIBEXEC/ns-run"
-sh "$SCRIPT" > "$out" 2>&1
+CASE=runtime-outer-binary-only
+rm -rf "$LIBEXEC/arch"
+printf '#!/bin/sh\nexit 0\n' > "$LIBEXEC/ns-run"
+printf '#!/bin/sh\nexit 0\n' > "$LIBEXEC/mesh-search"
+chmod +x "$LIBEXEC/ns-run" "$LIBEXEC/mesh-search"
+PATH="$BIN:$PATH" ZTE_MESH_TEST_MACHINE=x86_64 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 0
 check_line RESULT PASS
-check_line launcher_dispatch no
-check_line launcher_arch not-installed
-if grep -q '^FAIL launcher' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: an entry script without the dispatcher is an environment fact"; else pass=$((pass + 1)); fi
+check_line runtime_build not-installed
+check_line runtime_arch not-installed
+if grep -q '^FAIL runtime' "$out"; then fail=$((fail + 1)); echo "FAIL case $CASE: an outer binary with no arch/ is an environment fact"; else pass=$((pass + 1)); fi
 
-# and the machine the package does not carry: the entry is installed, it answers, and the answer is 127 plus the list
-# of architectures this apk really holds. That is the question the deleted gate used to ask, in words.
-CASE=launcher-machine-not-carried
-launcher_tree aarch64 armv7 x86_64
+# and the machine the package does not carry: the arch/ tree is there, this CPU's directory is not, and that is the
+# answer the deleted install-time gate used to give -- the architectures the package really holds, in words.
+CASE=runtime-machine-not-carried
+runtime_tree aarch64 armv7 x86_64
 PATH="$BIN:$PATH" ZTE_MESH_TEST_MACHINE=mips64 sh "$SCRIPT" > "$out" 2>&1
 check_rc $? 1
 check_line RESULT FAIL
-if grep -q 'FAIL launcher_arch_present expected=yes got=no' "$out"; then pass=$((pass + 1)); else
+if grep -q 'FAIL runtime_present expected=yes got=no' "$out"; then pass=$((pass + 1)); else
 	fail=$((fail + 1)); echo "FAIL case $CASE: a machine with no build for it must fail the run"; fi
-check_line launcher_arch 'zte-mesh ns-run: no build for this machine (uname -m says mips64). The launcher on this box carries: aarch64 armv7 x86_64'
+check_line runtime_arch 'no build for mips64 on this machine (this package carries: aarch64 armv7 x86_64)'
 # the failure is the missing build, not a missing package
-check_line launcher_dispatch yes
-check_line launcher_second_name yes
+check_line runtime_build no
 
-# back to the way the rest of the suite found it: no entry script, so no later case turns on the CPU of the host
+# back to the way the rest of the suite found it: no build tree, so no later case turns on the CPU of the host
 rm -f "$LIBEXEC/ns-run" "$LIBEXEC/mesh-search"
 rm -rf "$LIBEXEC/arch"
 

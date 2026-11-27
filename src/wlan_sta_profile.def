@@ -1,0 +1,21 @@
+/* STAProfile: hash-pinned metadata, independent PUBLIC zero defaults.
+ * NO source default/credential/serial value was read or copied.
+ * Source: docs/research/VENDOR_BINARY_EVIDENCE.md 6.6
+ */
+PROFILE_FIELD("ViewName", 2, 1, 1, "")
+PROFILE_FIELD("ESSID", 2, 0, 1, "")
+PROFILE_FIELD("BSSID", 18, 0, 1, "00:00:00:00:00:00")
+PROFILE_FIELD("AuthMode", 14, 0, 1, "0")
+PROFILE_FIELD("EncrypType", 14, 0, 1, "0")
+PROFILE_FIELD("WPA3AuthMode", 14, 0, 1, "0")
+PROFILE_FIELD("WPAPSK", 3, 0, 1, "")
+PROFILE_FIELD("WEPAuthMode", 14, 0, 1, "0")
+PROFILE_FIELD("DefaultKeyID", 14, 0, 1, "0")
+PROFILE_FIELD("Key1", 3, 0, 1, "")
+PROFILE_FIELD("Key2", 3, 0, 1, "")
+PROFILE_FIELD("Key3", 3, 0, 1, "")
+PROFILE_FIELD("Key4", 3, 0, 1, "")
+PROFILE_FIELD("CardBind", 13, 0, 1, "0")
+PROFILE_FIELD("Channel", 12, 0, 1, "0")
+PROFILE_FIELD("BandWidth", 14, 0, 1, "0")
+PROFILE_FIELD("Valid", 15, 0, 1, "0")

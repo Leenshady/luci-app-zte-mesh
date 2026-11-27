@@ -41,7 +41,7 @@ $(ARTIFACTS)/db-engine-probe: src/db-engine-probe.c src/controller-run.c src/con
                            src/agent-sync.c src/agent-sync.h src/wlan_cfg.def src/wlan_psk.def \
                            src/mesh-policies.c src/mesh-policies.h src/multiap_master.def src/multiap_domain.def src/vendor-db.h \
                            src/wlan-profiles.c src/wlan-profiles.h src/wlan_base.def src/wlan_cfg.def src/wlan_ssid.def \
-                           src/wlan_psk.def src/dev_info.def src/mesh-bridge.c src/mesh-bridge.h Makefile $(ARTIFACTS)/manifest.json
+                           src/wlan_psk.def src/wlan_sta_profile.def src/dev_info.def src/mesh-bridge.c src/mesh-bridge.h Makefile $(ARTIFACTS)/manifest.json
 	$(ARMCC) $(COMMON) -march=armv7-a -mfloat-abi=soft -no-pie -nostdlib \
 	  $(shell $(ARMCC) -print-file-name=crt1.o) $(shell $(ARMCC) -print-file-name=crti.o) \
 	  $(shell $(ARMCC) -print-file-name=crtbegin.o) src/db-engine-probe.c src/controller-run.c src/controller-service.c src/controller-packet.c src/controller-1905.c src/controller-steer.c src/controller-peer.c src/controller-actions.c src/controller-wsc.c src/controller-wsc-crypto.c src/agent-sync.c src/multiap-cfg.c src/mesh-policies.c src/wlan-profiles.c src/mesh-bridge.c \
@@ -56,7 +56,7 @@ $(ARTIFACTS)/ns-run: src/ns-run.c src/controller-net.c
 $(ARTIFACTS)/zte-debugcmd: src/zte-debugcmd.c
 	$(ARMCC) -O2 -std=gnu11 -Wall -Wextra -Werror -march=armv7-a -mfloat-abi=soft -static src/zte-debugcmd.c -o $@
 
-# The same launcher for tmpfs lab runs (tools/dev/dev-service-smoke.py and friends unpack the runtime to /tmp/zte-mesh-svc).
+# The same ns-run for tmpfs lab runs (tools/dev/dev-service-smoke.py and friends unpack the runtime to /tmp/zte-mesh-svc).
 $(ARTIFACTS)/ns-run-svctest: src/ns-run.c src/controller-net.c
 	$(ROUTERCC) -O2 -std=c11 -static -Wall -Wextra -Werror -DSERVICE_ROOT='"/tmp/zte-mesh-svc/root"' src/ns-run.c src/controller-net.c -o $@
 
@@ -198,8 +198,6 @@ test-host: $(ARTIFACTS)/tests/caller $(ARTIFACTS)/tests/no-backend $(ARTIFACTS)/
 	sh tests/test_rpcd.sh
 	sh tests/test_wlan_sync.sh
 	sh tests/test_sta_collect.sh
-	sh tests/test_launcher_dispatch.sh
-	sh tests/test_launcher_arches.sh
 	sh tests/test_build_deps.sh
 	sh tests/test_service_role.sh
 	sh tests/test_verify_install.sh

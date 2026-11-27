@@ -6,7 +6,7 @@
 
 - **节点清单**：`P1905DeviceInfo`（11 字段/788 字节/1024 行，主键 ViewName+MacAddr）从 `cspd` 静态恢复；真实 `multiapd` 收到对端后自己写入行（AL MAC、Active、WSC M1 带来的 ModelName）。`controller_read_nodes()` 只读导出，不含序列号/ProductClass。
 - **服务模式** `ns-run … --controller-service`（`controller-service.c`）：没有限时，配置由宿主写 `/run/zte-mesh/config`（0600，严格 key=value），状态每秒写 `/run/zte-mesh/state.json`（`/run/zte-mesh` 是沙箱里唯一可写的宿主路径）。
-- **配置下发链路**：改 profile → 事件 `0xa93e` 发给 `multiapd.acd.acd` → 原厂 `_handleWlanRenew` → 真 daemon 发 AP-autoconfiguration Renew（CMDU 10）。`CmMultiAPWlanRenew` 本来发给 `cspd.cspd.multiapd_mgr`（事件 `0x9c8a`），我们不跑 cspd，所以 helper 直接发 `0xa93e`（8 字节 `{band,0…}`）。
+- **配置下发链路**：改 profile → 事件 `0xa93e` 发给 `multiapd.acd.acd` → 原厂 `_handleWlanRenew` → 真 daemon 发 AP-autoconfiguration Renew（CMDU 10）。`CmMultiAPWlanRenew` 本来发给 `cspd.cspd.multiapd_mgr`（事件 `0x9c8a`），我们不跑 cspd，所以 helper 直接发 `0xa93e`（8 字节 `{band,0…}`）。原厂 `CmMultiAPWlanRenewNotify` 的单频段腿就是 `SSEND(0xa93e, 8B{band}, timeout=1000, "multiapd.acd.acd")`；`zte-meshctl renew-acd <band>` 只等价这一条腿，不等于全部配置变更——原厂共 16 个调用点（cspd 3、`libcmapi` 13），全部按 100 字节块调用 Notify（见 [VENDOR_BINARY_EVIDENCE](research/VENDOR_BINARY_EVIDENCE.md) 6.4）。
 - **外部进程不能调 CM**：`ASEND/SSEND` 需要 OSS 身份，且要用客户端库 `liboss_pub.so` + `InitAppComm`（工厂 `diagget` 的做法），不能用 daemon 的 `liboss.so`；从监督进程直接调会崩。所以 `zte-meshctl`（ARM32）链 `liboss_pub`，由服务 fork/exec。
 - M2 的 Authenticator/Key Wrap/profile 由独立校验器通过（`wsc_cryptographic_verified` 进报告）；标准模式（`VersionMode` bit1）下节点 `ZTEDevFlag=0`，型号来自 WSC M1。
 

@@ -29,12 +29,14 @@
 #include "agent-sync.h"
 #include "zte-log-level.h"
 #include "startup-views.inc"
+#include "al-graph.inc"
 /* Where the agent role publishes the host-side Wi-Fi plan (agent-sync.c, applied by wlan-sync). */
 #define AGENT_WLAN_PLAN "/run/zte-mesh/wlan-plan"
 extern int ShmPoolLock(unsigned int);
 extern int ShmPoolUnlock(void);
 extern int mesh_policies_startup_rows(void);
 extern int mesh_policies_apply_profile_view(const char *table_name, void *table);
+static int local_mac(const char *name, uint8_t out[6]);
 
 static int startup_table(const char *name, const struct zte_db_domain *fields,
                          unsigned int count, unsigned int bytes, unsigned int rows,
@@ -426,15 +428,26 @@ void controller_set_extra_bss(const uint8_t set[2][4], const uint8_t enabled[2][
     memcpy(extra_bss_key, key, sizeof(extra_bss_key));
 }
 
-static int startup_identity(const struct mb_profile profiles[2], const char *version_mode)
+static int startup_identity(const struct mb_profile profiles[2], const char *version_mode, int lab)
 {
     void *communication, *interface, *cfg, *acd, *bss, *base_table, *wep, *devices, *acl;
     void *roam_caton, *wlan_setting, *cache_mac;
+    void *interface_status = NULL, *eth_link = NULL, *bridge = NULL, *brport = NULL, *dns_servers = NULL;
+    uint8_t br_mac[6];
+    char mac_text[18];
     static const struct exact_view roam_caton_view = { "MultiAPRoamCatonCfg", "MultiAPRoamCatonCfg", "IGD",
         "MultiAPRoamCatonCfg", 232, 1, 1, 12, 1 };
     static const struct exact_view wlan_setting_view = { "WLANSetting", "WLANSetting", "", "", 520, 1, 1, 63, 1 };
     static const struct exact_view cache_mac_view = { "MultiAPCacheMac", "DEV", "IGD", "MultiAPCacheMac", 108, 200, 200, 63, 0 };
     int result = -1;
+    /* VENDOR 6.9.2: the InterfaceStack graph below is a sandbox probe. The daemon's AL MAC
+     * comes from libzte_controller_route.so, not from these views, and registering them in
+     * the production DB would turn every "-2 not registered" into a synthetic row for any
+     * other vendor reader. The switch is controller_boot()'s `lab` argument (1 only from
+     * controller_startup(), the observation path), not ZTE_MESH_EMULATED_LAB: the init script
+     * sets that variable whenever it execs the emulator, and the x86_64 router always does,
+     * so the env would leave the graph registered on the device. */
+    int al_graph = lab;
     unsigned int slot;
     extern void *dbFindTbl(const char *);
     extern int WlanIndex2InstId(unsigned int, unsigned int, char *);
@@ -451,6 +464,22 @@ static int startup_identity(const struct mb_profile profiles[2], const char *ver
         startup_exact_view(&roam_caton_view, startup_MultiAPRoamCatonCfg, 7, &roam_caton) ||
         startup_exact_view(&wlan_setting_view, startup_WLANSetting, 14, &wlan_setting) ||
         startup_exact_view(&cache_mac_view, startup_MultiAPCacheMac, 2, &cache_mac))
+        goto done;
+    /* VENDOR 6.8: GetRouteIFInfo("DEV.IP.IF1") walks IPInterface -> InterfaceStatus ->
+     * Brport -> EthLink; the AL MAC is EthLink.MACAddress (or UserCfgMACAddress when
+     * MACAddressOverride is set). Those used to be 7 optional views; only this stack
+     * is registered, and only with the rows that path needs.
+     * GetRouteIFInfo asks for the DHCP DNS list before it reads EthLink; an unregistered
+     * view makes that query fail and the function return before the MAC read, which the
+     * vendor logs as "base get 1905 ALMAC fail". Empty table, no initial row.
+     * Sandbox-only (VENDOR 6.9.2): the lab probe drives the vendor libcfapi path, while the
+     * real daemon resolves GetRouteIFInfo to our route adapter and never reads these. */
+    if (al_graph &&
+        (startup_view("InterfaceStatus", startup_InterfaceStatus, 17, 1768, 256, &interface_status) ||
+         startup_view("EthLink", startup_EthLink, 16, 752, 17, &eth_link) ||
+         startup_view("Bridge", startup_Bridge, 13, 520, 1, &bridge) ||
+         startup_view("Brport", startup_Brport, 26, 1800, 45, &brport) ||
+         startup_table("DNSClientServer", startup_DNSClientServer, 8, 628, 128, 0, &dns_servers)))
         goto done;
     /* Factory baseline of the unmodified router. Without these the first PolicyConfigReq loses its
      * Roam Caton TLV (get RoamCatonCfg error, view status -2) and the M2 loses its MLO TLV body.
@@ -493,6 +522,38 @@ static int startup_identity(const struct mb_profile profiles[2], const char *ver
         dbSetValCommByRowNo(interface, 0, "MaxMTUSize", "1500"))
         goto done;
     printf("ZTE_CONTROLLER_STARTUP p1905_v2=%d\n", p1905_v2_enable);
+    /* Sandbox-only rows for the probe graph registered above (VENDOR 6.9.2). One interface
+     * stack: DEV.IP.IF1 -> bridge port -> EthLink. EthLink.MACAddress is br0's real MAC,
+     * which is what the controller advertises as AL MAC (local_mac("br0") in the daemon is
+     * the same value through the route adapter). */
+    if (al_graph) {
+        if (local_mac("br0", br_mac))
+            goto done;
+        snprintf(mac_text, sizeof(mac_text), "%02x:%02x:%02x:%02x:%02x:%02x",
+                 br_mac[0], br_mac[1], br_mac[2], br_mac[3], br_mac[4], br_mac[5]);
+        if (dbSetValCommByRowNo(interface_status, 0, "ViewName", "DEV.IP.IF1") ||
+            dbSetValCommByRowNo(interface_status, 0, "IF_ID", "DEV.IP.IF1") ||
+            dbSetValCommByRowNo(interface_status, 0, "LowerLayer", "DEV.BRIDGING.BRIDGE1.BRPORT1") ||
+            dbSetValCommByRowNo(interface_status, 0, "Enable", "1") ||
+            dbSetValCommByRowNo(interface_status, 0, "Status", "1") ||
+            dbSetValCommByRowNo(interface_status, 0, "IFName", "br0") ||
+            dbSetValCommByRowNo(bridge, 0, "ViewName", "DEV.BRIDGING.BRIDGE1") ||
+            dbSetValCommByRowNo(bridge, 0, "Enable", "1") ||
+            dbSetValCommByRowNo(bridge, 0, "Status", "1") ||
+            dbSetValCommByRowNo(brport, 0, "ViewName", "DEV.BRIDGING.BRIDGE1.BRPORT1") ||
+            dbSetValCommByRowNo(brport, 0, "Enable", "1") ||
+            dbSetValCommByRowNo(brport, 0, "Status", "1") ||
+            dbSetValCommByRowNo(brport, 0, "Name", "br-lan") ||
+            dbSetValCommByRowNo(brport, 0, "LowerLayers", "DEV.ETH.LINK1") ||
+            dbSetValCommByRowNo(brport, 0, "PortIndex", "1") ||
+            dbSetValCommByRowNo(eth_link, 0, "ViewName", "DEV.ETH.LINK1") ||
+            dbSetValCommByRowNo(eth_link, 0, "Enable", "1") ||
+            dbSetValCommByRowNo(eth_link, 0, "Status", "1") ||
+            dbSetValCommByRowNo(eth_link, 0, "Name", "br0") ||
+            dbSetValCommByRowNo(eth_link, 0, "MACAddress", mac_text))
+            goto done;
+        printf("ZTE_CONTROLLER_STARTUP al_graph=1 eth_link_mac=%s\n", mac_text);
+    }
     {
         /* _baseCheck1905Packet gates every peer on a "market sign" (P1905ComCfg
          * MarketSign, guarded by MarketConfEn): the same multiapd rejects a peer
@@ -807,7 +868,7 @@ int controller_boot(const struct mb_profile profiles[2], const char *version_mod
     extern int RAND_bytes(unsigned char *, int);
     struct shmid_ds info_shm;
     int status, id;
-    if (startup_identity(profiles, version_mode)) {
+    if (startup_identity(profiles, version_mode, lab)) {
         printf("ZTE_CONTROLLER_STARTUP fail=startup-identity errno=%d\n", errno);
         fflush(NULL);
         return -1;
