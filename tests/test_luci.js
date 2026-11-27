@@ -21,13 +21,22 @@ class Flag {} class Value {} class ListValue {} class MultiValue {}
 // the mock's m.section(Class, NAME, ...) keyed on NAME (the section type the init script and this test agree on).
 GridSection.extend = () => GridSection;
 let viewDef;
+let modal = null;                 // what ui.showModal was handed, so a test can press its buttons
+const rpcSpecs = [], rpcCalls = []; // every rpc.declare shape, and every call made through one
 const mocks = {
 	view: { extend: d => (viewDef = d) },
-	dom: { content() {} }, poll: { add() {} }, ui: { createHandlerFn: (t, f) => f, addNotification() {} },
+	dom: { content() {} }, poll: { add() {} },
+	ui: { createHandlerFn: (t, f) => f, addNotification() {}, showModal(t, c) { modal = c; }, hideModal() {} },
 	uci: { load: () => Promise.resolve(), sections: (c, t) => (t === 'zte_mesh_node' ? [{ mac: 'AA:BB:CC:DD:EE:01', name: 'Living room' }] : []) }, network: { getHostHints: () => Promise.resolve({}) },
-	rpc: { declare: () => () => Promise.resolve({}) },
+	rpc: { declare: spec => {
+		rpcSpecs.push(spec);
+		return (...args) => { rpcCalls.push([spec.object, spec.method, ...args]); return Promise.resolve({}); };
+	} },
 	form: { Map, NamedSection, GridSection, Flag, Value, ListValue, MultiValue },
 };
+// `window.location.reload()` after a successful alias save: in the browser this reloads the page, which is how the
+// new name reaches the table; here it must simply not throw.
+globalThis.window = { location: { reload() {} } };
 // GridSection options are keyed by the section TYPE argument of m.section(form.GridSection, TYPE, ...)
 const src = fs.readFileSync(viewFile, 'utf8').replace(/^'use strict';/, '').replace(/^'require [^']*';$/gm, '');
 mocks.uci.get = (pkg, sec, opt) => (pkg !== 'zte_mesh' || sec !== 'main' ? null
@@ -40,7 +49,9 @@ const fn = new Function(...names, '_', 'E', src);
 // unpacked by calling create() on every element, so E([ ok, null ]) throws the same way, while
 // E('div', attrs, [ ok, null ]) does not: that path goes through append(), which skips nulls. The stub used to
 // accept anything, which is why the child role could break in a browser while this test stayed green.
-const newNode = (t, a, c) => ({ t, a, c, kids: [], appendChild(x) { this.kids.push(x); return x; } });
+const newNode = (t, a, c) => ({ t, a, c, kids: [], listeners: {}, value: a && a.value,
+	appendChild(x) { this.kids.push(x); return x; },
+	addEventListener(ev, f) { this.listeners[ev] = f; } });
 const E = (t, a, c) => {
 	if (Array.isArray(t)) {
 		const frag = newNode('#document-fragment');
@@ -274,6 +285,85 @@ const result = fn(...names.map(n => mocks[n]), s => s, E);
 		if (unwanted.length) { console.log('controller-only form offers settings that apply to radios it does not touch:', unwanted.join(' ')); bad++; }
 		if (!m.apply_local) { console.log('controller-only form lost the apply_local switch'); bad++; }
 		uciLocal = null;
+	}
+	/* Naming a router: the ubus uci object takes a section's options as one `values` table - its methods are declared
+	 * `add {config,type,values}` and `set {config,section,values}`. An `option`/`value` pair is rejected with
+	 * "Invalid argument"; measured on the controller, the page then kept the old name and left a nameless
+	 * zte_mesh_node section behind. Nothing else in this suite calls these methods, so the shape is asserted here. */
+	{
+		const decl = t => rpcSpecs.filter(s => s.object === 'uci' && s.method === t)[0];
+		for (const [method, want] of [['add', 'config,type,values'], ['set', 'config,section,values'],
+		                              ['delete', 'config,section'], ['commit', 'config']]) {
+			const got = decl(method) ? decl(method).params.join(',') : '(none)';
+			if (got !== want) { console.log('uci ' + method + ' params are "' + got + '", want "' + want + '"'); bad++; }
+		}
+
+		const find = test => {
+			const walk = n => {
+				if (!n) return null;
+				if (Array.isArray(n)) {
+					for (const k of n) { const f = walk(k); if (f) return f; }
+					return null;
+				}
+				if (typeof n !== 'object') return null;
+				if (test(n)) return n;
+				return walk(n.kids) || walk(n.c);
+			};
+			return walk(modal);
+		};
+		const rename = async (sections, mac, current, typed) => {
+			mocks.uci.sections = () => sections;
+			rpcCalls.length = 0;
+			modal = null;
+			viewDef.renameNode({ mac: mac, name: 'child', model: '' }, current);
+			const input = find(n => n.t === 'input' && /cbi-input-text/.test(n.a['class'] || ''));
+			const save = find(n => n.a && /cbi-button-apply/.test(n.a['class'] || '') && n.listeners && n.listeners.click);
+			if (!input || !save) { console.log('rename dialog is missing its input or save button'); bad++; return; }
+			input.value = typed;
+			input.a.value = typed;
+			save.listeners.click();
+			for (let i = 0; i < 4; i++)
+				await new Promise(r => setTimeout(r, 0));
+		};
+
+		/* A section for this MAC exists: one `set` with only the new name, then the commit. */
+		await rename([{ mac: 'AA:BB:CC:DD:EE:01', name: 'Living room', '.name': 'cfg01' }],
+		             'aa:bb:cc:dd:ee:01', 'Living room', 'Hallway');
+		{
+			const set = rpcCalls.filter(c => c[1] === 'set')[0];
+			const values = set && set[4];
+			if (!set || set[2] !== 'zte_mesh' || set[3] !== 'cfg01' || !values || values.name !== 'Hallway' ||
+			    Object.keys(values).length !== 1) {
+				console.log('rename sent', JSON.stringify(set), 'want set zte_mesh cfg01 {name:Hallway}'); bad++;
+			}
+			if (!rpcCalls.some(c => c[1] === 'commit' && c[2] === 'zte_mesh')) {
+				console.log('rename did not commit zte_mesh'); bad++;
+			}
+		}
+
+		/* No section yet: one `add` carrying both options, so a failed second write cannot leave a nameless section. */
+		await rename([], 'aa:bb:cc:dd:ee:07', '', 'Kitchen');
+		{
+			const add = rpcCalls.filter(c => c[1] === 'add')[0];
+			const values = add && add[4];
+			if (!add || add[2] !== 'zte_mesh' || add[3] !== 'zte_mesh_node' || !values ||
+			    values.mac !== 'aa:bb:cc:dd:ee:07' || values.name !== 'Kitchen') {
+				console.log('rename added', JSON.stringify(add), 'want add zte_mesh zte_mesh_node {mac,name}'); bad++;
+			}
+			if (!rpcCalls.some(c => c[1] === 'commit' && c[2] === 'zte_mesh')) {
+				console.log('rename did not commit zte_mesh'); bad++;
+			}
+		}
+
+		/* An empty name removes the section and commits, so the row falls back to what the router reports. */
+		await rename([{ mac: 'AA:BB:CC:DD:EE:01', name: 'Hallway', '.name': 'cfg01' }],
+		             'aa:bb:cc:dd:ee:01', 'Hallway', '   ');
+		{
+			const del = rpcCalls.filter(c => c[1] === 'delete')[0];
+			if (!del || del[2] !== 'zte_mesh' || del[3] !== 'cfg01') {
+				console.log('clearing a name sent', JSON.stringify(del), 'want delete zte_mesh cfg01'); bad++;
+			}
+		}
 	}
 	console.log(bad ? 'luci test: FAIL' : 'luci test: ok (' + counts.main + ' main options, ' + counts.bss + ' slot options, ' + counts.acl + ' ACL options, ' + counts.client + ' client options, child form ' + counts.child + ')');
 	process.exit(bad ? 1 : 0);

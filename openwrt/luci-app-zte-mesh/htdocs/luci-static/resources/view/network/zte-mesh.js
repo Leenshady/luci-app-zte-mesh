@@ -45,17 +45,22 @@ var callLightNode = rpc.declare({
 
 /* The controller keeps its own names for the child routers (uci zte_mesh.zte_mesh_node, what the factory page calls an
  * alias) and never sends them to the child. The client-side uci cache cannot commit on its own, so the write goes
- * through the ubus uci object, which the package ACL already grants for this config. */
+ * through the ubus uci object, which the package ACL already grants for this config.
+ *
+ * The options of a section go to that object as a `values` table, not as one `option`/`value` pair: its methods are
+ * declared `add {config, type, values}` and `set {config, section, values}` (see `ubus -v list uci`), and an
+ * `option`/`value` message is rejected with "Invalid argument" - measured on the controller, where that left a
+ * nameless zte_mesh_node section behind and the page kept the old name with no visible reason. */
 var callUciAdd = rpc.declare({
 	object: 'uci',
 	method: 'add',
-	params: [ 'config', 'type' ]
+	params: [ 'config', 'type', 'values' ]
 });
 
 var callUciSet = rpc.declare({
 	object: 'uci',
 	method: 'set',
-	params: [ 'config', 'section', 'option', 'value' ]
+	params: [ 'config', 'section', 'values' ]
 });
 
 var callUciDelete = rpc.declare({
@@ -107,18 +112,12 @@ function saveAlias(mac, name) {
 	}
 
 	if (existing.length)
-		return callUciSet('zte_mesh', existing[0]['.name'], 'name', name).then(function() {
+		return callUciSet('zte_mesh', existing[0]['.name'], { name: name }).then(function() {
 			return callUciCommit('zte_mesh');
 		});
 
-	return callUciAdd('zte_mesh', 'zte_mesh_node').then(function(res) {
-		var sid = res && res.section;
-		return Promise.all([
-			callUciSet('zte_mesh', sid, 'mac', mac),
-			callUciSet('zte_mesh', sid, 'name', name)
-		]).then(function() {
-			return callUciCommit('zte_mesh');
-		});
+	return callUciAdd('zte_mesh', 'zte_mesh_node', { mac: mac, name: name }).then(function() {
+		return callUciCommit('zte_mesh');
 	});
 }
 
