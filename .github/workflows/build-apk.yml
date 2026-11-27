@@ -747,14 +747,12 @@ jobs:
             exit 1
           fi
           members=$(cd "$MEMBERS_DIR" && find . -type f -printf '%P\n' | sort)
-          for name in ns-run mesh-search; do
-            has_member "usr/libexec/zte-mesh/$name" || {
-              echo "$MESH_APK has no $name entry script. Its members are:" >&2
-              printf '%s\n' "$members" >&2
-              rm -rf "$MEMBERS_DIR"
-              exit 1
-            }
-          done
+          # No top-level entry script is asked for, on purpose: batch 21 (80cb8b8, "两个包合成一个")
+          # dropped files/ns-run and files/mesh-search from the package -- zte-mesh.init selects
+          # arch/<cpu>/ns-run from `uname -m` itself -- so an assertion naming
+          # usr/libexec/zte-mesh/ns-run went red on a complete apk (run 45968182587, 2026-11-27).
+          # What the package promises is one build per CPU under arch/<cpu>/, plus the runtime those
+          # builds hand over to; both are asked for below.
           for arch in aarch64 armv7 x86_64; do
             for name in ns-run mesh-search; do
               has_member "usr/libexec/zte-mesh/arch/$arch/$name" || {
@@ -765,7 +763,7 @@ jobs:
               }
             done
           done
-          # The other half of the merge: the runtime the entry script hands over to.
+          # The other half of the merge: the runtime zte-mesh.init hands over to.
           for member in usr/lib/zte-mesh/root/bin/db-engine-probe \
             usr/lib/zte-mesh/root/lib/libzte_controller_trace.so \
             etc/init.d/zte-mesh usr/libexec/zte-mesh/sta-collect; do
@@ -830,7 +828,7 @@ jobs:
           echo "launcher build weights:"
           cat "$WEIGHTS"
           rm -rf "$MEMBERS_DIR"
-          echo "zte-mesh apk: $MESH_APK carries the entry script, all three architectures and the runtime"
+          echo "zte-mesh apk: $MESH_APK carries all three architectures and the runtime"
 
       - name: Upload build log
         if: always()
